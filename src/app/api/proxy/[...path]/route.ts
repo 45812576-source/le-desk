@@ -11,19 +11,27 @@ export async function handler(
   const url = new URL(request.url);
   const targetUrl = `${BACKEND_URL}/api${targetPath}${url.search}`;
 
-  const headers: Record<string, string> = {
-    "Content-Type": request.headers.get("Content-Type") || "application/json",
-  };
+  const contentType = request.headers.get("Content-Type") || "";
+  const isMultipart = contentType.includes("multipart/form-data");
 
+  const headers: Record<string, string> = {};
   const auth = request.headers.get("Authorization");
   if (auth) {
     headers["Authorization"] = auth;
   }
 
-  const body =
-    request.method !== "GET" && request.method !== "HEAD"
-      ? await request.text()
-      : undefined;
+  let body: BodyInit | undefined;
+
+  if (request.method === "GET" || request.method === "HEAD") {
+    body = undefined;
+  } else if (isMultipart) {
+    // Pass through the raw body + content-type (with boundary) for file uploads
+    headers["Content-Type"] = contentType;
+    body = await request.arrayBuffer();
+  } else {
+    headers["Content-Type"] = contentType || "application/json";
+    body = await request.text();
+  }
 
   const resp = await fetch(targetUrl, {
     method: request.method,

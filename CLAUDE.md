@@ -35,7 +35,7 @@ Font:       Roboto Mono (monospace)
 ## Commands
 
 ```bash
-npm run dev          # dev server (port 3000)
+npm run dev          # dev server (port 5023)
 npm run build        # production build
 npm run lint         # eslint
 ```

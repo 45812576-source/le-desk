@@ -1,12 +1,14 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 
 export default function LoginPage() {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const router = useRouter();
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -25,7 +27,7 @@ export default function LoginPage() {
       }
       const data = await res.json();
       localStorage.setItem("token", data.access_token);
-      window.location.href = "/chat";
+      router.replace("/chat");
     } catch {
       setError("网络错误，请重试");
     } finally {

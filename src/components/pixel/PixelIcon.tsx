@@ -128,6 +128,14 @@ export const ICONS = {
     pattern: ["BBBBB..", "BWWWBB.", "BWWWWWB", "BWWWWWB", "BWWWWWB", "BWWWWWB", "BWWWWWB", "BBBBBBB"],
     colors: { B: "#4A5568", W: "#E2E8F0" },
   },
+  uploadArrow: {
+    pattern: ["...C...", "..CCC..", ".CCCCC.", "...C...", "...C...", ".......", "CCCCCCC", "......."],
+    colors: { C: "#00A3C4" },
+  },
+  eyePreview: {
+    pattern: [".......", "..GGG..", ".GWWWG.", "GWWBWWG", ".GWWWG.", "..GGG..", ".......", "......."],
+    colors: { G: "#4A5568", W: "#E2E8F0", B: "#1A202C" },
+  },
   chevronDown: {
     pattern: [".......", ".......", ".CCCCC.", "..CCC..", "...C...", ".......", ".......", "......."],
     colors: { C: "#00A3C4" },

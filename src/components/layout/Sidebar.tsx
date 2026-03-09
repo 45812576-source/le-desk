@@ -100,9 +100,10 @@ interface SidebarProps {
     role: string;
   };
   taskPending?: number;
+  onLogout?: () => void;
 }
 
-export function Sidebar({ user, taskPending = 0 }: SidebarProps) {
+export function Sidebar({ user, taskPending = 0, onLogout }: SidebarProps) {
   const [collapsed, setCollapsed] = useState(() => {
     if (typeof window === "undefined") return false;
     return localStorage.getItem("sidebar_collapsed") === "true";
@@ -126,8 +127,8 @@ export function Sidebar({ user, taskPending = 0 }: SidebarProps) {
       <div className="overflow-y-auto flex-1">
         {/* Branding */}
         <div
-          className={`border-b-2 border-[#1A202C] flex items-center ${
-            collapsed ? "justify-center p-2" : "p-4 space-x-3"
+          className={`border-b-2 border-[#1A202C] flex items-center flex-shrink-0 h-12 ${
+            collapsed ? "justify-center px-2" : "px-4 space-x-3"
           }`}
         >
           <div className="w-8 h-8 bg-[#00D1FF] pixel-border flex items-center justify-center flex-shrink-0">
@@ -171,14 +172,8 @@ export function Sidebar({ user, taskPending = 0 }: SidebarProps) {
               collapsed={collapsed}
             />
             <NavItem
-              href="/confirmations"
-              label="待确认"
-              icon={ICONS.confirmations}
-              collapsed={collapsed}
-            />
-            <NavItem
               href="/tasks"
-              label="待办"
+              label="待办中心"
               icon={ICONS.tasks}
               collapsed={collapsed}
               badge={taskPending}
@@ -209,27 +204,8 @@ export function Sidebar({ user, taskPending = 0 }: SidebarProps) {
               collapsed={collapsed}
             />
             <NavItem
-              href="/intel/sources"
-              label="数据源"
-              icon={ICONS.intelSource}
-              collapsed={collapsed}
-            />
-          </NavGroup>
-
-          <NavGroup
-            label="工具"
-            storageKey="nav_group_tools"
-            collapsed={collapsed}
-          >
-            <NavItem
-              href="/files"
-              label="文件"
-              icon={ICONS.files}
-              collapsed={collapsed}
-            />
-            <NavItem
               href="/intel"
-              label="情报中心"
+              label="行业情报"
               icon={ICONS.intel}
               collapsed={collapsed}
             />
@@ -344,12 +320,12 @@ export function Sidebar({ user, taskPending = 0 }: SidebarProps) {
           className={`${collapsed ? "p-1" : "px-3 pb-3"} flex flex-col gap-1`}
         >
           {!collapsed && (
-            <Link
-              href="/logout"
-              className="w-full text-left px-2 py-1.5 text-[10px] font-bold uppercase tracking-wide text-gray-500 hover:bg-white/60 border border-transparent hover:border-gray-400 transition-colors block"
+            <button
+              onClick={onLogout}
+              className="w-full text-left px-2 py-1.5 text-[10px] font-bold uppercase tracking-wide text-gray-500 hover:bg-white/60 border border-transparent hover:border-gray-400 transition-colors"
             >
               [退出登录]
-            </Link>
+            </button>
           )}
           <button
             onClick={toggleSidebar}

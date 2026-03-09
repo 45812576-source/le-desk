@@ -56,6 +56,9 @@ export interface KnowledgeEntry {
   content: string;
   category: string;
   tags: string[];
+  industry_tags?: string[];
+  platform_tags?: string[];
+  topic_tags?: string[];
   status: "draft" | "pending" | "approved" | "rejected";
   created_by: number;
   created_at: string;
@@ -77,10 +80,41 @@ export interface Workspace {
 export interface TaskItem {
   id: number;
   title: string;
+  description: string | null;
   priority: "urgent_important" | "important" | "urgent" | "neither";
-  status: "pending" | "in_progress" | "done";
-  source_message_id: number | null;
+  status: "pending" | "in_progress" | "done" | "cancelled";
+  due_date: string | null;
+  assignee_id: number;
+  assignee_name: string | null;
+  created_by_id: number;
+  creator_name: string | null;
+  source_type: string;
+  source_id: number | null;
+  conversation_id: number | null;
+  workspace_id: number | null;
+  metadata: Record<string, unknown>;
   created_at: string;
+  updated_at: string | null;
+  sub_tasks?: TaskItem[];
+}
+
+export interface TaskStats {
+  urgent_important: number;
+  important: number;
+  urgent: number;
+  neither: number;
+  overdue: number;
+  total_pending: number;
+}
+
+export interface ConfirmationItem {
+  draft_id: number;
+  draft_title: string;
+  object_type: string;
+  field: string;
+  question: string;
+  options?: string[];
+  current_value?: unknown;
 }
 
 // --- Skill admin types ---
@@ -114,6 +148,7 @@ export interface SkillVersion {
 }
 
 export interface KnowledgeDetail extends KnowledgeEntry {
+  folder_id: number | null;
   review_level: number;
   review_level_label: string;
   review_stage: string;
@@ -227,6 +262,15 @@ export interface BusinessTable {
   workflow: Record<string, unknown>;
   created_at: string;
   columns?: { name: string; type: string; nullable: boolean; comment: string }[];
+  // enriched fields (list endpoint)
+  owner_name?: string | null;
+  department_name?: string | null;
+  ownership?: {
+    owner_field: string;
+    department_field: string | null;
+    visibility_level: "detail" | "desensitized" | "stats";
+  } | null;
+  referenced_skills?: string[];
 }
 
 export interface Department {
@@ -235,4 +279,29 @@ export interface Department {
   parent_id: number | null;
   category: string | null;
   business_unit: string | null;
+}
+
+export interface ChunkSearchResult {
+  knowledge_id: number;
+  chunk_index: number;
+  text: string;
+  score: number;
+  source_file: string | null;
+  taxonomy_board: string | null;
+  category: string | null;
+  title: string;
+}
+
+export interface KnowledgeChunkDetail {
+  id: number;
+  title: string;
+  content: string;
+  source_type: string;
+  source_file: string | null;
+  chunks: { index: number; text: string }[];
+}
+
+export interface SavedSkill extends SkillDetail {
+  has_update: boolean;
+  saved_at: string;
 }

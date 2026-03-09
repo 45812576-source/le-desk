@@ -22,8 +22,9 @@ export async function apiFetch<T = unknown>(
   const { method = "GET", body, token, headers = {} } = options;
 
   const finalHeaders: Record<string, string> = { ...headers };
-  if (token) {
-    finalHeaders["Authorization"] = `Bearer ${token}`;
+  const authToken = token || getToken();
+  if (authToken) {
+    finalHeaders["Authorization"] = `Bearer ${authToken}`;
   }
   if (body && typeof body === "string" && !finalHeaders["Content-Type"]) {
     finalHeaders["Content-Type"] = "application/json";

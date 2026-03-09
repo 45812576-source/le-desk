@@ -7,11 +7,37 @@ import { PixelButton } from "@/components/pixel/PixelButton";
 import { apiFetch } from "@/lib/api";
 import type { BusinessTable } from "@/lib/types";
 
+const VISIBILITY_LABEL: Record<string, string> = {
+  detail: "明细",
+  desensitized: "脱敏",
+  stats: "仅统计",
+};
+
+const VISIBILITY_COLOR: Record<string, string> = {
+  detail: "bg-green-100 text-green-700 border-green-300",
+  desensitized: "bg-yellow-100 text-yellow-700 border-yellow-300",
+  stats: "bg-gray-100 text-gray-600 border-gray-300",
+};
+
+function matchTable(bt: BusinessTable, q: string): boolean {
+  const s = q.toLowerCase();
+  if (bt.display_name.toLowerCase().includes(s)) return true;
+  if (bt.table_name.toLowerCase().includes(s)) return true;
+  if (bt.description?.toLowerCase().includes(s)) return true;
+  if (bt.owner_name?.toLowerCase().includes(s)) return true;
+  if (bt.department_name?.toLowerCase().includes(s)) return true;
+  if (bt.ownership?.owner_field.toLowerCase().includes(s)) return true;
+  if (bt.ownership?.department_field?.toLowerCase().includes(s)) return true;
+  if (bt.ownership?.visibility_level && VISIBILITY_LABEL[bt.ownership.visibility_level]?.includes(s)) return true;
+  if (bt.referenced_skills?.some((sk) => sk.toLowerCase().includes(s))) return true;
+  return false;
+}
+
 export default function AdminBusinessTablesPage() {
   const [tables, setTables] = useState<BusinessTable[]>([]);
   const [loading, setLoading] = useState(true);
   const [expandedId, setExpandedId] = useState<number | null>(null);
-  const [detail, setDetail] = useState<BusinessTable | null>(null);
+  const [query, setQuery] = useState("");
 
   const fetchTables = useCallback(() => {
     setLoading(true);
@@ -25,19 +51,8 @@ export default function AdminBusinessTablesPage() {
     fetchTables();
   }, [fetchTables]);
 
-  async function handleExpand(id: number) {
-    if (expandedId === id) {
-      setExpandedId(null);
-      setDetail(null);
-      return;
-    }
-    setExpandedId(id);
-    try {
-      const data = await apiFetch<BusinessTable>(`/business-tables/${id}`);
-      setDetail(data);
-    } catch {
-      setDetail(null);
-    }
+  function handleExpand(id: number) {
+    setExpandedId((prev) => (prev === id ? null : id));
   }
 
   async function handleDelete(id: number) {
@@ -52,6 +67,16 @@ export default function AdminBusinessTablesPage() {
 
   return (
     <PageShell title="业务表管理" icon={ICONS.bizTable}>
+      {/* Search bar */}
+      <div className="mb-4">
+        <input
+          type="text"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="搜索数据源名称 / Skill 名称 / 归属信息..."
+          className="w-full border-2 border-[#1A202C] px-3 py-2 text-[11px] font-mono bg-white placeholder-gray-400 focus:outline-none focus:border-[#00A3C4]"
+        />
+      </div>
       {loading ? (
         <div className="text-[10px] font-bold uppercase tracking-widest text-[#00A3C4] animate-pulse py-10 text-center">
           Loading...
@@ -60,70 +85,155 @@ export default function AdminBusinessTablesPage() {
         <div className="text-[10px] font-bold uppercase tracking-widest text-gray-400 py-10 text-center">
           暂无业务表
         </div>
+      ) : query.trim() && tables.filter((bt) => matchTable(bt, query.trim())).length === 0 ? (
+        <div className="text-[10px] font-bold uppercase tracking-widest text-gray-400 py-10 text-center">
+          无匹配结果
+        </div>
       ) : (
         <div className="space-y-2">
-          {tables.map((bt) => (
-            <div key={bt.id} className="bg-white border-2 border-[#1A202C]">
-              <div className="p-4 flex items-center justify-between">
-                <div>
-                  <div className="flex items-center gap-2 mb-1">
-                    <span className="text-xs font-bold">{bt.display_name}</span>
-                    <span className="text-[10px] text-gray-400 font-mono">{bt.table_name}</span>
+          {(query.trim() ? tables.filter((bt) => matchTable(bt, query.trim())) : tables).map((bt) => {
+            const isOpen = expandedId === bt.id;
+            return (
+              <div key={bt.id} className="bg-white border-2 border-[#1A202C]">
+                {/* Row */}
+                <div className="p-4 flex items-center justify-between">
+                  <div>
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="text-xs font-bold">{bt.display_name}</span>
+                      <span className="text-[10px] text-gray-400 font-mono">{bt.table_name}</span>
+                    </div>
+                    <p className="text-[10px] text-gray-500">{bt.description}</p>
                   </div>
-                  <p className="text-[10px] text-gray-500">{bt.description}</p>
+                  <div className="flex gap-1">
+                    <PixelButton size="sm" variant="secondary" onClick={() => handleExpand(bt.id)}>
+                      {isOpen ? "收起" : "详情"}
+                    </PixelButton>
+                    <PixelButton size="sm" variant="danger" onClick={() => handleDelete(bt.id)}>
+                      删除
+                    </PixelButton>
+                  </div>
                 </div>
-                <div className="flex gap-1">
-                  <PixelButton size="sm" variant="secondary" onClick={() => handleExpand(bt.id)}>
-                    {expandedId === bt.id ? "收起" : "详情"}
-                  </PixelButton>
-                  <PixelButton size="sm" variant="danger" onClick={() => handleDelete(bt.id)}>
-                    删除
-                  </PixelButton>
-                </div>
-              </div>
 
-              {expandedId === bt.id && detail && (
-                <div className="border-t-2 border-[#1A202C] p-4">
-                  {detail.columns && detail.columns.length > 0 && (
-                    <>
+                {/* Expanded detail */}
+                {isOpen && (
+                  <div className="border-t-2 border-[#1A202C] p-4 space-y-4">
+
+                    {/* Section 1: Owner / dept */}
+                    <div>
                       <div className="text-[10px] font-bold uppercase tracking-widest text-[#00A3C4] mb-2">
-                        列定义
+                        归属信息
                       </div>
-                      <table className="w-full border border-gray-200 mb-3">
-                        <thead>
-                          <tr className="bg-gray-50">
-                            {["列名", "类型", "可空", "备注"].map((h) => (
-                              <th key={h} className="text-left text-[9px] font-bold text-gray-500 px-2 py-1">
-                                {h}
-                              </th>
-                            ))}
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {detail.columns.map((col) => (
-                            <tr key={col.name} className="border-t border-gray-100">
-                              <td className="px-2 py-1 text-[10px] font-mono font-bold">{col.name}</td>
-                              <td className="px-2 py-1 text-[10px]">{col.type}</td>
-                              <td className="px-2 py-1 text-[10px]">{col.nullable ? "YES" : "NO"}</td>
-                              <td className="px-2 py-1 text-[10px] text-gray-500">{col.comment}</td>
-                            </tr>
+                      <div className="flex flex-wrap gap-6 text-[10px]">
+                        <div>
+                          <span className="text-gray-400 mr-1">Owner</span>
+                          <span className="font-bold">{bt.owner_name ?? "—"}</span>
+                        </div>
+                        <div>
+                          <span className="text-gray-400 mr-1">部门</span>
+                          <span className="font-bold">{bt.department_name ?? "—"}</span>
+                        </div>
+                        <div>
+                          <span className="text-gray-400 mr-1">创建时间</span>
+                          <span className="font-mono">{bt.created_at ? bt.created_at.slice(0, 10) : "—"}</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Section 2: Visibility / Ownership rule */}
+                    <div>
+                      <div className="text-[10px] font-bold uppercase tracking-widest text-[#00A3C4] mb-2">
+                        数据可见范围
+                      </div>
+                      {bt.ownership ? (
+                        <div className="flex flex-wrap gap-3 items-center text-[10px]">
+                          <span
+                            className={`inline-block border px-2 py-0.5 font-bold text-[9px] uppercase tracking-wider ${
+                              VISIBILITY_COLOR[bt.ownership.visibility_level] ?? VISIBILITY_COLOR.detail
+                            }`}
+                          >
+                            {VISIBILITY_LABEL[bt.ownership.visibility_level] ?? bt.ownership.visibility_level}
+                          </span>
+                          <span>
+                            <span className="text-gray-400 mr-1">归属字段</span>
+                            <span className="font-mono font-bold">{bt.ownership.owner_field}</span>
+                          </span>
+                          {bt.ownership.department_field && (
+                            <span>
+                              <span className="text-gray-400 mr-1">部门字段</span>
+                              <span className="font-mono font-bold">{bt.ownership.department_field}</span>
+                            </span>
+                          )}
+                        </div>
+                      ) : (
+                        <span className="text-[10px] text-gray-400">未配置</span>
+                      )}
+                    </div>
+
+                    {/* Section 3: Referenced skills */}
+                    <div>
+                      <div className="text-[10px] font-bold uppercase tracking-widest text-[#00A3C4] mb-2">
+                        引用此表的 Skill
+                      </div>
+                      {bt.referenced_skills && bt.referenced_skills.length > 0 ? (
+                        <div className="flex flex-wrap gap-1">
+                          {bt.referenced_skills.map((name) => (
+                            <span
+                              key={name}
+                              className="inline-block border border-[#1A202C] bg-[#EBF4F7] px-2 py-0.5 text-[9px] font-mono font-bold"
+                            >
+                              {name}
+                            </span>
                           ))}
-                        </tbody>
-                      </table>
-                    </>
-                  )}
-                  {detail.ddl_sql && (
-                    <>
-                      <div className="text-[10px] font-bold uppercase tracking-widest text-[#00A3C4] mb-1">DDL</div>
-                      <pre className="text-[9px] bg-gray-50 border border-gray-200 p-2 max-h-40 overflow-auto">
-                        {detail.ddl_sql}
-                      </pre>
-                    </>
-                  )}
-                </div>
-              )}
-            </div>
-          ))}
+                        </div>
+                      ) : (
+                        <span className="text-[10px] text-gray-400">无</span>
+                      )}
+                    </div>
+
+                    {/* Section 4: Columns */}
+                    {bt.columns && bt.columns.length > 0 && (
+                      <div>
+                        <div className="text-[10px] font-bold uppercase tracking-widest text-[#00A3C4] mb-2">
+                          列定义
+                        </div>
+                        <table className="w-full border border-gray-200">
+                          <thead>
+                            <tr className="bg-gray-50">
+                              {["列名", "类型", "可空", "备注"].map((h) => (
+                                <th key={h} className="text-left text-[9px] font-bold text-gray-500 px-2 py-1">
+                                  {h}
+                                </th>
+                              ))}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {bt.columns.map((col) => (
+                              <tr key={col.name} className="border-t border-gray-100">
+                                <td className="px-2 py-1 text-[10px] font-mono font-bold">{col.name}</td>
+                                <td className="px-2 py-1 text-[10px]">{col.type}</td>
+                                <td className="px-2 py-1 text-[10px]">{col.nullable ? "YES" : "NO"}</td>
+                                <td className="px-2 py-1 text-[10px] text-gray-500">{col.comment}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+
+                    {/* Section 5: DDL */}
+                    {bt.ddl_sql && (
+                      <div>
+                        <div className="text-[10px] font-bold uppercase tracking-widest text-[#00A3C4] mb-1">DDL</div>
+                        <pre className="text-[9px] bg-gray-50 border border-gray-200 p-2 max-h-40 overflow-auto">
+                          {bt.ddl_sql}
+                        </pre>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
       )}
     </PageShell>
