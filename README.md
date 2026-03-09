@@ -1,36 +1,33 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Le Desk — AI Skill Workbench
 
-## Getting Started
+## 启动命令
 
-First, run the development server:
+### 后端（universal-kb）
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+cd /Users/xia/project/universal-kb/backend
+uvicorn app.main:app --reload --port 8000
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+- API 文档：http://localhost:8000/docs
+- 默认账号：`admin` / `admin123`
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+> 首次运行请参考 `backend/SETUP.md` 完成环境初始化。
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+### 前端（le-desk）
 
-## Learn More
+```bash
+cd /Users/xia/project/le-desk
 
-To learn more about Next.js, take a look at the following resources:
+# 开发模式
+npm run dev
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+# 生产模式
+npm run build
+npx next start -p 5023
+```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+- 访问地址：http://localhost:5023
+- 局域网访问：http://192.168.5.202:5023
 
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+> 前端通过 `/api/proxy/[...path]` 代理后端请求，启动前请确保后端已运行。
