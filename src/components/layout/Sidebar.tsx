@@ -172,6 +172,12 @@ export function Sidebar({ user, taskPending = 0, onLogout }: SidebarProps) {
               collapsed={collapsed}
             />
             <NavItem
+              href="/projects"
+              label="项目"
+              icon={ICONS.project}
+              collapsed={collapsed}
+            />
+            <NavItem
               href="/tasks"
               label="待办中心"
               icon={ICONS.tasks}

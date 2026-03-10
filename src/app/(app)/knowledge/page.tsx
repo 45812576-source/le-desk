@@ -7,6 +7,7 @@ import { PixelButton } from "@/components/pixel/PixelButton";
 import { PixelBadge } from "@/components/pixel/PixelBadge";
 import { apiFetch } from "@/lib/api";
 import type { ChunkSearchResult, KnowledgeChunkDetail, KnowledgeDetail } from "@/lib/types";
+import { RichEditor } from "@/components/knowledge/RichEditor";
 
 type Tab = "files" | "search";
 
@@ -276,21 +277,42 @@ function PreviewPanel({
   onRename,
 }: {
   entry: KnowledgeDetail | null;
-  onUpdateContent: (id: number, content: string) => void;
+  onUpdateContent: (id: number, content: string) => Promise<void>;
   onDelete: (id: number) => void;
   onRename: (id: number, title: string) => void;
 }) {
-  const [editingContent, setEditingContent] = useState(false);
+  const [editing, setEditing] = useState(false);
   const [contentVal, setContentVal] = useState("");
   const [editingTitle, setEditingTitle] = useState(false);
   const [titleVal, setTitleVal] = useState("");
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    setEditingContent(false);
+    setEditing(false);
     setEditingTitle(false);
     setContentVal(entry?.content ?? "");
     setTitleVal(entry?.title ?? "");
   }, [entry?.id]);
+
+  // Plain text → wrap in <p> tags so Tiptap treats it as HTML
+  function toHtml(raw: string): string {
+    if (!raw) return "";
+    // If already looks like HTML, pass through
+    if (/^</.test(raw.trim())) return raw;
+    // Otherwise wrap plain text lines in <p>
+    return raw.split("\n").map((l) => `<p>${l || "<br>"}</p>`).join("");
+  }
+
+  async function handleSave() {
+    if (!entry || saving) return;
+    setSaving(true);
+    try {
+      await onUpdateContent(entry.id, contentVal);
+      setEditing(false);
+    } finally {
+      setSaving(false);
+    }
+  }
 
   if (!entry) {
     return (
@@ -302,9 +324,9 @@ function PreviewPanel({
   }
 
   return (
-    <div className="flex-1 min-h-0 overflow-y-auto bg-white flex flex-col">
+    <div className="flex-1 min-h-0 bg-white flex flex-col overflow-hidden">
       {/* Header */}
-      <div className="flex items-center gap-2 px-5 pt-5 pb-3 border-b-2 border-[#1A202C] flex-shrink-0 flex-wrap">
+      <div className="flex items-center gap-2 px-5 pt-4 pb-3 border-b-2 border-[#1A202C] flex-shrink-0 flex-wrap">
         {editingTitle ? (
           <input
             autoFocus
@@ -320,37 +342,32 @@ function PreviewPanel({
         <PixelBadge color={entry.status === "approved" ? "green" : entry.status === "pending" ? "yellow" : "gray"}>
           {entry.status === "approved" ? "已通过" : entry.status === "pending" ? "待审核" : entry.status}
         </PixelBadge>
+        {entry.source_file && (
+          <span className="text-[8px] text-[#00A3C4] font-bold truncate max-w-[160px]">📎 {entry.source_file}</span>
+        )}
         <div className="flex items-center gap-1 ml-auto">
-          {editingContent ? (
+          {editing ? (
             <>
-              <button onClick={() => { onUpdateContent(entry.id, contentVal); setEditingContent(false); }} className="px-2 py-0.5 border-2 border-[#1A202C] bg-[#1A202C] text-white text-[9px] font-bold uppercase hover:bg-[#00A3C4] hover:border-[#00A3C4]">保存</button>
-              <button onClick={() => { setEditingContent(false); setContentVal(entry.content); }} className="px-2 py-0.5 border-2 border-gray-300 text-gray-500 text-[9px] font-bold uppercase hover:border-red-400 hover:text-red-400">取消</button>
+              <button onClick={handleSave} disabled={saving} className="px-2 py-0.5 border-2 border-[#1A202C] bg-[#1A202C] text-white text-[9px] font-bold uppercase hover:bg-[#00A3C4] hover:border-[#00A3C4] disabled:opacity-50">
+                {saving ? "保存中..." : "保存"}
+              </button>
+              <button onClick={() => { setEditing(false); setContentVal(entry.content); }} className="px-2 py-0.5 border-2 border-gray-300 text-gray-500 text-[9px] font-bold uppercase hover:border-red-400 hover:text-red-400">取消</button>
             </>
           ) : (
-            <button onClick={() => { setEditingContent(true); setContentVal(entry.content); }} className="px-2 py-0.5 border-2 border-[#1A202C] text-[9px] font-bold uppercase hover:bg-[#1A202C] hover:text-white">编辑</button>
+            <button onClick={() => { setEditing(true); setContentVal(entry.content); }} className="px-2 py-0.5 border-2 border-[#1A202C] text-[9px] font-bold uppercase hover:bg-[#1A202C] hover:text-white">编辑</button>
           )}
           <button onClick={() => onDelete(entry.id)} className="px-2 py-0.5 border-2 border-red-300 text-red-400 text-[9px] font-bold uppercase hover:bg-red-400 hover:text-white">删除</button>
         </div>
       </div>
 
-      {/* Source file */}
-      {entry.source_file && (
-        <p className="text-[9px] text-[#00A3C4] px-5 pt-2 flex-shrink-0">来源：{entry.source_file}</p>
-      )}
-
-      {/* Content */}
-      <div className="flex-1 px-5 py-3 min-h-0">
-        {editingContent ? (
-          <textarea
-            value={contentVal}
-            onChange={(e) => setContentVal(e.target.value)}
-            className="w-full h-full min-h-[300px] text-[10px] text-gray-700 leading-relaxed font-sans border-2 border-[#00D1FF] p-3 focus:outline-none resize-none"
-          />
-        ) : (
-          <pre className="text-[10px] text-gray-700 whitespace-pre-wrap leading-relaxed font-sans">
-            {entry.content}
-          </pre>
-        )}
+      {/* Rich text editor / viewer */}
+      <div className="flex-1 min-h-0 overflow-hidden">
+        <RichEditor
+          key={entry.id}
+          content={toHtml(contentVal)}
+          onChange={setContentVal}
+          editable={editing}
+        />
       </div>
     </div>
   );
@@ -369,6 +386,7 @@ function FileManagerTab() {
   const newFolderInputRef = useRef<HTMLInputElement>(null);
   const [draggingEntryId, setDraggingEntryId] = useState<number | null>(null);
   const [rootDropTarget, setRootDropTarget] = useState(false);
+  const [pendingFiles, setPendingFiles] = useState<string[]>([]);
 
   const handleSelectEntry = useCallback(async (e: KnowledgeDetail) => {
     setSelectedEntry(e); // 先显示截断版（即时响应）
@@ -443,7 +461,7 @@ function FileManagerTab() {
     fetchAll();
   }
 
-  async function handleUpdateContent(id: number, content: string) {
+  async function handleUpdateContent(id: number, content: string): Promise<void> {
     await apiFetch(`/knowledge/${id}`, { method: "PATCH", body: JSON.stringify({ content }) });
     fetchAll();
     setSelectedEntry((prev) => prev?.id === id ? { ...prev, content } : prev);
@@ -459,9 +477,11 @@ function FileManagerTab() {
 
   async function handleUploadFiles(files: FileList | File[]) {
     if (!files || files.length === 0) return;
+    const fileArr = Array.from(files);
     setUploading(true);
+    setPendingFiles(fileArr.map((f) => f.name));
     try {
-      for (const file of Array.from(files)) {
+      for (const file of fileArr) {
         const form = new FormData();
         form.append("file", file);
         form.append("title", file.name);
@@ -473,10 +493,13 @@ function FileManagerTab() {
           await apiFetch<{ id: number }>("/knowledge/upload", { method: "POST", body: form });
         } catch (err) {
           console.error("upload failed", err);
+        } finally {
+          setPendingFiles((prev) => prev.filter((n) => n !== file.name));
         }
       }
     } finally {
       setUploading(false);
+      setPendingFiles([]);
       fetchAll();
     }
   }
@@ -584,8 +607,17 @@ function FileManagerTab() {
                 ))}
               </div>
 
+              {/* Pending upload placeholders */}
+              {pendingFiles.map((name) => (
+                <div key={name} className="flex items-center gap-2 py-1 px-3 border-b border-gray-100 opacity-60 animate-pulse">
+                  <PixelIcon {...ICONS.files} size={12} />
+                  <span className="flex-1 text-[10px] truncate">{name}</span>
+                  <span className="text-[7px] font-bold px-1 border border-[#00D1FF] text-[#00A3C4]">上传中</span>
+                </div>
+              ))}
+
               {/* Empty state */}
-              {(tree.get(null) ?? []).length === 0 && rootFiles.length === 0 && (
+              {(tree.get(null) ?? []).length === 0 && rootFiles.length === 0 && pendingFiles.length === 0 && (
                 <div className="flex flex-col items-center justify-center h-48 text-[9px] text-gray-400 uppercase tracking-widest">
                   <div className="mb-3 opacity-40">
                     <PixelIcon {...ICONS.uploadArrow} size={28} />

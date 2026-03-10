@@ -10,6 +10,13 @@ import { apiFetch } from "@/lib/api";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
+interface ModelConfigItem {
+  id: number;
+  name: string;
+  provider: string;
+  model_id: string;
+}
+
 interface SkillItem {
   id: number;
   name: string;
@@ -37,6 +44,7 @@ interface WsDetail {
   visibility: string;
   welcome_message: string;
   system_context?: string;
+  model_config_id?: number | null;
   sort_order: number;
   skills: { id: number; name: string; description: string; scope: string }[];
   tools: { id: number; name: string; display_name: string; description: string; tool_type: string }[];
@@ -169,6 +177,7 @@ export default function AdminWorkspacesPage() {
   const [workspaces, setWorkspaces] = useState<WsSummary[]>([]);
   const [allSkills, setAllSkills] = useState<SkillItem[]>([]);
   const [allTools, setAllTools] = useState<ToolItem[]>([]);
+  const [allModels, setAllModels] = useState<ModelConfigItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [skillSearch, setSkillSearch] = useState("");
   const [toolSearch, setToolSearch] = useState("");
@@ -186,6 +195,7 @@ export default function AdminWorkspacesPage() {
   const [editVisibility, setEditVisibility] = useState("all");
   const [editWelcome, setEditWelcome] = useState("");
   const [editContext, setEditContext] = useState("");
+  const [editModelConfigId, setEditModelConfigId] = useState<number | null>(null);
   const [editSkillIds, setEditSkillIds] = useState<Set<number>>(new Set());
   const [editToolIds, setEditToolIds] = useState<Set<number>>(new Set());
 
@@ -197,14 +207,16 @@ export default function AdminWorkspacesPage() {
   const fetchAll = useCallback(async () => {
     setLoading(true);
     try {
-      const [ws, skills, tools] = await Promise.all([
+      const [ws, skills, tools, models] = await Promise.all([
         apiFetch<WsSummary[]>("/workspaces"),
         apiFetch<SkillItem[]>("/skills"),
         apiFetch<ToolItem[]>("/tools"),
+        apiFetch<ModelConfigItem[]>("/admin/models").catch(() => []),
       ]);
       setWorkspaces(ws);
       setAllSkills(Array.isArray(skills) ? skills : []);
       setAllTools(Array.isArray(tools) ? tools : []);
+      setAllModels(Array.isArray(models) ? models : []);
     } finally {
       setLoading(false);
     }
@@ -225,6 +237,7 @@ export default function AdminWorkspacesPage() {
       setEditVisibility(ws.visibility || "all");
       setEditWelcome(ws.welcome_message || "");
       setEditContext(ws.system_context || "");
+      setEditModelConfigId(ws.model_config_id ?? null);
       setEditSkillIds(new Set(ws.skills.map((s) => s.id)));
       setEditToolIds(new Set(ws.tools.map((t) => t.id)));
     } finally {
@@ -295,6 +308,7 @@ export default function AdminWorkspacesPage() {
           visibility: editVisibility,
           welcome_message: editWelcome,
           system_context: editContext || null,
+          model_config_id: editModelConfigId,
         }),
       });
       await Promise.all([
@@ -519,6 +533,24 @@ export default function AdminWorkspacesPage() {
                       className="text-[10px] border border-[#1A202C] px-2 py-1 w-full font-mono outline-none resize-none"
                     />
                   </div>
+                  {allModels.length > 0 && (
+                    <div className="col-span-2">
+                      <label className="text-[9px] font-bold uppercase tracking-widest text-gray-500 block mb-1">
+                        工作台默认模型 <span className="text-gray-400 normal-case font-normal">（Skill 未指定模型时使用，仅 Admin）</span>
+                      </label>
+                      <PixelSelect
+                        value={editModelConfigId?.toString() ?? ""}
+                        onChange={(e) => setEditModelConfigId(e.target.value ? Number(e.target.value) : null)}
+                      >
+                        <option value="">跟随全局默认</option>
+                        {allModels.map((m) => (
+                          <option key={m.id} value={m.id}>
+                            {m.name} ({m.provider} / {m.model_id})
+                          </option>
+                        ))}
+                      </PixelSelect>
+                    </div>
+                  )}
                 </div>
               </div>
 

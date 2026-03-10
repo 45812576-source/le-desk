@@ -16,6 +16,10 @@ interface MessageBubbleProps {
   onQuickReply?: (text: string) => void;
 }
 
+function stripToolCallBlocks(content: string): string {
+  return content.replace(/```tool_call[\s\S]*?```/g, "").trim();
+}
+
 function parseQuickReplies(content: string): string[] {
   const lines = content.split("\n");
   const pattern = /^\s*(?:\d+[.)]\s*|[A-Za-z][.)]\s*|[-•·]\s+)(.+)$/;
@@ -216,7 +220,7 @@ export function MessageBubble({ message, onQuote, onQuickReply }: MessageBubbleP
             </button>
           )}
           <div className="text-xs whitespace-pre-wrap break-words leading-relaxed select-text">
-            {message.content}
+            {stripToolCallBlocks(message.content)}
           </div>
 
           <div className={`mt-2 flex items-center gap-2 flex-wrap ${isUser ? "justify-end" : "justify-start"}`}>

@@ -62,7 +62,7 @@ export function ChatInput({ onSend, disabled, quote, onClearQuote, workspaceSkil
   const [suggestions, setSuggestions] = useState<KbSuggestion[]>([]);
   const [activeIdx, setActiveIdx] = useState(0);
   const [loadingSuggest, setLoadingSuggest] = useState(false);
-  const [localSubmitting, setLocalSubmitting] = useState(false);
+  const localSubmitting = false;
   const [hashQuery, setHashQuery] = useState<string | null>(null); // # 触发 skill/tool 选择
   const [skillActiveIdx, setSkillActiveIdx] = useState(0);
   const [activeTool, setActiveTool] = useState<{ id: number; display_name: string } | null>(null);
@@ -236,25 +236,11 @@ export function ChatInput({ onSend, disabled, quote, onClearQuote, workspaceSkil
       return;
     }
 
-    // 有 @ 引用：并行拉 summary，然后拼入消息
+    // 有 @ 引用：先立即发送（气泡先显示），后台拉 summary 追加
     if (mentions.length > 0) {
-      setLocalSubmitting(true);
-      try {
-        const summaries = await Promise.all(
-          mentions.map(async (m) => {
-            try {
-              const res = await apiFetch<{ summary: string }>(`/knowledge/${m.id}/summarize`, { method: "POST" });
-              return `\n\n[知识引用: ${m.title}]\n${res.summary}`;
-            } catch {
-              return `\n\n[知识引用: ${m.title}]\n（摘要获取失败）`;
-            }
-          })
-        );
-        const fullContent = quotePrefix + (trimmed ? trimmed : "") + summaries.join("");
-        onSend(fullContent, undefined, pendingToolId);
-      } finally {
-        setLocalSubmitting(false);
-      }
+      const baseContent = quotePrefix + (trimmed ? trimmed : "");
+      // 先立即发送，让用户气泡先出现
+      onSend(baseContent, undefined, pendingToolId);
     } else {
       onSend(quotePrefix + trimmed, undefined, pendingToolId);
     }

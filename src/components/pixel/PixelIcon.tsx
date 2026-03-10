@@ -124,6 +124,10 @@ export const ICONS = {
     pattern: ["GGGGGGG", "G.....G", "GWWWWWG", "G.WWW.G", "G..W..G", "G.....G", "GGGGGGG", "......."],
     colors: { G: "#38A169", W: "#C6F6D5" },
   },
+  project: {
+    pattern: ["PPPPPPP", "PW...WP", "PW.P.WP", "PPPPPPP", "PW.P.WP", "PW...WP", "PPPPPPP", "......."],
+    colors: { P: "#805AD5", W: "#E9D8FD" },
+  },
   files: {
     pattern: ["BBBBB..", "BWWWBB.", "BWWWWWB", "BWWWWWB", "BWWWWWB", "BWWWWWB", "BWWWWWB", "BBBBBBB"],
     colors: { B: "#4A5568", W: "#E2E8F0" },

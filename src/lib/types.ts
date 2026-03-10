@@ -201,6 +201,7 @@ export interface WorkspaceEntry {
   visibility: string;
   welcome_message: string;
   sort_order: number;
+  model_config_id: number | null;
   skills?: { id: number }[];
   tools?: { id: number }[];
   data_tables?: string[];
@@ -229,6 +230,18 @@ export interface ContributionStat {
   adoption_rate: number;
   influence_score: number;
   impacted_skills: number;
+}
+
+export interface KbContributionStat {
+  user_id: number;
+  display_name: string;
+  department_id: number | null;
+  total_entries: number;
+  approved_entries: number;
+  input_tokens: number;
+  output_tokens: number;
+  models: Record<string, number>;
+  top_model: string | null;
 }
 
 export interface McpToken {
@@ -304,4 +317,82 @@ export interface KnowledgeChunkDetail {
 export interface SavedSkill extends SkillDetail {
   has_update: boolean;
   saved_at: string;
+}
+
+// ─── Project types ─────────────────────────────────────────────────────────
+
+export interface ProjectMember {
+  id: number;
+  user_id: number;
+  display_name: string | null;
+  role_desc: string | null;
+  workspace_id: number | null;
+  workspace_name: string | null;
+  task_order: number;
+  joined_at: string;
+}
+
+export interface ProjectContext {
+  id: number;
+  workspace_id: number;
+  workspace_name: string | null;
+  summary: string | null;
+  updated_at: string;
+}
+
+export interface ProjectKnowledgeShare {
+  id: number;
+  user_id: number;
+  user_name: string | null;
+  knowledge_id: number;
+  knowledge_title: string | null;
+  shared_at: string;
+}
+
+export interface Project {
+  id: number;
+  name: string;
+  description: string | null;
+  status: "draft" | "active" | "completed" | "archived";
+  owner_id: number;
+  owner_name: string | null;
+  department_id: number | null;
+  max_members: number;
+  llm_generated_plan: ProjectPlan | null;
+  created_at: string;
+  updated_at: string;
+  // list endpoint
+  member_count?: number;
+  member_names?: string[];
+  // detail endpoint
+  members?: ProjectMember[];
+  contexts?: ProjectContext[];
+  knowledge_shares?: ProjectKnowledgeShare[];
+}
+
+export interface ProjectWorkspacePlan {
+  user_id: number;
+  workspace_name: string;
+  identity_desc: string;
+  system_context: string;
+  responsibilities: string[];
+  suggested_skills: string[];
+  suggested_tools: string[];
+  task_order: number;
+  dependencies: number[];
+}
+
+export interface ProjectPlan {
+  overall_flow: string;
+  workspaces: ProjectWorkspacePlan[];
+}
+
+export interface ProjectReport {
+  id: number;
+  project_id: number;
+  report_type: "daily" | "weekly";
+  content: string | null;
+  period_start: string | null;
+  period_end: string | null;
+  created_at: string;
 }

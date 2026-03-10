@@ -94,6 +94,9 @@ export default function ChatDetailPage() {
   const [workspaceSkills, setWorkspaceSkills] = useState<{ id: number; name: string; description?: string }[]>([]);
   const [workspaceTools, setWorkspaceTools] = useState<{ id: number; name: string; display_name: string; description?: string; tool_type?: string }[]>([]);
   const [activeSkill, setActiveSkill] = useState<{ id: number; name: string } | null>(null);
+  // 用户勾选的 skill id 集合（null = 全部生效）
+  const [enabledSkillIds, setEnabledSkillIds] = useState<Set<number> | null>(null);
+  const [skillPanelOpen, setSkillPanelOpen] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const { onTitleUpdate } = useContext(ChatContext);
 
@@ -163,14 +166,19 @@ export default function ChatDetailPage() {
       return;
     }
 
+    // 立即显示用户气泡
+    const tempId = Date.now();
+    const kbIdx = content.indexOf("\n\n[\u77e5\u8bc6\u5f15\u7528:");
+    const displayContent = (kbIdx > 0 ? content.slice(0, kbIdx) : content).trim() || content;
+    setMessages((prev) => [...prev, { id: tempId, role: "user", content: displayContent, created_at: new Date().toISOString() }]);
+
     setSending(true);
     setIsFileUpload(false);
-    const tempId = Date.now();
-    setMessages((prev) => [...prev, { id: tempId, role: "user", content, created_at: new Date().toISOString() }]);
 
     try {
       const body: Record<string, unknown> = { content };
       if (toolId) body.tool_id = toolId;
+      if (enabledSkillIds !== null) body.active_skill_ids = Array.from(enabledSkillIds);
       const resp = await apiFetch<Message>(`/conversations/${convId}/messages`, {
         method: "POST",
         body: JSON.stringify(body),
@@ -178,11 +186,11 @@ export default function ChatDetailPage() {
       setMessages((prev) => {
         const without = prev.filter((m) => m.id !== tempId);
         return [...without,
-          { id: tempId, role: "user", content, created_at: new Date().toISOString() },
+          { id: tempId, role: "user", content: displayContent, created_at: new Date().toISOString() },
           { id: resp.id, role: "assistant" as const, content: resp.content, created_at: new Date().toISOString(), metadata: resp.metadata },
         ];
       });
-      if (messages.length === 0) onTitleUpdate(convId, content.slice(0, 60));
+      if (messages.length === 0) onTitleUpdate(convId, displayContent.slice(0, 60));
     } catch {
       setMessages((prev) => prev.filter((m) => m.id !== tempId));
     } finally {
@@ -208,6 +216,7 @@ export default function ChatDetailPage() {
       if (text) form.append("message", text);
       form.append("file", file);
       if (toolId) form.append("tool_id", String(toolId));
+      if (enabledSkillIds !== null) form.append("active_skill_ids", JSON.stringify(Array.from(enabledSkillIds)));
 
       const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
       const resp = await fetch(`/api/proxy/conversations/${convId}/messages/upload`, {
@@ -309,13 +318,80 @@ export default function ChatDetailPage() {
         {sending && <TypingIndicator isFileUpload={isFileUpload} />}
       </div>
 
+      {/* Workspace Skill 过滤面板（仅有 >1 个 skill 时显示） */}
+      {workspaceSkills.length > 1 && (
+        <div className="border-t border-gray-200 bg-[#F8FCFE]">
+          <button
+            onClick={() => setSkillPanelOpen((v) => !v)}
+            className="w-full flex items-center justify-between px-4 py-1.5 text-[9px] font-bold uppercase tracking-widest text-gray-400 hover:text-[#00A3C4] transition-colors"
+          >
+            <span className="flex items-center gap-1.5">
+              <span className="text-[#00D1FF]">▣</span>
+              工作空间 Skill
+              {enabledSkillIds !== null && (
+                <span className="ml-1 px-1 py-0.5 bg-[#1A202C] text-[#00D1FF] text-[8px] font-bold">
+                  {enabledSkillIds.size}/{workspaceSkills.length}
+                </span>
+              )}
+            </span>
+            <span>{skillPanelOpen ? "▲" : "▼"}</span>
+          </button>
+          {skillPanelOpen && (
+            <div className="px-4 pb-2 flex flex-wrap gap-1.5">
+              {/* 全选/重置按钮 */}
+              <button
+                onClick={() => setEnabledSkillIds(null)}
+                className={`px-2 py-1 text-[9px] font-bold border-2 transition-colors ${
+                  enabledSkillIds === null
+                    ? "border-[#1A202C] bg-[#1A202C] text-white"
+                    : "border-gray-300 text-gray-400 hover:border-[#1A202C] hover:text-[#1A202C]"
+                }`}
+              >
+                全部
+              </button>
+              {workspaceSkills.map((sk) => {
+                const enabled = enabledSkillIds === null || enabledSkillIds.has(sk.id);
+                return (
+                  <button
+                    key={sk.id}
+                    title={sk.description || sk.name}
+                    onClick={() => {
+                      setEnabledSkillIds((prev) => {
+                        // 从"全部"切换到手动选择
+                        const base = prev ?? new Set(workspaceSkills.map((s) => s.id));
+                        const next = new Set(base);
+                        if (next.has(sk.id)) {
+                          next.delete(sk.id);
+                        } else {
+                          next.add(sk.id);
+                        }
+                        // 若全选了则还原为 null
+                        if (next.size === workspaceSkills.length) return null;
+                        return next;
+                      });
+                    }}
+                    className={`px-2 py-1 text-[9px] font-bold border-2 transition-colors ${
+                      enabled
+                        ? "border-[#00A3C4] bg-[#CCF2FF] text-[#00A3C4]"
+                        : "border-gray-200 bg-white text-gray-300"
+                    }`}
+                  >
+                    <span className="text-[#00D1FF]">#</span> {sk.name}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Input */}
       <ChatInput
         onSend={handleSend}
         disabled={sending}
         quote={quote}
         onClearQuote={() => setQuote(null)}
-        workspaceSkills={workspaceSkills}
+        workspaceSkills={enabledSkillIds !== null ? workspaceSkills.filter((s) => enabledSkillIds.has(s.id)) : workspaceSkills}
         activeSkill={activeSkill}
         onSelectSkill={handleSelectSkill}
         workspaceTools={workspaceTools}
