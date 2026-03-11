@@ -39,11 +39,25 @@ export async function handler(
     body,
   });
 
+  // SSE streaming: pass through the ReadableStream directly
+  const respContentType = resp.headers.get("Content-Type") || "";
+  if (respContentType.includes("text/event-stream")) {
+    return new Response(resp.body, {
+      status: resp.status,
+      headers: {
+        "Content-Type": "text/event-stream",
+        "Cache-Control": "no-cache",
+        Connection: "keep-alive",
+        "X-Accel-Buffering": "no",
+      },
+    });
+  }
+
   const respBody = await resp.text();
   return new NextResponse(respBody, {
     status: resp.status,
     headers: {
-      "Content-Type": resp.headers.get("Content-Type") || "application/json",
+      "Content-Type": respContentType || "application/json",
     },
   });
 }

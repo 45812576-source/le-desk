@@ -2,6 +2,7 @@
 
 import { useState, useRef, useCallback, useEffect } from "react";
 import { apiFetch } from "@/lib/api";
+import { useVoiceTranscription } from "@/lib/use-voice-transcription";
 
 interface SkillOption {
   id: number;
@@ -69,6 +70,24 @@ export function ChatInput({ onSend, disabled, quote, onClearQuote, workspaceSkil
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const voice = useVoiceTranscription();
+  const [voiceError, setVoiceError] = useState<string | null>(null);
+
+  // 语音转录：实时同步 transcript 到输入框
+  useEffect(() => {
+    if (voice.transcript) {
+      setValue(voice.transcript);
+    }
+  }, [voice.transcript]);
+
+  // 语音错误：3 秒后自动消失
+  useEffect(() => {
+    if (voice.error) {
+      setVoiceError(voice.error);
+      const t = setTimeout(() => setVoiceError(null), 3000);
+      return () => clearTimeout(t);
+    }
+  }, [voice.error]);
 
   // 预填：收到 prefill 时填入输入框并 focus
   useEffect(() => {
@@ -527,7 +546,32 @@ export function ChatInput({ onSend, disabled, quote, onClearQuote, workspaceSkil
           📎
         </button>
 
-        <textarea
+        {/* 🎤 麦克风按钮 */}
+        <button
+          type="button"
+          onClick={() => {
+            if (voice.isRecording) {
+              voice.stop();
+            } else {
+              voice.start();
+            }
+          }}
+          disabled={isBlocked}
+          title={voice.isRecording ? "停止录音" : "语音输入"}
+          className={`flex-shrink-0 w-9 h-9 border-2 border-[#1A202C] flex items-center justify-center transition-colors text-sm disabled:opacity-40 ${
+            voice.isRecording
+              ? "bg-red-500 text-white animate-pulse"
+              : "bg-white text-[#1A202C] hover:bg-gray-100"
+          }`}
+        >
+          🎤
+        </button>
+
+        <div className="flex-1 flex flex-col gap-1">
+          {voiceError && (
+            <div className="text-[9px] font-bold text-red-500 px-1">{voiceError}</div>
+          )}
+          <textarea
           ref={textareaRef}
           value={value}
           onChange={handleChange}
@@ -536,9 +580,10 @@ export function ChatInput({ onSend, disabled, quote, onClearQuote, workspaceSkil
           placeholder={localSubmitting ? "正在获取知识摘要..." : file ? "补充说明（可选），Enter 发送" : "输入消息，@ 引用知识库，Enter 发送"}
           rows={1}
           disabled={isBlocked}
-          className="flex-1 border-2 border-[#1A202C] px-3 py-2 text-xs font-bold resize-none focus:outline-none focus:border-[#00D1FF] disabled:opacity-40"
+          className="w-full border-2 border-[#1A202C] px-3 py-2 text-xs font-bold resize-none focus:outline-none focus:border-[#00D1FF] disabled:opacity-40"
           style={{ minHeight: 36, maxHeight: 120 }}
         />
+        </div>
         <button
           type="submit"
           disabled={!canSend}
