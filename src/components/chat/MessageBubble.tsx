@@ -3,7 +3,13 @@
 import { useRef, useState } from "react";
 import { apiFetch } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
-import type { Message, SkillDetail } from "@/lib/types";
+import type { ContentBlock, Message, SkillDetail } from "@/lib/types";
+import { MarkdownBlock } from "./blocks/MarkdownBlock";
+import { ThinkingBlock } from "./blocks/ThinkingBlock";
+import { ToolCallCard } from "./blocks/ToolCallCard";
+import { ToolResultCard } from "./blocks/ToolResultCard";
+import { FileRefCard } from "./blocks/FileRefCard";
+import { KnowledgeRefCard } from "./blocks/KnowledgeRefCard";
 
 function formatTime(iso: string) {
   const d = new Date(iso);
@@ -29,6 +35,25 @@ function parseQuickReplies(content: string): string[] {
     if (m) options.push(m[1].trim());
   }
   return options.length >= 2 && options.length <= 6 ? options : [];
+}
+
+function renderContentBlocks(blocks: ContentBlock[]) {
+  return blocks.map((block, i) => {
+    switch (block.type) {
+      case "text":
+        return <MarkdownBlock key={i} text={block.text} />;
+      case "thinking":
+        return <ThinkingBlock key={i} text={block.text} />;
+      case "tool_call":
+        return <ToolCallCard key={i} block={block} />;
+      case "tool_result":
+        return <ToolResultCard key={i} block={block} />;
+      case "file_ref":
+        return <FileRefCard key={i} block={block} />;
+      case "knowledge_ref":
+        return <KnowledgeRefCard key={i} block={block} />;
+    }
+  });
 }
 
 export function MessageBubble({ message, onQuote, onQuickReply }: MessageBubbleProps) {
@@ -219,9 +244,14 @@ export function MessageBubble({ message, onQuote, onQuickReply }: MessageBubbleP
               引用选中
             </button>
           )}
-          <div className="text-xs whitespace-pre-wrap break-words leading-relaxed select-text">
-            {stripToolCallBlocks(message.content)}
-          </div>
+          {message.content_blocks?.length
+            ? renderContentBlocks(message.content_blocks)
+            : (
+              <div className="text-xs whitespace-pre-wrap break-words leading-relaxed select-text">
+                {stripToolCallBlocks(message.content)}
+              </div>
+            )
+          }
 
           <div className={`mt-2 flex items-center gap-2 flex-wrap ${isUser ? "justify-end" : "justify-start"}`}>
             {/* Skill 标注 — 可点击打开面板 */}

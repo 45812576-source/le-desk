@@ -8,12 +8,31 @@ export interface User {
   created_at: string;
 }
 
+export type ContentBlock =
+  | { type: "text"; text: string }
+  | { type: "thinking"; text: string; collapsed?: boolean }
+  | { type: "tool_call"; id: string; tool: string; input: Record<string, unknown>; status: "running" | "done" | "error" }
+  | { type: "tool_result"; tool_call_id: string; output: string; ok: boolean }
+  | { type: "file_ref"; filename: string; url?: string; mime?: string }
+  | { type: "knowledge_ref"; id: number; title: string; snippet?: string };
+
 export interface Message {
   id: number;
   role: "user" | "assistant";
   content: string;
+  content_blocks?: ContentBlock[];
   created_at: string;
-  metadata?: Record<string, unknown>;
+  metadata?: {
+    skill_id?: number;
+    skill_name?: string;
+    model_id?: string;
+    input_tokens?: number;
+    output_tokens?: number;
+    duration_ms?: number;
+    download_url?: string;
+    download_filename?: string;
+    [key: string]: unknown;
+  };
 }
 
 export interface Conversation {

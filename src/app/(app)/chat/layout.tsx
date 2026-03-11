@@ -1,9 +1,10 @@
 "use client";
 
-import { createContext, useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useRouter, usePathname } from "next/navigation";
 import { apiFetch } from "@/lib/api";
+import { useChatStore } from "@/lib/chat-store";
 import type { Conversation, Workspace } from "@/lib/types";
 import { PixelIcon, ICONS } from "@/components/pixel";
 
@@ -217,16 +218,6 @@ function WorkspacePicker({
   );
 }
 
-// ─── Chat context ──────────────────────────────────────────────────────────
-
-interface ChatContextValue {
-  onTitleUpdate: (id: number, title: string) => void;
-}
-
-export const ChatContext = createContext<ChatContextValue>({
-  onTitleUpdate: () => {},
-});
-
 // ─── Layout ────────────────────────────────────────────────────────────────
 
 export default function ChatLayout({
@@ -319,11 +310,8 @@ export default function ChatLayout({
     setConversations((prev) =>
       prev.map((c) => (c.id === id ? { ...c, title } : c))
     );
-    // Persist to backend (fire-and-forget)
-    apiFetch(`/conversations/${id}`, {
-      method: "PATCH",
-      body: JSON.stringify({ title }),
-    }).catch(() => {});
+    // Also update store + persist to backend
+    useChatStore.getState().updateConvTitle(id, title);
   }
 
   return (
@@ -369,9 +357,7 @@ export default function ChatLayout({
 
       {/* Chat content */}
       <div className="flex-1 overflow-hidden">
-        <ChatContext.Provider value={{ onTitleUpdate: handleUpdateTitle }}>
-          {children}
-        </ChatContext.Provider>
+        {children}
       </div>
 
       {/* Workspace picker modal — portal to body to escape overflow */}

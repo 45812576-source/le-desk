@@ -1,12 +1,23 @@
 "use client";
 
-import { useCallback, useContext, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 import { apiFetch } from "@/lib/api";
-import type { Message } from "@/lib/types";
+import { useChatStore } from "@/lib/chat-store";
+import { connectionManager } from "@/lib/connection";
+import type { ConnectionState } from "@/lib/connection";
+import type { ContentBlock } from "@/lib/types";
 import { MessageBubble } from "@/components/chat/MessageBubble";
 import { ChatInput } from "@/components/chat/ChatInput";
-import { ChatContext } from "../layout";
+
+const STAGE_LABELS: Record<string, string> = {
+  preparing: "匹配 Skill & 组装上下文...",
+  generating: "生成中...",
+  tool_calling: "调用工具中...",
+  uploading: "上传文件中...",
+  parsing: "解析文件内容...",
+  summarizing: "生成 FOE 结构化摘要...",
+};
 
 const FILE_STAGES: { minSec: number; label: string }[] = [
   { minSec: 0,  label: "解析文件中..." },
@@ -16,52 +27,28 @@ const FILE_STAGES: { minSec: number; label: string }[] = [
   { minSec: 50, label: "调用 Skill 生成回复..." },
 ];
 
-const IDLE_QUIPS = [
-  "在削铅笔...",
-  "在找尺子...",
-  "在调颜色...",
-  "在摸鱼...",
-  "在喝咖啡...",
-  "在翻字典...",
-  "在整理思路...",
-  "在发呆...",
-  "在问同事...",
-  "在重新理解需求...",
-  "在找灵感...",
-  "在打草稿...",
-  "在选字体...",
-  "在对齐像素...",
-  "在拖进度条...",
-];
-
 const ALLOWED_EXTS = [".txt", ".pdf", ".docx", ".pptx", ".md", ".xlsx", ".xls", ".csv",
   ".jpg", ".jpeg", ".png", ".webp", ".bmp", ".mp3", ".wav", ".m4a", ".ogg", ".flac"];
 const isAllowedFile = (f: File) =>
   ALLOWED_EXTS.some((ext) => f.name.toLowerCase().endsWith(ext)) || f.type.startsWith("image/");
 
-function TypingIndicator({ isFileUpload }: { isFileUpload: boolean }) {
+/* ── Status Indicator ── */
+
+function StatusIndicator({ stage, isFileUpload }: { stage: string | null; isFileUpload: boolean }) {
   const [elapsed, setElapsed] = useState(0);
-  const [quipIdx, setQuipIdx] = useState(() => Math.floor(Math.random() * IDLE_QUIPS.length));
 
   useEffect(() => {
     setElapsed(0);
     const tick = setInterval(() => setElapsed((s) => s + 1), 1000);
     return () => clearInterval(tick);
-  }, [isFileUpload]);
+  }, [stage, isFileUpload]);
 
-  // 每 3 秒换一条俏皮话
-  useEffect(() => {
-    const rotate = setInterval(() => {
-      setQuipIdx((i) => (i + 1) % IDLE_QUIPS.length);
-    }, 3000);
-    return () => clearInterval(rotate);
-  }, []);
-
-  const stageLabel = isFileUpload
-    ? [...FILE_STAGES].reverse().find((s) => elapsed >= s.minSec)?.label ?? FILE_STAGES[0].label
-    : null;
-
-  const label = stageLabel ?? IDLE_QUIPS[quipIdx];
+  let label: string;
+  if (isFileUpload) {
+    label = [...FILE_STAGES].reverse().find((s) => elapsed >= s.minSec)?.label ?? FILE_STAGES[0].label;
+  } else {
+    label = (stage && STAGE_LABELS[stage]) || "思考中...";
+  }
 
   return (
     <div className="flex justify-start mb-3">
@@ -80,25 +67,124 @@ function TypingIndicator({ isFileUpload }: { isFileUpload: boolean }) {
   );
 }
 
+import { ToolCallCard } from "@/components/chat/blocks/ToolCallCard";
+import { MarkdownBlock } from "@/components/chat/blocks/MarkdownBlock";
+import { ThinkingBlock } from "@/components/chat/blocks/ThinkingBlock";
+import { ToolResultCard } from "@/components/chat/blocks/ToolResultCard";
+
+/* ── Agent Loop Progress ── */
+
+function AgentLoopProgress({ round, maxRounds }: { round: number; maxRounds: number }) {
+  if (round <= 0 || maxRounds <= 0) return null;
+  return (
+    <div className="flex items-center gap-2 px-4 py-1.5 mb-2">
+      <div className="flex gap-1">
+        {Array.from({ length: maxRounds }, (_, i) => (
+          <div
+            key={i}
+            className={`w-2 h-2 border border-[#1A202C] transition-all ${
+              i < round
+                ? "bg-[#00A3C4]"
+                : i === round
+                ? "bg-[#00D1FF] animate-pulse"
+                : "bg-gray-200"
+            }`}
+          />
+        ))}
+      </div>
+      <span className="text-[8px] font-bold uppercase tracking-widest text-gray-400">
+        Agent 轮次 {round}/{maxRounds}
+      </span>
+    </div>
+  );
+}
+
+/* ── Streaming Blocks Bubble ── */
+
+function StreamingBlocksBubble({ blocks }: { blocks: ContentBlock[] }) {
+  return (
+    <div className="flex justify-start mb-3">
+      <div className="max-w-[75%]">
+        <div className="px-4 py-3 bg-white border-2 border-[#1A202C] text-[#1A202C]">
+          {blocks.map((block, i) => {
+            if (block.type === "text") {
+              return (
+                <div key={i}>
+                  <MarkdownBlock text={block.text} />
+                  {i === blocks.length - 1 && (
+                    <span className="inline-block w-1.5 h-3.5 bg-[#00A3C4] ml-0.5 animate-pulse" />
+                  )}
+                </div>
+              );
+            }
+            if (block.type === "thinking") {
+              return <ThinkingBlock key={i} text={block.text} streaming={true} />;
+            }
+            if (block.type === "tool_call") {
+              return <ToolCallCard key={i} block={block} />;
+            }
+            if (block.type === "tool_result") {
+              return <ToolResultCard key={i} block={block} />;
+            }
+            return null;
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ── Streaming Bubble ── */
+
+function StreamingBubble({ text }: { text: string }) {
+  return (
+    <div className="flex justify-start mb-3">
+      <div className="max-w-[75%]">
+        <div className="px-4 py-3 bg-white border-2 border-[#1A202C] text-[#1A202C]">
+          <div className="text-xs whitespace-pre-wrap break-words leading-relaxed select-text">
+            {text}
+            <span className="inline-block w-1.5 h-3.5 bg-[#00A3C4] ml-0.5 animate-pulse" />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ── Main Page ── */
+
 export default function ChatDetailPage() {
   const params = useParams();
   const convId = Number(params.id);
-  const [messages, setMessages] = useState<Message[]>([]);
+
+  // Store state
+  const messages = useChatStore((s) => s.messagesMap.get(convId)) ?? [];
+  const streamingText = useChatStore((s) => s.streamingText);
+  const streamBlocks = useChatStore((s) => s.streamingBlocks);
+  const streamStage = useChatStore((s) => s.streamStage);
+  const isSending = useChatStore((s) => s.isSending);
+  const isFileUpload = useChatStore((s) => s.isFileUpload);
+  const currentRound = useChatStore((s) => s.currentRound);
+  const maxRounds = useChatStore((s) => s.maxRounds);
+  const streamError = useChatStore((s) => s.streamError);
+  const tokenUsage = useChatStore((s) => s.tokenUsage);
+
+  // UI-only state
   const [loading, setLoading] = useState(true);
-  const [sending, setSending] = useState(false);
-  const [isFileUpload, setIsFileUpload] = useState(false);
   const [isDragOver, setIsDragOver] = useState(false);
-  const [pendingFile, setPendingFile] = useState<File | null>(null);
   const [quote, setQuote] = useState<string | null>(null);
   const [prefill, setPrefill] = useState<string | null>(null);
   const [workspaceSkills, setWorkspaceSkills] = useState<{ id: number; name: string; description?: string }[]>([]);
   const [workspaceTools, setWorkspaceTools] = useState<{ id: number; name: string; display_name: string; description?: string; tool_type?: string }[]>([]);
   const [activeSkill, setActiveSkill] = useState<{ id: number; name: string } | null>(null);
-  // 用户勾选的 skill id 集合（null = 全部生效）
   const [enabledSkillIds, setEnabledSkillIds] = useState<Set<number> | null>(null);
   const [skillPanelOpen, setSkillPanelOpen] = useState(false);
+
+  // Connection state
+  const [connState, setConnState] = useState<ConnectionState>(connectionManager.getState());
+  useEffect(() => connectionManager.subscribe(setConnState), []);
+
   const scrollRef = useRef<HTMLDivElement>(null);
-  const { onTitleUpdate } = useContext(ChatContext);
 
   // 拉 conv → workspace → skills
   useEffect(() => {
@@ -117,29 +203,24 @@ export default function ChatDetailPage() {
       .catch(() => {});
   }, [convId]);
 
-  const fetchMessages = useCallback(async () => {
-    try {
-      const data = await apiFetch<Message[]>(`/conversations/${convId}/messages`);
-      setMessages(data);
-    } catch {
-      // ignore
-    } finally {
-      setLoading(false);
-    }
-  }, [convId]);
-
+  // Load messages via store
   useEffect(() => {
     setLoading(true);
-    setMessages([]);
-    fetchMessages();
-  }, [fetchMessages]);
+    // Force reload by clearing cache first
+    const store = useChatStore.getState();
+    const next = new Map(store.messagesMap);
+    next.delete(convId);
+    useChatStore.setState({ messagesMap: next });
+    store.loadMessages(convId).finally(() => setLoading(false));
+  }, [convId]);
 
+  // Auto-scroll
   useEffect(() => {
     const el = scrollRef.current;
     if (el) el.scrollTop = el.scrollHeight;
-  }, [messages, sending]);
+  }, [messages, isSending, streamingText, streamBlocks]);
 
-  // 全局阻止浏览器打开文件（在捕获阶段最早拦截）
+  // Prevent browser file drop
   useEffect(() => {
     const prevent = (e: DragEvent) => e.preventDefault();
     window.addEventListener("dragover", prevent, true);
@@ -158,108 +239,32 @@ export default function ChatDetailPage() {
     }).catch(() => {});
   }
 
+  function handleStop() {
+    useChatStore.getState().stopGeneration();
+  }
+
+  /* ── Send message via store ── */
+
   async function handleSend(content: string, file?: File, toolId?: number) {
-    if (sending) return;
+    await useChatStore.getState().sendMessage(convId, content, {
+      activeSkillIds: enabledSkillIds !== null ? Array.from(enabledSkillIds) : undefined,
+      toolId,
+      file,
+    });
+  }
 
-    if (file) {
-      await handleFileUpload(content, file, toolId);
-      return;
-    }
-
-    // 立即显示用户气泡
-    const tempId = Date.now();
-    const kbIdx = content.indexOf("\n\n[\u77e5\u8bc6\u5f15\u7528:");
-    const displayContent = (kbIdx > 0 ? content.slice(0, kbIdx) : content).trim() || content;
-    setMessages((prev) => [...prev, { id: tempId, role: "user", content: displayContent, created_at: new Date().toISOString() }]);
-
-    setSending(true);
-    setIsFileUpload(false);
-
-    try {
-      const body: Record<string, unknown> = { content };
-      if (toolId) body.tool_id = toolId;
-      if (enabledSkillIds !== null) body.active_skill_ids = Array.from(enabledSkillIds);
-      const resp = await apiFetch<Message>(`/conversations/${convId}/messages`, {
-        method: "POST",
-        body: JSON.stringify(body),
-      });
-      setMessages((prev) => {
-        const without = prev.filter((m) => m.id !== tempId);
-        return [...without,
-          { id: tempId, role: "user", content: displayContent, created_at: new Date().toISOString() },
-          { id: resp.id, role: "assistant" as const, content: resp.content, created_at: new Date().toISOString(), metadata: resp.metadata },
-        ];
-      });
-      if (messages.length === 0) onTitleUpdate(convId, displayContent.slice(0, 60));
-    } catch {
-      setMessages((prev) => prev.filter((m) => m.id !== tempId));
-    } finally {
-      setSending(false);
+  /* ── Retry on error ── */
+  function handleRetry() {
+    useChatStore.getState().clearStreamError();
+    // Find the last user message and resend
+    const lastUserMsg = [...messages].reverse().find((m) => m.role === "user");
+    if (lastUserMsg) {
+      handleSend(lastUserMsg.content);
     }
   }
 
-  async function handleFileUpload(text: string, file: File, toolId?: number) {
-    setSending(true);
-    setIsFileUpload(true);
-
-    const optimisticContent = text ? `${text}\n\n[文件: ${file.name}]` : `[文件: ${file.name}]`;
-    const tempId = Date.now();
-    setMessages((prev) => [...prev, {
-      id: tempId,
-      role: "user",
-      content: optimisticContent,
-      created_at: new Date().toISOString(),
-    }]);
-
-    try {
-      const form = new FormData();
-      if (text) form.append("message", text);
-      form.append("file", file);
-      if (toolId) form.append("tool_id", String(toolId));
-      if (enabledSkillIds !== null) form.append("active_skill_ids", JSON.stringify(Array.from(enabledSkillIds)));
-
-      const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
-      const resp = await fetch(`/api/proxy/conversations/${convId}/messages/upload`, {
-        method: "POST",
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-        body: form,
-      });
-
-      if (!resp.ok) throw new Error(`Upload failed: ${resp.status}`);
-      const result = await resp.json();
-
-      setMessages((prev) => {
-        const without = prev.filter((m) => m.id !== tempId);
-        return [...without,
-          { id: tempId, role: "user", content: optimisticContent, created_at: new Date().toISOString() },
-          {
-            id: result.id,
-            role: "assistant" as const,
-            content: result.content,
-            created_at: new Date().toISOString(),
-            metadata: {
-              skill_id: result.skill_id ?? null,
-              skill_name: result.skill_name ?? null,
-              file_upload: true,
-              filename: file.name,
-            },
-          },
-        ];
-      });
-      if (messages.length === 0) onTitleUpdate(convId, `[文件] ${file.name}`.slice(0, 60));
-    } catch {
-      setMessages((prev) => prev.filter((m) => m.id !== tempId));
-    } finally {
-      setSending(false);
-      setIsFileUpload(false);
-    }
-  }
-
-  // 拖放处理
-  const handleDragOver = (e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDragOver(true);
-  };
+  // Drag & drop
+  const handleDragOver = (e: React.DragEvent) => { e.preventDefault(); setIsDragOver(true); };
   const handleDragLeave = (e: React.DragEvent) => {
     if (!e.currentTarget.contains(e.relatedTarget as Node)) setIsDragOver(false);
   };
@@ -267,7 +272,7 @@ export default function ChatDetailPage() {
     e.preventDefault();
     setIsDragOver(false);
     const files = Array.from(e.dataTransfer.files).filter(isAllowedFile);
-    if (files.length > 0) handleFileUpload("", files[0]);
+    if (files.length > 0) handleSend("", files[0]);
   };
 
   if (loading) {
@@ -287,6 +292,26 @@ export default function ChatDetailPage() {
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
     >
+      {/* Connection status bar */}
+      {connState === "failed" && (
+        <div className="bg-red-50 border-b-2 border-red-300 px-4 py-1.5 text-[9px] font-bold text-red-500 flex items-center justify-between">
+          <span>连接已断开</span>
+          <button
+            onClick={() => connectionManager.connect()}
+            className="px-2 py-0.5 border border-red-300 bg-white text-red-500 hover:bg-red-50 transition-colors"
+          >
+            重新连接
+          </button>
+        </div>
+      )}
+
+      {/* Token usage warning */}
+      {tokenUsage && tokenUsage.used > tokenUsage.limit * 0.8 && (
+        <div className="text-[8px] font-bold text-amber-500 px-4 py-1 bg-amber-50 border-b border-amber-200">
+          上下文已使用 {Math.round(tokenUsage.used / tokenUsage.limit * 100)}%，建议新建对话
+        </div>
+      )}
+
       {/* Drag overlay */}
       {isDragOver && (
         <div className="absolute inset-0 z-20 border-4 border-dashed border-[#00D1FF] bg-[#CCF2FF]/50 pointer-events-none flex items-center justify-center">
@@ -299,7 +324,7 @@ export default function ChatDetailPage() {
 
       {/* Messages area */}
       <div ref={scrollRef} className="flex-1 overflow-y-auto p-4">
-        {messages.length === 0 && !sending && (
+        {messages.length === 0 && !isSending && (
           <div className="h-full flex flex-col items-center justify-center">
             <div className="w-8 h-8 bg-[#CCF2FF] border-2 border-[#00A3C4] flex items-center justify-center mb-3">
               <span className="text-[#00A3C4] text-xs font-bold">?</span>
@@ -315,10 +340,59 @@ export default function ChatDetailPage() {
         {messages.map((msg) => (
           <MessageBubble key={msg.id} message={msg} onQuote={(text) => { setQuote(text); }} onQuickReply={(text) => { setPrefill(text); }} />
         ))}
-        {sending && <TypingIndicator isFileUpload={isFileUpload} />}
+
+        {/* Agent Loop progress */}
+        {isSending && currentRound > 0 && (
+          <AgentLoopProgress round={currentRound} maxRounds={maxRounds} />
+        )}
+
+        {/* Streaming: show block-level progress or plain text bubble */}
+        {isSending && streamBlocks.length > 0 && (
+          <StreamingBlocksBubble blocks={streamBlocks} />
+        )}
+        {isSending && streamBlocks.length === 0 && streamingText && (
+          <StreamingBubble text={streamingText} />
+        )}
+        {isSending && streamBlocks.length === 0 && !streamingText && (
+          <StatusIndicator stage={streamStage} isFileUpload={isFileUpload} />
+        )}
+
+        {/* Stream error with retry */}
+        {streamError && !isSending && (
+          <div className="flex justify-start mb-3">
+            <div className="bg-red-50 border-2 border-red-300 px-4 py-3 max-w-[75%]">
+              <div className="text-[10px] font-bold text-red-500 mb-1">
+                {streamError.type === "rate_limit" ? "请求频率超限" :
+                 streamError.type === "context_overflow" ? "上下文长度超限" :
+                 streamError.type === "network" ? "网络连接错误" :
+                 "服务端错误"}
+              </div>
+              <div className="text-[9px] text-red-400 mb-2">{streamError.message}</div>
+              <button
+                onClick={handleRetry}
+                className="px-3 py-1 text-[9px] font-bold uppercase tracking-widest border-2 border-red-300 bg-white text-red-500 hover:bg-red-50 transition-colors"
+              >
+                重试
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
-      {/* Workspace Skill 过滤面板（仅有 >1 个 skill 时显示） */}
+      {/* Stop generation button */}
+      {isSending && !isFileUpload && (
+        <div className="flex justify-center py-1.5 border-t border-gray-100 bg-white/80">
+          <button
+            onClick={handleStop}
+            className="px-4 py-1.5 text-[9px] font-bold uppercase tracking-widest border-2 border-[#1A202C] bg-white text-[#1A202C] hover:bg-[#F0F4F8] transition-colors flex items-center gap-1.5"
+          >
+            <span className="w-2 h-2 bg-[#1A202C]" />
+            停止生成
+          </button>
+        </div>
+      )}
+
+      {/* Workspace Skill filter panel */}
       {workspaceSkills.length > 1 && (
         <div className="border-t border-gray-200 bg-[#F8FCFE]">
           <button
@@ -338,7 +412,6 @@ export default function ChatDetailPage() {
           </button>
           {skillPanelOpen && (
             <div className="px-4 pb-2 flex flex-wrap gap-1.5">
-              {/* 全选/重置按钮 */}
               <button
                 onClick={() => setEnabledSkillIds(null)}
                 className={`px-2 py-1 text-[9px] font-bold border-2 transition-colors ${
@@ -357,15 +430,9 @@ export default function ChatDetailPage() {
                     title={sk.description || sk.name}
                     onClick={() => {
                       setEnabledSkillIds((prev) => {
-                        // 从"全部"切换到手动选择
                         const base = prev ?? new Set(workspaceSkills.map((s) => s.id));
                         const next = new Set(base);
-                        if (next.has(sk.id)) {
-                          next.delete(sk.id);
-                        } else {
-                          next.add(sk.id);
-                        }
-                        // 若全选了则还原为 null
+                        if (next.has(sk.id)) { next.delete(sk.id); } else { next.add(sk.id); }
                         if (next.size === workspaceSkills.length) return null;
                         return next;
                       });
@@ -388,7 +455,7 @@ export default function ChatDetailPage() {
       {/* Input */}
       <ChatInput
         onSend={handleSend}
-        disabled={sending}
+        disabled={isSending}
         quote={quote}
         onClearQuote={() => setQuote(null)}
         workspaceSkills={enabledSkillIds !== null ? workspaceSkills.filter((s) => enabledSkillIds.has(s.id)) : workspaceSkills}
