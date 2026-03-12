@@ -11,7 +11,7 @@ export interface User {
 export type ContentBlock =
   | { type: "text"; text: string }
   | { type: "thinking"; text: string; collapsed?: boolean }
-  | { type: "tool_call"; id: string; tool: string; input: Record<string, unknown>; status: "running" | "done" | "error" }
+  | { type: "tool_call"; id: string; tool: string; input: Record<string, unknown>; status: "running" | "done" | "error"; phase?: "validating" | "executing" | "completed"; duration_ms?: number }
   | { type: "tool_result"; tool_call_id: string; output: string; ok: boolean }
   | { type: "file_ref"; filename: string; url?: string; mime?: string }
   | { type: "knowledge_ref"; id: number; title: string; snippet?: string };

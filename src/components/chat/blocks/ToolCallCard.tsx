@@ -17,6 +17,12 @@ const STATUS_COLOR: Record<string, string> = {
   error: "text-red-500",
 };
 
+const PHASE_LABEL: Record<string, string> = {
+  validating: "校验参数...",
+  executing: "执行中...",
+  completed: "已完成",
+};
+
 export function ToolCallCard({ block }: { block: ToolCallBlock }) {
   const [expanded, setExpanded] = useState(false);
   const startTimeRef = useRef<number>(0);
@@ -41,10 +47,18 @@ export function ToolCallCard({ block }: { block: ToolCallBlock }) {
     return () => clearInterval(timer);
   }, [block.status]);
 
+  // 服务端返回的精确耗时（ms），转换为秒显示
+  const serverDuration = block.duration_ms !== undefined
+    ? (block.duration_ms / 1000).toFixed(1)
+    : null;
+
+  const phaseLabel = block.phase && block.status === "running"
+    ? PHASE_LABEL[block.phase]
+    : null;
+
   return (
     <div className={`my-2 border-2 ${
       block.status === "error" ? "border-red-400 bg-red-50" :
-      block.status === "done" ? "border-[#1A202C] bg-[#F0F4F8]" :
       "border-[#1A202C] bg-[#F0F4F8]"
     }`}>
       <button
@@ -57,9 +71,16 @@ export function ToolCallCard({ block }: { block: ToolCallBlock }) {
             {block.tool}
           </span>
           <span className={`text-[9px] font-bold uppercase tracking-widest ${STATUS_COLOR[block.status]}`}>
-            {STATUS_LABEL[block.status]}
+            {phaseLabel ?? STATUS_LABEL[block.status]}
           </span>
-          {elapsed > 0 && (
+          {/* 服务端精确耗时（完成后显示） */}
+          {serverDuration !== null && block.status !== "running" && (
+            <span className="text-[8px] font-bold text-gray-400 tracking-widest">
+              {serverDuration}s
+            </span>
+          )}
+          {/* 客户端计时（运行中显示） */}
+          {elapsed > 0 && block.status === "running" && (
             <span className="text-[8px] font-bold text-gray-300 tracking-widest">
               {elapsed}s
             </span>

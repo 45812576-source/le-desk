@@ -211,6 +211,10 @@ export function applyBlockDelta(
     if (b.type === "thinking" && typeof delta.text === "string") {
       return { ...b, text: b.text + delta.text };
     }
+    // tool_progress phase update
+    if (b.type === "tool_call" && delta.phase) {
+      return { ...b, phase: delta.phase as "validating" | "executing" | "completed" };
+    }
     return b;
   });
 }
@@ -226,6 +230,8 @@ export function finalizeBlock(
       return {
         ...b,
         status: data.ok ? ("done" as const) : ("error" as const),
+        phase: "completed" as const,
+        ...(typeof data.duration_ms === "number" ? { duration_ms: data.duration_ms } : {}),
       };
     }
     return b;
