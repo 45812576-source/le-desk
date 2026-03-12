@@ -376,9 +376,16 @@ export const useChatStore = create<ChatStore>((set, get) => ({
             });
             break;
 
-          case "tool_progress":
-            // Update tool block progress message (handled via streamingBlocks)
+          case "tool_progress": {
+            // Update tool block phase (validating / executing / completed)
+            const tpIdx = event.data.index as number;
+            if (tpIdx !== undefined && blocks[tpIdx]) {
+              const updated = applyBlockDelta(blocks, tpIdx, event.data);
+              updated.forEach((b, i) => { blocks[i] = b; });
+              set({ streamingBlocks: [...blocks] });
+            }
             break;
+          }
 
           case "round_end":
             // Round finished, has_next indicates more rounds coming
