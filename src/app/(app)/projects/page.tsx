@@ -23,13 +23,21 @@ const STATUS_COLOR: Record<string, string> = {
 };
 
 function ProjectCard({ project }: { project: Project }) {
+  const isDev = project.project_type === "dev";
   return (
     <Link href={`/projects/${project.id}`}>
       <div className="border-2 border-[#1A202C] bg-white p-4 hover:bg-[#CCF2FF] transition-colors cursor-pointer">
         <div className="flex items-start justify-between gap-2 mb-2">
-          <h3 className="text-[12px] font-bold text-[#1A202C] leading-tight">
-            {project.name}
-          </h3>
+          <div className="flex items-center gap-1.5 min-w-0">
+            {isDev && (
+              <span className="text-[8px] font-bold px-1.5 py-0.5 bg-[#6B46C1] text-white flex-shrink-0">
+                DEV
+              </span>
+            )}
+            <h3 className="text-[12px] font-bold text-[#1A202C] leading-tight truncate">
+              {project.name}
+            </h3>
+          </div>
           <span
             className="text-[8px] font-bold px-1.5 py-0.5 border flex-shrink-0"
             style={{ color: STATUS_COLOR[project.status], borderColor: STATUS_COLOR[project.status] }}

@@ -5,6 +5,7 @@ import { PageShell } from "@/components/layout/PageShell";
 import { ICONS, PixelIcon } from "@/components/pixel";
 import { PixelButton } from "@/components/pixel/PixelButton";
 import { PixelBadge } from "@/components/pixel/PixelBadge";
+import { PixelSelect } from "@/components/pixel/PixelSelect";
 import { apiFetch } from "@/lib/api";
 import type { SkillDetail, Department } from "@/lib/types";
 
@@ -216,10 +217,11 @@ export default function SkillMarketPage() {
               items={deptRank}
               loading={rankLoading}
               extraHeader={
-                <select
+                <PixelSelect
                   value={selectedDept}
                   onChange={(e) => setSelectedDept(e.target.value === "" ? "" : Number(e.target.value))}
-                  className="text-[9px] font-bold bg-white/20 text-white border border-white/40 px-2 py-0.5 focus:outline-none"
+                  pixelSize="sm"
+                  className="w-auto bg-white/20 text-white border border-white/40"
                   onClick={(e) => e.stopPropagation()}
                 >
                   <option value="" className="text-[#1A202C] bg-white">全部部门</option>
@@ -228,7 +230,7 @@ export default function SkillMarketPage() {
                       {d.name}
                     </option>
                   ))}
-                </select>
+                </PixelSelect>
               }
             />
           </div>

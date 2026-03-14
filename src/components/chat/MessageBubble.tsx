@@ -38,7 +38,7 @@ function parseQuickReplies(content: string): string[] {
 }
 
 function renderContentBlocks(blocks: ContentBlock[]) {
-  return blocks.map((block, i) => {
+  return blocks.filter((b): b is ContentBlock => b != null).map((block, i) => {
     switch (block.type) {
       case "text":
         return <MarkdownBlock key={i} text={block.text} />;

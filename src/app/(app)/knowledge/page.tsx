@@ -45,6 +45,7 @@ function buildTree(folders: Folder[]): Map<number | null, Folder[]> {
 function FileRow({
   entry,
   selected,
+  multiSelected,
   depth,
   onClick,
   onDragStart,
@@ -54,6 +55,7 @@ function FileRow({
 }: {
   entry: KnowledgeDetail;
   selected: boolean;
+  multiSelected?: boolean;
   depth: number;
   onClick: () => void;
   onDragStart: (id: number) => void;
@@ -75,11 +77,12 @@ function FileRow({
 
   return (
     <div
+      data-entry-id={entry.id}
       draggable={!renaming}
       onClick={renaming ? undefined : onClick}
       onDragStart={(e) => { e.dataTransfer.setData("entryId", String(entry.id)); onDragStart(entry.id); }}
       className={`flex items-center gap-2 py-1 select-none border-b border-gray-100 transition-opacity group ${
-        isDragging ? "opacity-40 cursor-grabbing" : renaming ? "bg-white" : selected ? "bg-[#CCF2FF] cursor-pointer" : "hover:bg-white cursor-pointer"
+        isDragging ? "opacity-40 cursor-grabbing" : renaming ? "bg-white" : multiSelected ? "bg-red-100 cursor-pointer" : selected ? "bg-[#CCF2FF] cursor-pointer" : "hover:bg-white cursor-pointer"
       }`}
       style={{ paddingLeft: `${8 + depth * 16 + 20}px`, paddingRight: "8px" }}
     >
@@ -120,6 +123,7 @@ function FolderNode({
   tree,
   entries,
   selectedEntry,
+  selectedIds,
   onSelectEntry,
   onRename,
   onDelete,
@@ -135,6 +139,7 @@ function FolderNode({
   tree: Map<number | null, Folder[]>;
   entries: KnowledgeDetail[];
   selectedEntry: KnowledgeDetail | null;
+  selectedIds: Set<number>;
   onSelectEntry: (e: KnowledgeDetail) => void;
   onRename: (id: number, name: string) => void;
   onDelete: (id: number) => void;
@@ -229,6 +234,7 @@ function FolderNode({
               tree={tree}
               entries={entries}
               selectedEntry={selectedEntry}
+              selectedIds={selectedIds}
               onSelectEntry={onSelectEntry}
               onRename={onRename}
               onDelete={onDelete}
@@ -261,7 +267,7 @@ function FolderNode({
           )}
           {/* Files in this folder */}
           {folderFiles.map((e) => (
-            <FileRow key={e.id} entry={e} selected={selectedEntry?.id === e.id} depth={depth} onClick={() => onSelectEntry(e)} onDragStart={onDragStart} isDragging={draggingEntryId === e.id} onRenameEntry={onRenameEntry} onDeleteEntry={onDeleteEntry} />
+            <FileRow key={e.id} entry={e} selected={selectedEntry?.id === e.id} multiSelected={selectedIds.has(e.id)} depth={depth} onClick={() => onSelectEntry(e)} onDragStart={onDragStart} isDragging={draggingEntryId === e.id} onRenameEntry={onRenameEntry} onDeleteEntry={onDeleteEntry} />
           ))}
         </>
       )}
@@ -388,6 +394,12 @@ function FileManagerTab() {
   const [rootDropTarget, setRootDropTarget] = useState(false);
   const [pendingFiles, setPendingFiles] = useState<string[]>([]);
 
+  // ── Lasso selection ──────────────────────────────────────────────────────────
+  const treeRef = useRef<HTMLDivElement>(null);
+  const [lasso, setLasso] = useState<{ x1: number; y1: number; x2: number; y2: number } | null>(null);
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const lassoStart = useRef<{ x: number; y: number } | null>(null);
+
   const handleSelectEntry = useCallback(async (e: KnowledgeDetail) => {
     setSelectedEntry(e); // 先显示截断版（即时响应）
     try {
@@ -415,6 +427,50 @@ function FileManagerTab() {
   }, []);
 
   useEffect(() => { fetchAll(); }, [fetchAll]);
+
+  // ── Lasso mouse handlers ─────────────────────────────────────────────────────
+  function handleTreeMouseDown(e: React.MouseEvent<HTMLDivElement>) {
+    if (e.button !== 0) return;
+    // Only start lasso on the tree background, not on file/folder rows
+    const target = e.target as HTMLElement;
+    if (target.closest("[data-entry-id]") || target.closest("button") || target.closest("input")) return;
+    lassoStart.current = { x: e.clientX, y: e.clientY };
+    setLasso({ x1: e.clientX, y1: e.clientY, x2: e.clientX, y2: e.clientY });
+    setSelectedIds(new Set());
+  }
+
+  function handleTreeMouseMove(e: React.MouseEvent<HTMLDivElement>) {
+    if (!lassoStart.current) return;
+    const rect = { x1: Math.min(lassoStart.current.x, e.clientX), y1: Math.min(lassoStart.current.y, e.clientY), x2: Math.max(lassoStart.current.x, e.clientX), y2: Math.max(lassoStart.current.y, e.clientY) };
+    setLasso(rect);
+
+    if (!treeRef.current) return;
+    const newIds = new Set<number>();
+    treeRef.current.querySelectorAll<HTMLElement>("[data-entry-id]").forEach((el) => {
+      const b = el.getBoundingClientRect();
+      if (b.left < rect.x2 && b.right > rect.x1 && b.top < rect.y2 && b.bottom > rect.y1) {
+        const id = parseInt(el.dataset.entryId!);
+        if (!isNaN(id)) newIds.add(id);
+      }
+    });
+    setSelectedIds(newIds);
+  }
+
+  function handleTreeMouseUp() {
+    lassoStart.current = null;
+    setLasso(null);
+  }
+
+  async function handleBatchDelete() {
+    if (selectedIds.size === 0) return;
+    if (!confirm(`确认删除选中的 ${selectedIds.size} 个文件？`)) return;
+    for (const id of selectedIds) {
+      await apiFetch(`/knowledge/${id}`, { method: "DELETE" });
+    }
+    setSelectedIds(new Set());
+    setSelectedEntry((prev) => prev && selectedIds.has(prev.id) ? null : prev);
+    fetchAll();
+  }
 
   const tree = buildTree(folders);
   // files with no folder (root-level)
@@ -520,6 +576,14 @@ function FileManagerTab() {
             {uploading ? "上传中..." : "知识文件"}
           </span>
           <div className="flex items-center gap-1.5">
+            {selectedIds.size > 0 && (
+              <button
+                onClick={handleBatchDelete}
+                className="flex items-center gap-1 px-2 py-1 border-2 border-red-400 bg-red-50 text-red-500 text-[9px] font-bold uppercase tracking-widest hover:bg-red-400 hover:text-white transition-colors"
+              >
+                删除 {selectedIds.size} 个
+              </button>
+            )}
             <label className="cursor-pointer">
               <input type="file" multiple className="hidden" onChange={(e) => handleUploadFiles(e.target.files ?? [])} />
               <span className="flex items-center gap-1 px-2 py-1 border-2 border-[#1A202C] bg-white text-[9px] font-bold uppercase tracking-widest hover:bg-[#00D1FF] hover:border-[#00D1FF] transition-colors">
@@ -543,7 +607,28 @@ function FileManagerTab() {
         )}
 
         {/* Tree body */}
-        <div className="flex-1 overflow-y-auto">
+        <div
+          ref={treeRef}
+          className="flex-1 overflow-y-auto relative"
+          onMouseDown={handleTreeMouseDown}
+          onMouseMove={handleTreeMouseMove}
+          onMouseUp={handleTreeMouseUp}
+          onMouseLeave={handleTreeMouseUp}
+        >
+          {/* Lasso rect */}
+          {lasso && (
+            <div
+              className="fixed border border-[#00D1FF] bg-[#00D1FF]/10 pointer-events-none z-50"
+              style={{
+                left: Math.min(lasso.x1, lasso.x2),
+                top: Math.min(lasso.y1, lasso.y2),
+                width: Math.abs(lasso.x2 - lasso.x1),
+                height: Math.abs(lasso.y2 - lasso.y1),
+              }}
+            />
+          )}
+          {/* inner wrapper needed to close the extra div */}
+          <div>
           {loading ? (
             <div className="text-[9px] text-gray-400 px-3 py-4">Loading...</div>
           ) : (
@@ -572,6 +657,7 @@ function FileManagerTab() {
                   tree={tree}
                   entries={entries}
                   selectedEntry={selectedEntry}
+                  selectedIds={selectedIds}
                   onSelectEntry={handleSelectEntry}
                   onRename={handleRename}
                   onDelete={handleDelete}
@@ -603,7 +689,7 @@ function FileManagerTab() {
                   </div>
                 )}
                 {rootFiles.map((e) => (
-                  <FileRow key={e.id} entry={e} selected={selectedEntry?.id === e.id} depth={0} onClick={() => handleSelectEntry(e)} onDragStart={setDraggingEntryId} isDragging={draggingEntryId === e.id} onRenameEntry={handleRenameEntry} onDeleteEntry={handleDeleteEntry} />
+                  <FileRow key={e.id} entry={e} selected={selectedEntry?.id === e.id} multiSelected={selectedIds.has(e.id)} depth={0} onClick={() => handleSelectEntry(e)} onDragStart={setDraggingEntryId} isDragging={draggingEntryId === e.id} onRenameEntry={handleRenameEntry} onDeleteEntry={handleDeleteEntry} />
                 ))}
               </div>
 
@@ -627,6 +713,7 @@ function FileManagerTab() {
               )}
             </>
           )}
+          </div>{/* inner wrapper */}
         </div>
       </div>
 

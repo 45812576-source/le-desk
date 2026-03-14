@@ -148,4 +148,24 @@ export const ICONS = {
     pattern: [".C.....", "..CC...", "...CCC.", "....CC.", "...CCC.", "..CC...", "..C....", "......."],
     colors: { C: "#00A3C4" },
   },
+  approvals: {
+    pattern: ["OOOOOOO", "OWWWWWO", "OW.G.WO", "OW.G.WO", "OWGGGWO", "OW...WO", "OOOOOOO", "......."],
+    colors: { O: "#D69E2E", W: "#FEFCBF", G: "#38A169" },
+  },
+  skillPolicy: {
+    pattern: ["CCCCCCC", "C.....C", "C.CCC.C", "C.C.C.C", "C.CCC.C", "C.....C", "CCCCCCC", "......."],
+    colors: { C: "#00A3C4" },
+  },
+  maskConfig: {
+    pattern: ["RRRRRRR", "RW...WR", "RWR.RWR", "RWR.RWR", "RW...WR", "RW...WR", "RRRRRRR", "......."],
+    colors: { R: "#805AD5", W: "#E9D8FD" },
+  },
+  outputSchema: {
+    pattern: ["GGGGGGG", "G.....G", "GW...WG", "GWWWWWG", "GW...WG", "G.....G", "GGGGGGG", "......."],
+    colors: { G: "#319795", W: "#B2F5EA" },
+  },
+  devStudio: {
+    pattern: ["PPPPPPP", "P.....P", "PP.P..P", "P.PPP.P", "P..PP.P", "P.....P", "PPPPPPP", "......."],
+    colors: { P: "#6B46C1" },
+  },
 } as const;

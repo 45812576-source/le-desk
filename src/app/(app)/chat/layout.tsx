@@ -180,32 +180,46 @@ function WorkspacePicker({
             </div>
           </button>
 
-          {workspaces.map((ws) => (
-            <button
-              key={ws.id}
-              onClick={() => onSelect(ws.id)}
-              className="w-full text-left px-3 py-2.5 border-2 border-[#1A202C] hover:bg-[#CCF2FF] transition-colors flex items-center gap-3"
-            >
-              <div
-                className="w-7 h-7 flex-shrink-0 border-2 border-[#1A202C] flex items-center justify-center"
-                style={{ backgroundColor: ws.color }}
+          {workspaces.map((ws) => {
+            const isOpencode = ws.workspace_type === "opencode";
+            return (
+              <button
+                key={ws.id}
+                onClick={() => onSelect(ws.id)}
+                className={`w-full text-left px-3 py-2.5 border-2 transition-colors flex items-center gap-3 ${
+                  isOpencode
+                    ? "border-[#6B46C1] hover:bg-[#6B46C1]/10"
+                    : "border-[#1A202C] hover:bg-[#CCF2FF]"
+                }`}
               >
-                <span className="text-[10px] font-bold text-white">
-                  {ws.icon?.slice(0, 2).toUpperCase() || ws.name[0]}
-                </span>
-              </div>
-              <div className="min-w-0">
-                <div className="text-[10px] font-bold uppercase tracking-wide truncate">
-                  {ws.name}
+                <div
+                  className="w-7 h-7 flex-shrink-0 border-2 border-[#1A202C] flex items-center justify-center"
+                  style={{ backgroundColor: ws.color }}
+                >
+                  <span className="text-[10px] font-bold text-white">
+                    {ws.icon?.slice(0, 2).toUpperCase() || ws.name[0]}
+                  </span>
                 </div>
-                {ws.description && (
-                  <div className="text-[9px] text-gray-400 truncate">
-                    {ws.description}
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2">
+                    <div className="text-[10px] font-bold uppercase tracking-wide truncate">
+                      {ws.name}
+                    </div>
+                    {isOpencode && (
+                      <span className="text-[8px] font-bold px-1 border border-[#6B46C1] text-[#6B46C1] flex-shrink-0">
+                        DEV
+                      </span>
+                    )}
                   </div>
-                )}
-              </div>
-            </button>
-          ))}
+                  {ws.description && (
+                    <div className="text-[9px] text-gray-400 truncate">
+                      {ws.description}
+                    </div>
+                  )}
+                </div>
+              </button>
+            );
+          })}
 
           {workspaces.length === 0 && (
             <div className="py-6 text-center text-[9px] text-gray-400 font-bold uppercase tracking-widest">

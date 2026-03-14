@@ -9,6 +9,7 @@ import type { ConnectionState } from "@/lib/connection";
 import type { ContentBlock } from "@/lib/types";
 import { MessageBubble } from "@/components/chat/MessageBubble";
 import { ChatInput } from "@/components/chat/ChatInput";
+import { DevStudio } from "@/components/chat/DevStudio";
 
 const STAGE_LABELS: Record<string, string> = {
   preparing: "匹配 Skill & 组装上下文...",
@@ -17,7 +18,16 @@ const STAGE_LABELS: Record<string, string> = {
   uploading: "上传文件中...",
   parsing: "解析文件内容...",
   summarizing: "生成 FOE 结构化摘要...",
+  pev_start: "分析任务复杂度...",
+  replanning: "重新规划中...",
 };
+
+function _parsePevStage(stage: string | null): string {
+  if (!stage) return "思考中...";
+  if (stage.startsWith("executing:")) return `执行：${stage.slice(10)}`;
+  if (stage.startsWith("retrying:")) return `重试：${stage.slice(9)}`;
+  return STAGE_LABELS[stage] || "思考中...";
+}
 
 const FILE_STAGES: { minSec: number; label: string }[] = [
   { minSec: 0,  label: "解析文件中..." },
@@ -47,7 +57,7 @@ function StatusIndicator({ stage, isFileUpload }: { stage: string | null; isFile
   if (isFileUpload) {
     label = [...FILE_STAGES].reverse().find((s) => elapsed >= s.minSec)?.label ?? FILE_STAGES[0].label;
   } else {
-    label = (stage && STAGE_LABELS[stage]) || "思考中...";
+    label = _parsePevStage(stage);
   }
 
   return (
@@ -106,7 +116,7 @@ function StreamingBlocksBubble({ blocks }: { blocks: ContentBlock[] }) {
     <div className="flex justify-start mb-3">
       <div className="max-w-[75%]">
         <div className="px-4 py-3 bg-white border-2 border-[#1A202C] text-[#1A202C]">
-          {blocks.map((block, i) => {
+          {blocks.filter((b): b is ContentBlock => b != null).map((block, i) => {
             if (block.type === "text") {
               return (
                 <div key={i}>
@@ -171,6 +181,8 @@ export default function ChatDetailPage() {
 
   // UI-only state
   const [loading, setLoading] = useState(true);
+  const [isOpencode, setIsOpencode] = useState(false);
+  const [opencodeWorkspaceId, setOpencodeWorkspaceId] = useState<number | null>(null);
   const [isDragOver, setIsDragOver] = useState(false);
   const [quote, setQuote] = useState<string | null>(null);
   const [prefill, setPrefill] = useState<string | null>(null);
@@ -192,7 +204,12 @@ export default function ChatDetailPage() {
       .then(async (convs) => {
         const conv = convs.find((c) => c.id === convId);
         if (!conv?.workspace_id) return;
-        const ws = await apiFetch<{ skills: { id: number; name: string; description?: string }[]; tools: { id: number; name: string; display_name: string; description?: string; tool_type?: string }[] }>(`/workspaces/${conv.workspace_id}`);
+        const ws = await apiFetch<{ workspace_type?: string; skills: { id: number; name: string; description?: string }[]; tools: { id: number; name: string; display_name: string; description?: string; tool_type?: string }[] }>(`/workspaces/${conv.workspace_id}`);
+        if (ws.workspace_type === "opencode") {
+          setIsOpencode(true);
+          setOpencodeWorkspaceId(conv.workspace_id);
+          return;
+        }
         setWorkspaceSkills(ws.skills ?? []);
         setWorkspaceTools(ws.tools ?? []);
         if (conv.skill_id) {
@@ -203,15 +220,10 @@ export default function ChatDetailPage() {
       .catch(() => {});
   }, [convId]);
 
-  // Load messages via store
+  // Load messages via store (cache preserved across navigation)
   useEffect(() => {
     setLoading(true);
-    // Force reload by clearing cache first
-    const store = useChatStore.getState();
-    const next = new Map(store.messagesMap);
-    next.delete(convId);
-    useChatStore.setState({ messagesMap: next });
-    store.loadMessages(convId).finally(() => setLoading(false));
+    useChatStore.getState().loadMessages(convId).finally(() => setLoading(false));
   }, [convId]);
 
   // Auto-scroll
@@ -283,6 +295,10 @@ export default function ChatDetailPage() {
         </div>
       </div>
     );
+  }
+
+  if (isOpencode) {
+    return <DevStudio convId={convId} workspaceId={opencodeWorkspaceId ?? undefined} />;
   }
 
   return (

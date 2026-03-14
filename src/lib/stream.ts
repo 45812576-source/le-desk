@@ -18,7 +18,15 @@ export type StreamEventType =
   | "content_block_stop"
   | "round_start"
   | "tool_progress"
-  | "round_end";
+  | "round_end"
+  | "pev_start"
+  | "pev_plan_ready"
+  | "pev_step_start"
+  | "pev_step_retry"
+  | "pev_step_result"
+  | "pev_replan"
+  | "pev_done"
+  | "pev_error";
 
 export interface StreamEvent {
   type: StreamEventType;
@@ -60,6 +68,11 @@ export async function* streamChat(
 
   if (!resp.ok) {
     const text = await resp.text().catch(() => "");
+    if (resp.status === 401) {
+      localStorage.removeItem("token");
+      window.location.href = "/login";
+      return;
+    }
     yield {
       type: "error",
       data: { message: `HTTP ${resp.status}: ${text}` },
@@ -134,6 +147,11 @@ export async function* streamUpload(
 
   if (!resp.ok) {
     const text = await resp.text().catch(() => "");
+    if (resp.status === 401) {
+      localStorage.removeItem("token");
+      window.location.href = "/login";
+      return;
+    }
     yield {
       type: "error",
       data: { message: `HTTP ${resp.status}: ${text}` },
@@ -240,10 +258,11 @@ export function finalizeBlock(
 
 export function blocksToPlainText(blocks: ContentBlock[]): string {
   return blocks
+    .filter((b): b is ContentBlock => b != null)
     .map((b) => {
       if (b.type === "text") return b.text;
       if (b.type === "thinking") return "";
-      if (b.type === "tool_call") return `[工具调用: ${b.tool}]`;
+      // tool_call/tool_result blocks are not plain text
       return "";
     })
     .join("")
