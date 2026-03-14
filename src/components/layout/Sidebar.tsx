@@ -184,6 +184,12 @@ export function Sidebar({ user, taskPending = 0, onLogout }: SidebarProps) {
               collapsed={collapsed}
               badge={taskPending}
             />
+            <NavItem
+              href="/dev-studio"
+              label="工具开发"
+              icon={ICONS.devStudio}
+              collapsed={collapsed}
+            />
           </NavGroup>
 
           <NavGroup
@@ -218,86 +224,133 @@ export function Sidebar({ user, taskPending = 0, onLogout }: SidebarProps) {
           </NavGroup>
 
           {isAdmin && (
-            <NavGroup
-              label="管理"
-              storageKey="nav_group_admin"
-              collapsed={collapsed}
-            >
-              <NavItem
-                href="/admin/knowledge"
-                label="知识审核"
-                icon={ICONS.review}
+            <>
+              <NavGroup
+                label="内容管理"
+                storageKey="nav_group_admin_content"
                 collapsed={collapsed}
-              />
-              <NavItem
-                href="/admin/skills"
-                label="Skill管理"
-                icon={ICONS.skillsAdmin}
-                collapsed={collapsed}
-              />
-              <NavItem
-                href="/admin/models"
-                label="模型配置"
-                icon={ICONS.models}
-                collapsed={collapsed}
-              />
-              <NavItem
-                href="/admin/business-tables"
-                label="业务表管理"
-                icon={ICONS.bizTable}
-                collapsed={collapsed}
-              />
-              <NavItem
-                href="/admin/tools"
-                label="工具管理"
-                icon={ICONS.tools}
-                collapsed={collapsed}
-              />
-              <NavItem
-                href="/admin/skill-market"
-                label="外部市场"
-                icon={ICONS.skillMarket}
-                collapsed={collapsed}
-              />
-              <NavItem
-                href="/admin/mcp-tokens"
-                label="MCP Token"
-                icon={ICONS.mcpToken}
-                collapsed={collapsed}
-              />
-              <NavItem
-                href="/admin/intel"
-                label="情报管理"
-                icon={ICONS.intelAdmin}
-                collapsed={collapsed}
-              />
-              <NavItem
-                href="/admin/workspaces"
-                label="工作台管理"
-                icon={ICONS.workspaceAdmin}
-                collapsed={collapsed}
-              />
-              <NavItem
-                href="/admin/audit"
-                label="操作审计"
-                icon={ICONS.audit}
-                collapsed={collapsed}
-              />
-              <NavItem
-                href="/admin/contributions"
-                label="贡献排行"
-                icon={ICONS.contrib}
-                collapsed={collapsed}
-              />
-              {isSuperAdmin && (
+              >
                 <NavItem
-                  href="/admin/users"
-                  label="用户管理"
-                  icon={ICONS.users}
+                  href="/admin/knowledge"
+                  label="知识审核"
+                  icon={ICONS.review}
                   collapsed={collapsed}
                 />
-              )}
-            </NavGroup>
+                <NavItem
+                  href="/admin/skills"
+                  label="Skill管理"
+                  icon={ICONS.skillsAdmin}
+                  collapsed={collapsed}
+                />
+                <NavItem
+                  href="/admin/business-tables"
+                  label="业务表管理"
+                  icon={ICONS.bizTable}
+                  collapsed={collapsed}
+                />
+                <NavItem
+                  href="/admin/workspaces"
+                  label="工作台管理"
+                  icon={ICONS.workspaceAdmin}
+                  collapsed={collapsed}
+                />
+              </NavGroup>
+
+              <NavGroup
+                label="AI 配置"
+                storageKey="nav_group_admin_ai"
+                collapsed={collapsed}
+              >
+                <NavItem
+                  href="/admin/models"
+                  label="模型配置"
+                  icon={ICONS.models}
+                  collapsed={collapsed}
+                />
+                <NavItem
+                  href="/admin/tools"
+                  label="工具管理"
+                  icon={ICONS.tools}
+                  collapsed={collapsed}
+                />
+                <NavItem
+                  href="/admin/skill-market"
+                  label="外部市场"
+                  icon={ICONS.skillMarket}
+                  collapsed={collapsed}
+                />
+                <NavItem
+                  href="/admin/mcp-tokens"
+                  label="MCP Token"
+                  icon={ICONS.mcpToken}
+                  collapsed={collapsed}
+                />
+                <NavItem
+                  href="/admin/intel"
+                  label="情报管理"
+                  icon={ICONS.intelAdmin}
+                  collapsed={collapsed}
+                />
+              </NavGroup>
+
+              <NavGroup
+                label="权限安全"
+                storageKey="nav_group_admin_perm"
+                collapsed={collapsed}
+              >
+                <NavItem
+                  href="/admin/approvals"
+                  label="审批管理"
+                  icon={ICONS.approvals}
+                  collapsed={collapsed}
+                />
+                <NavItem
+                  href="/admin/skill-policies"
+                  label="Skill策略"
+                  icon={ICONS.skillPolicy}
+                  collapsed={collapsed}
+                />
+                <NavItem
+                  href="/admin/mask-config"
+                  label="脱敏配置"
+                  icon={ICONS.maskConfig}
+                  collapsed={collapsed}
+                />
+                <NavItem
+                  href="/admin/output-schemas"
+                  label="输出Schema"
+                  icon={ICONS.outputSchema}
+                  collapsed={collapsed}
+                />
+              </NavGroup>
+
+              <NavGroup
+                label="系统运营"
+                storageKey="nav_group_admin_ops"
+                collapsed={collapsed}
+              >
+                <NavItem
+                  href="/admin/contributions"
+                  label="贡献排行"
+                  icon={ICONS.contrib}
+                  collapsed={collapsed}
+                />
+                <NavItem
+                  href="/admin/audit"
+                  label="操作审计"
+                  icon={ICONS.audit}
+                  collapsed={collapsed}
+                />
+                {isSuperAdmin && (
+                  <NavItem
+                    href="/admin/users"
+                    label="用户管理"
+                    icon={ICONS.users}
+                    collapsed={collapsed}
+                  />
+                )}
+              </NavGroup>
+            </>
           )}
         </nav>
       </div>

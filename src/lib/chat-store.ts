@@ -391,6 +391,57 @@ export const useChatStore = create<ChatStore>((set, get) => ({
             // Round finished, has_next indicates more rounds coming
             break;
 
+          case "pev_start":
+            set({ streamStage: "pev_start" });
+            break;
+
+          case "pev_plan_ready": {
+            const steps = event.data.steps as Array<{ step_key: string; description: string }> | undefined;
+            const planText = steps
+              ? steps.map((s, i) => `${i + 1}. ${s.description || s.step_key}`).join("\n")
+              : "";
+            accumulated = `**执行计划（${event.data.step_count ?? 0} 步）**\n\n${planText}`;
+            set({ streamingText: accumulated, streamStage: null });
+            break;
+          }
+
+          case "pev_step_start": {
+            const desc = (event.data.description as string) || (event.data.step_key as string);
+            set({ streamStage: `executing:${desc}` });
+            break;
+          }
+
+          case "pev_step_retry":
+            set({ streamStage: `retrying:${event.data.step_key}` });
+            break;
+
+          case "pev_step_result":
+            // step 结果不单独展示，等 pev_done 汇总
+            break;
+
+          case "pev_replan":
+            set({ streamStage: "replanning" });
+            break;
+
+          case "pev_done": {
+            const summary = (event.data.summary as string) || "";
+            if (summary) {
+              accumulated = summary;
+              set({ streamingText: accumulated, streamStage: null });
+            }
+            break;
+          }
+
+          case "pev_error": {
+            set({
+              streamError: {
+                type: "server_error",
+                message: (event.data.message as string) || "任务执行失败",
+              },
+            });
+            break;
+          }
+
           case "done":
             finalMessageId = event.data.message_id as number;
             finalMetadata = (event.data.metadata as Record<string, unknown>) ?? {};

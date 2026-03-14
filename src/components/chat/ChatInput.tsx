@@ -312,7 +312,7 @@ export function ChatInput({ onSend, disabled, quote, onClearQuote, workspaceSkil
       }
     }
 
-    if (e.key === "Enter" && !e.shiftKey) {
+    if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
       e.preventDefault();
       handleSubmit(e);
     }
@@ -577,7 +577,7 @@ export function ChatInput({ onSend, disabled, quote, onClearQuote, workspaceSkil
           onChange={handleChange}
           onKeyDown={handleKeyDown}
           onInput={handleInput}
-          placeholder={localSubmitting ? "正在获取知识摘要..." : file ? "补充说明（可选），Enter 发送" : "输入消息，@ 引用知识库，Enter 发送"}
+          placeholder={localSubmitting ? "正在获取知识摘要..." : file ? "补充说明（可选）" : "输入消息，@ 引用知识库，Enter 换行，Ctrl+Enter 发送"}
           rows={1}
           disabled={isBlocked}
           className="w-full border-2 border-[#1A202C] px-3 py-2 text-xs font-bold resize-none focus:outline-none focus:border-[#00D1FF] disabled:opacity-40"

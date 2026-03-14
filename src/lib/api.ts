@@ -37,6 +37,11 @@ export async function apiFetch<T = unknown>(
   });
 
   if (!res.ok) {
+    if (res.status === 401) {
+      localStorage.removeItem("token");
+      window.location.href = "/login";
+      throw new ApiError(401, "Invalid or expired token");
+    }
     const text = await res.text().catch(() => "");
     let message = `HTTP ${res.status}`;
     try {

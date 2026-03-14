@@ -22,6 +22,141 @@ const STATUS_COLOR: Record<string, string> = {
   archived: "#718096",
 };
 
+const HANDOFF_LABEL: Record<string, string> = {
+  none: "未提交",
+  submitted: "已提交",
+  accepted: "已接受",
+};
+
+const HANDOFF_COLOR: Record<string, string> = {
+  none: "#A0AEC0",
+  submitted: "#D97706",
+  accepted: "#00CC99",
+};
+
+interface HandoffData {
+  handoff_status: "none" | "submitted" | "accepted";
+  requirements: string | null;
+  acceptance_criteria: string | null;
+  handoff_at: string | null;
+}
+
+function HandoffCard({ projectId, onHandoffComplete }: { projectId: string; onHandoffComplete: () => void }) {
+  const [data, setData] = useState<HandoffData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState("");
+  const [expanded, setExpanded] = useState(false);
+
+  function loadHandoff() {
+    return apiFetch<HandoffData>(`/projects/${projectId}/handoff`)
+      .then(setData)
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }
+
+  useEffect(() => {
+    loadHandoff();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projectId]);
+
+  async function handleSubmitHandoff() {
+    setSubmitting(true);
+    setError("");
+    try {
+      const result = await apiFetch<HandoffData>(`/projects/${projectId}/handoff`, { method: "POST" });
+      setData({ ...result, handoff_status: "submitted", handoff_at: new Date().toISOString() });
+      setExpanded(true);
+      onHandoffComplete();
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "提取失败");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  if (loading) return null;
+
+  const status = data?.handoff_status || "none";
+
+  return (
+    <div className="border-2 border-[#6B46C1] bg-white p-4">
+      <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center gap-2">
+          <div className="w-2 h-2 bg-[#6B46C1]" />
+          <span className="text-[9px] font-bold uppercase tracking-widest text-[#6B46C1]">
+            需求交接
+          </span>
+          <span
+            className="text-[8px] font-bold px-1.5 py-0.5 border"
+            style={{ color: HANDOFF_COLOR[status], borderColor: HANDOFF_COLOR[status] }}
+          >
+            {HANDOFF_LABEL[status]}
+          </span>
+          {data?.handoff_at && (
+            <span className="text-[8px] text-gray-400">
+              {data.handoff_at.slice(0, 16).replace("T", " ")}
+            </span>
+          )}
+        </div>
+        <button
+          onClick={handleSubmitHandoff}
+          disabled={submitting}
+          className="px-3 py-1 text-[9px] font-bold uppercase border-2 border-[#6B46C1] text-[#6B46C1] hover:bg-[#6B46C1]/10 disabled:opacity-50 transition-colors"
+        >
+          {submitting ? "提取中..." : "提取需求并推送给研发"}
+        </button>
+      </div>
+
+      {error && (
+        <div className="text-[9px] font-bold text-red-500 border border-red-200 px-3 py-1.5 bg-red-50 mb-3">
+          {error}
+        </div>
+      )}
+
+      {status !== "none" && data?.requirements && (
+        <div className="flex flex-col gap-2">
+          <button
+            type="button"
+            onClick={() => setExpanded(!expanded)}
+            className="text-[9px] font-bold text-gray-400 text-left hover:text-gray-600 transition-colors"
+          >
+            {expanded ? "▾ 收起需求详情" : "▸ 展开需求详情"}
+          </button>
+          {expanded && (
+            <div className="flex flex-col gap-3">
+              <div className="bg-[#F0F4F8] p-3">
+                <div className="text-[8px] font-bold uppercase tracking-widest text-[#6B46C1] mb-2">
+                  功能需求
+                </div>
+                <pre className="text-[10px] text-gray-700 whitespace-pre-wrap leading-relaxed font-sans">
+                  {data.requirements}
+                </pre>
+              </div>
+              {data.acceptance_criteria && (
+                <div className="bg-[#F0F4F8] p-3">
+                  <div className="text-[8px] font-bold uppercase tracking-widest text-[#00CC99] mb-2">
+                    验收标准
+                  </div>
+                  <pre className="text-[10px] text-gray-700 whitespace-pre-wrap leading-relaxed font-sans">
+                    {data.acceptance_criteria}
+                  </pre>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {status === "none" && (
+        <p className="text-[9px] text-gray-400 leading-relaxed">
+          在需求方 Chat workspace 中与 AI 充分讨论需求后，点击上方按钮提取结构化需求并推送给研发。
+        </p>
+      )}
+    </div>
+  );
+}
+
 export default function ProjectDetailPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
@@ -77,12 +212,25 @@ export default function ProjectDetailPage() {
 
   if (!project) return null;
 
+  const isDev = project.project_type === "dev";
+
   const contextMap: Record<number, ProjectContext> = {};
   for (const ctx of project.contexts || []) {
     contextMap[ctx.workspace_id] = ctx;
   }
 
   const isActive = project.status === "active";
+
+  // dev 项目：区分 chat/opencode workspace
+  const chatMember = isDev
+    ? (project.members || []).find((m) => {
+        // 按 role_desc 判断，或按 workspace_type（如有）
+        return m.role_desc === "需求定义";
+      })
+    : null;
+  const devMember = isDev
+    ? (project.members || []).find((m) => m.role_desc === "代码实施")
+    : null;
 
   return (
     <PageShell
@@ -106,13 +254,15 @@ export default function ProjectDetailPage() {
           )}
           {isActive && (
             <>
-              <button
-                onClick={handleSync}
-                disabled={syncing}
-                className="px-3 py-1.5 text-[10px] font-bold uppercase border-2 border-[#00A3C4] text-[#00A3C4] hover:bg-[#CCF2FF] disabled:opacity-50 transition-colors"
-              >
-                {syncing ? "同步中..." : "同步进展"}
-              </button>
+              {!isDev && (
+                <button
+                  onClick={handleSync}
+                  disabled={syncing}
+                  className="px-3 py-1.5 text-[10px] font-bold uppercase border-2 border-[#00A3C4] text-[#00A3C4] hover:bg-[#CCF2FF] disabled:opacity-50 transition-colors"
+                >
+                  {syncing ? "同步中..." : "同步进展"}
+                </button>
+              )}
               <button
                 onClick={handleComplete}
                 disabled={completing}
@@ -138,6 +288,11 @@ export default function ProjectDetailPage() {
             <div>
               <div className="flex items-center gap-2">
                 <h2 className="text-[13px] font-bold text-[#1A202C]">{project.name}</h2>
+                {isDev && (
+                  <span className="text-[8px] font-bold px-1.5 py-0.5 bg-[#6B46C1] text-white">
+                    DEV
+                  </span>
+                )}
                 <span
                   className="text-[8px] font-bold px-1.5 py-0.5 border"
                   style={{ color: STATUS_COLOR[project.status], borderColor: STATUS_COLOR[project.status] }}
@@ -157,6 +312,11 @@ export default function ProjectDetailPage() {
           )}
         </div>
 
+        {/* dev 项目：需求交接卡片（插在两个 workspace 之间） */}
+        {isDev && isActive && (
+          <HandoffCard projectId={id} onHandoffComplete={loadProject} />
+        )}
+
         {/* 成员 Workspace 卡片 */}
         <div>
           <div className="text-[9px] font-bold uppercase tracking-widest text-[#00A3C4] mb-3">
@@ -166,7 +326,102 @@ export default function ProjectDetailPage() {
             <div className="text-[10px] text-gray-400 text-center py-8 border-2 border-dashed border-gray-300">
               暂无成员
             </div>
+          ) : isDev ? (
+            // dev 项目：单独渲染两个 workspace，有角色标识
+            <div className="grid grid-cols-2 gap-3">
+              {[chatMember, devMember].filter(Boolean).map((member) => {
+                if (!member) return null;
+                const isChatRole = member.role_desc === "需求定义";
+                const ctx = member.workspace_id ? contextMap[member.workspace_id] : null;
+                const wsHref = member.workspace_id
+                  ? isChatRole
+                    ? `/chat?workspace=${member.workspace_id}`
+                    : `/dev-studio?workspace=${member.workspace_id}`
+                  : null;
+
+                return (
+                  <div
+                    key={member.id}
+                    className={`border-2 bg-white p-4 ${isChatRole ? "border-[#00A3C4]" : "border-[#6B46C1]"}`}
+                  >
+                    <div className="flex items-start justify-between gap-2 mb-2">
+                      <div>
+                        <div className="flex items-center gap-1.5 mb-0.5">
+                          <span
+                            className={`text-[8px] font-bold px-1.5 py-0.5 text-white ${isChatRole ? "bg-[#00A3C4]" : "bg-[#6B46C1]"}`}
+                          >
+                            {isChatRole ? "需求方" : "开发方"}
+                          </span>
+                          <span className="text-[8px] text-gray-400">
+                            {isChatRole ? "Chat" : "OpenCode"}
+                          </span>
+                        </div>
+                        <div className="text-[11px] font-bold text-[#1A202C]">
+                          {member.display_name}
+                        </div>
+                      </div>
+                    </div>
+
+                    {ctx?.summary ? (
+                      <div className="bg-[#F0F4F8] p-2 mb-3">
+                        <div className="text-[8px] font-bold uppercase text-gray-400 mb-1">最新进展</div>
+                        <p className="text-[10px] text-gray-700 leading-relaxed line-clamp-3">
+                          {ctx.summary}
+                        </p>
+                      </div>
+                    ) : (
+                      <div className="bg-[#F0F4F8] p-2 mb-3 text-[10px] text-gray-400 text-center">
+                        暂无进展摘要
+                      </div>
+                    )}
+
+                    {wsHref ? (
+                      <Link
+                        href={wsHref}
+                        className={`block text-center text-[9px] font-bold uppercase border px-2 py-1.5 transition-colors ${
+                          isChatRole
+                            ? "border-[#00A3C4] text-[#00A3C4] hover:bg-[#CCF2FF]"
+                            : "border-[#6B46C1] text-[#6B46C1] hover:bg-[#6B46C1]/10"
+                        }`}
+                      >
+                        进入 Workspace →
+                      </Link>
+                    ) : (
+                      <div className="text-[9px] text-gray-400 text-center py-1">
+                        Workspace 待创建
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+              {/* 如果还有其他成员（防御性） */}
+              {(project.members || [])
+                .filter((m) => m.id !== chatMember?.id && m.id !== devMember?.id)
+                .map((member) => {
+                  const ctx = member.workspace_id ? contextMap[member.workspace_id] : null;
+                  return (
+                    <div key={member.id} className="border-2 border-[#1A202C] bg-white p-4">
+                      <div className="text-[11px] font-bold text-[#1A202C] mb-1">{member.display_name}</div>
+                      <div className="text-[9px] text-[#00A3C4] font-bold mb-2">{member.role_desc}</div>
+                      {ctx?.summary && (
+                        <div className="bg-[#F0F4F8] p-2 mb-3 text-[10px] text-gray-700 leading-relaxed line-clamp-3">
+                          {ctx.summary}
+                        </div>
+                      )}
+                      {member.workspace_id && (
+                        <Link
+                          href={`/chat?workspace=${member.workspace_id}`}
+                          className="block text-center text-[9px] font-bold uppercase border border-[#00A3C4] text-[#00A3C4] px-2 py-1.5 hover:bg-[#CCF2FF] transition-colors"
+                        >
+                          进入 Workspace →
+                        </Link>
+                      )}
+                    </div>
+                  );
+                })}
+            </div>
           ) : (
+            // custom 项目：原有渲染
             <div className="grid grid-cols-2 gap-3">
               {(project.members || []).map((member) => {
                 const ctx = member.workspace_id ? contextMap[member.workspace_id] : null;
@@ -192,7 +447,6 @@ export default function ProjectDetailPage() {
                       )}
                     </div>
 
-                    {/* 进度摘要 */}
                     {ctx?.summary ? (
                       <div className="bg-[#F0F4F8] p-2 mb-3">
                         <div className="text-[8px] font-bold uppercase text-gray-400 mb-1">最新进展</div>
@@ -209,7 +463,6 @@ export default function ProjectDetailPage() {
                       </div>
                     )}
 
-                    {/* 跳转到 workspace */}
                     {member.workspace_id ? (
                       <Link
                         href={`/chat?workspace=${member.workspace_id}`}

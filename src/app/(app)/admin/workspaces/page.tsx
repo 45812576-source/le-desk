@@ -46,6 +46,7 @@ interface WsDetail {
   system_context?: string;
   model_config_id?: number | null;
   sort_order: number;
+  workspace_type?: string;
   skills: { id: number; name: string; description: string; scope: string }[];
   tools: { id: number; name: string; display_name: string; description: string; tool_type: string }[];
 }
@@ -58,6 +59,7 @@ interface WsSummary {
   color: string;
   category: string;
   status: string;
+  workspace_type?: string;
 }
 
 // ─── Constants ───────────────────────────────────────────────────────────────
@@ -196,6 +198,7 @@ export default function AdminWorkspacesPage() {
   const [editWelcome, setEditWelcome] = useState("");
   const [editContext, setEditContext] = useState("");
   const [editModelConfigId, setEditModelConfigId] = useState<number | null>(null);
+  const [editWorkspaceType, setEditWorkspaceType] = useState<string>("chat");
   const [editSkillIds, setEditSkillIds] = useState<Set<number>>(new Set());
   const [editToolIds, setEditToolIds] = useState<Set<number>>(new Set());
 
@@ -238,6 +241,7 @@ export default function AdminWorkspacesPage() {
       setEditWelcome(ws.welcome_message || "");
       setEditContext(ws.system_context || "");
       setEditModelConfigId(ws.model_config_id ?? null);
+      setEditWorkspaceType(ws.workspace_type || "chat");
       setEditSkillIds(new Set(ws.skills.map((s) => s.id)));
       setEditToolIds(new Set(ws.tools.map((t) => t.id)));
     } finally {
@@ -309,6 +313,7 @@ export default function AdminWorkspacesPage() {
           welcome_message: editWelcome,
           system_context: editContext || null,
           model_config_id: editModelConfigId,
+          workspace_type: editWorkspaceType,
         }),
       });
       await Promise.all([
@@ -422,6 +427,9 @@ export default function AdminWorkspacesPage() {
                       style={{ backgroundColor: ws.color }}
                     />
                     <span className="text-[10px] font-bold truncate">{ws.name}</span>
+                    {ws.workspace_type === "opencode" && (
+                      <span className="text-[8px] font-bold px-1 border border-[#6B46C1] text-[#6B46C1] flex-shrink-0">DEV</span>
+                    )}
                   </div>
                   <div className="flex gap-1 flex-wrap">
                     <PixelBadge color={STATUS_COLOR[ws.status] || "gray"}>
@@ -498,6 +506,15 @@ export default function AdminWorkspacesPage() {
                     <PixelSelect value={editVisibility} onChange={(e) => setEditVisibility(e.target.value)}>
                       <option value="all">全员可见</option>
                       <option value="department">仅本部门</option>
+                    </PixelSelect>
+                  </div>
+                  <div>
+                    <label className="text-[9px] font-bold uppercase tracking-widest text-gray-500 block mb-1">
+                      工作台类型 <span className="text-gray-400 normal-case font-normal">（仅 Admin）</span>
+                    </label>
+                    <PixelSelect value={editWorkspaceType} onChange={(e) => setEditWorkspaceType(e.target.value)}>
+                      <option value="chat">Chat — 普通对话</option>
+                      <option value="opencode">OpenCode — 工具开发</option>
                     </PixelSelect>
                   </div>
                   <div>

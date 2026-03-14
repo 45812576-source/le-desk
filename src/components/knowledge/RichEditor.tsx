@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useRef } from "react";
+import { useCallback, useRef, useEffect } from "react";
 import { useEditor, EditorContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import { Table } from "@tiptap/extension-table";
@@ -57,6 +57,7 @@ export function RichEditor({ content, onChange, editable = true }: RichEditorPro
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const editor = useEditor({
+    immediatelyRender: false,
     extensions: [
       StarterKit.configure({ codeBlock: { HTMLAttributes: { class: "bg-gray-100 rounded p-2 font-mono text-xs" } } }),
       Underline,
@@ -72,7 +73,10 @@ export function RichEditor({ content, onChange, editable = true }: RichEditorPro
     ],
     content,
     editable,
-    onUpdate: ({ editor }) => onChange(editor.getHTML()),
+    onUpdate: ({ editor }) => {
+      const html = editor.getHTML();
+      setTimeout(() => onChange(html), 0);
+    },
     editorProps: {
       attributes: {
         class: "prose prose-sm max-w-none focus:outline-none min-h-[300px] px-5 py-4 text-[12px] leading-relaxed text-gray-700",

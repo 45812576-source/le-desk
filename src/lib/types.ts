@@ -2,8 +2,11 @@ export interface User {
   id: number;
   username: string;
   display_name: string;
-  role: "super_admin" | "dept_admin" | "user";
+  role: "super_admin" | "dept_admin" | "employee";
   department_id: number | null;
+  position_id: number | null;
+  report_to_id: number | null;
+  report_to_name: string | null;
   is_active: boolean;
   created_at: string;
 }
@@ -94,6 +97,7 @@ export interface Workspace {
   visibility: string;
   welcome_message: string;
   sort_order: number;
+  workspace_type?: "chat" | "opencode";
 }
 
 export interface TaskItem {
@@ -221,6 +225,7 @@ export interface WorkspaceEntry {
   welcome_message: string;
   sort_order: number;
   model_config_id: number | null;
+  workspace_type?: "chat" | "opencode";
   skills?: { id: number }[];
   tools?: { id: number }[];
   data_tables?: string[];
@@ -356,6 +361,10 @@ export interface ProjectContext {
   workspace_id: number;
   workspace_name: string | null;
   summary: string | null;
+  requirements: string | null;
+  acceptance_criteria: string | null;
+  handoff_status: "none" | "submitted" | "accepted";
+  handoff_at: string | null;
   updated_at: string;
 }
 
@@ -373,6 +382,7 @@ export interface Project {
   name: string;
   description: string | null;
   status: "draft" | "active" | "completed" | "archived";
+  project_type: "dev" | "custom";
   owner_id: number;
   owner_name: string | null;
   department_id: number | null;
