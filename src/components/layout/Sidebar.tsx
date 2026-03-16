@@ -379,12 +379,28 @@ export function Sidebar({ user, taskPending = 0, onLogout }: SidebarProps) {
           className={`${collapsed ? "p-1" : "px-3 pb-3"} flex flex-col gap-1`}
         >
           {!collapsed && (
-            <button
-              onClick={onLogout}
-              className="w-full text-left px-2 py-1.5 text-[10px] font-bold uppercase tracking-wide text-gray-500 hover:bg-white/60 border border-transparent hover:border-gray-400 transition-colors"
-            >
-              [退出登录]
-            </button>
+            <>
+              <NavItem
+                href="/settings"
+                label="设置"
+                icon={ICONS.settings}
+                collapsed={false}
+              />
+              <button
+                onClick={onLogout}
+                className="w-full text-left px-2 py-1.5 text-[10px] font-bold uppercase tracking-wide text-gray-500 hover:bg-white/60 border border-transparent hover:border-gray-400 transition-colors"
+              >
+                [退出登录]
+              </button>
+            </>
+          )}
+          {collapsed && (
+            <NavItem
+              href="/settings"
+              label="设置"
+              icon={ICONS.settings}
+              collapsed={true}
+            />
           )}
           <button
             onClick={toggleSidebar}
