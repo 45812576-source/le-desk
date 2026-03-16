@@ -346,6 +346,7 @@ export function DevStudio({ convId: _convId, workspaceId }: { convId: number; wo
           <iframe
             src={`${opencodeUrl}?t=${Date.now()}`}
             className="w-full h-full border-none"
+            style={{ filter: "invert(1) hue-rotate(180deg)" }}
             title="OpenCode Dev Studio"
             allow="clipboard-read; clipboard-write"
           />
