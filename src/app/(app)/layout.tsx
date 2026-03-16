@@ -17,8 +17,8 @@ function AppShell({ children }: { children: React.ReactNode }) {
 
   if (loading) {
     return (
-      <div className="flex h-screen items-center justify-center bg-[#F0F4F8]">
-        <div className="text-[10px] font-bold uppercase tracking-widest text-[#00A3C4] animate-pulse">
+      <div className="flex h-screen items-center justify-center bg-background">
+        <div className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground animate-pulse">
           Loading...
         </div>
       </div>
@@ -28,9 +28,9 @@ function AppShell({ children }: { children: React.ReactNode }) {
   if (!user) return null;
 
   return (
-    <div className="flex h-screen bg-[#F0F4F8] overflow-hidden">
+    <div className="flex h-screen bg-background overflow-hidden">
       <Sidebar user={user} taskPending={0} onLogout={logout} />
-      <main className="flex-1 overflow-auto bg-[#F0F4F8]">{children}</main>
+      <main className="flex-1 overflow-auto bg-background">{children}</main>
     </div>
   );
 }
