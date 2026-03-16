@@ -191,3 +191,79 @@
 
 .no-scrollbar::-webkit-scrollbar { display: none; }
 .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
+/* ── Light / Dark 主题下覆盖 Lab hardcoded 颜色 ──
+   Tailwind 4 arbitrary value classes 映射到 CSS variables
+   让所有页面无需修改即可响应主题切换
+── */
+:is([data-theme="light"], [data-theme="dark"]) {
+  /* 背景色 */
+  .bg-\[\#F0F4F8\], .bg-\[\#EBF4F7\], .bg-\[\#F8FAFC\], .bg-\[\#FAFBFC\], .bg-\[\#F8FBFD\] {
+    background-color: var(--background);
+  }
+  .bg-\[\#1A202C\] {
+    background-color: var(--primary);
+  }
+  .bg-\[\#00D1FF\], .bg-\[\#00A3C4\] {
+    background-color: var(--primary);
+  }
+  .bg-\[\#CCF2FF\] {
+    background-color: var(--accent);
+  }
+  .bg-\[\#00CC99\], .bg-\[\#00A87A\] {
+    background-color: var(--muted);
+  }
+  .bg-\[\#6B46C1\], .bg-\[\#805AD5\] {
+    background-color: var(--secondary);
+  }
+  .bg-\[\#E9D8FD\] {
+    background-color: var(--muted);
+  }
+
+  /* 文字色 */
+  .text-\[\#1A202C\] {
+    color: var(--foreground);
+  }
+  .text-\[\#00A3C4\], .text-\[\#00D1FF\], .text-\[\#00CC99\] {
+    color: var(--muted-foreground);
+  }
+  .text-\[\#6B46C1\], .text-\[\#805AD5\] {
+    color: var(--foreground);
+  }
+
+  /* 边框色 */
+  .border-\[\#1A202C\] {
+    border-color: var(--border);
+  }
+  .border-\[\#00D1FF\], .border-\[\#00A3C4\], .border-\[\#00CC99\] {
+    border-color: var(--border);
+  }
+  .border-\[\#E2E8F0\] {
+    border-color: var(--border);
+  }
+  .border-\[\#6B46C1\], .border-\[\#805AD5\] {
+    border-color: var(--border);
+  }
+
+  /* pixel-border 在非 lab 主题下改为普通边框 */
+  .pixel-border {
+    border: 1px solid var(--border) !important;
+    box-shadow: none !important;
+    border-radius: var(--radius-md);
+  }
+  .pixel-border-sm {
+    border: 1px solid var(--border) !important;
+    border-radius: var(--radius-sm);
+  }
+
+  /* PageShell header */
+  .border-b-2 {
+    border-bottom-width: 1px;
+  }
+  .border-r-2 {
+    border-right-width: 1px;
+  }
+  .border-t-2 {
+    border-top-width: 1px;
+  }
+}
