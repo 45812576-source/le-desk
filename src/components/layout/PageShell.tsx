@@ -51,10 +51,10 @@ export function PageShell({ title, icon, children, actions }: PageShellProps) {
   const { theme } = useTheme();
   const isLab = theme === "lab";
 
-  // 找到对应的 ICONS key，用于查 lucide 映射
+  // 通过 pattern 内容匹配 key（支持 Server Component 序列化后的对象）
   const iconKey = icon
     ? (Object.keys(ICONS) as (keyof typeof ICONS)[]).find(
-        (k) => ICONS[k] === icon
+        (k) => ICONS[k].pattern.join("") === icon.pattern.join("")
       )
     : undefined;
   const LucideIcon = iconKey ? LUCIDE_MAP[iconKey] : undefined;
