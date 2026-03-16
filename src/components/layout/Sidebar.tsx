@@ -5,6 +5,44 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { PixelIcon, ICONS } from "@/components/pixel";
 import { useTheme } from "@/lib/theme";
+import {
+  MessageSquare, FolderKanban, CheckSquare, Code2,
+  BookOpen, Zap, Table2, Rss,
+  ClipboardCheck, ShieldCheck, LayoutDashboard,
+  Bot, Wrench, Store, Key, Globe2,
+  ShieldAlert, Lock, EyeOff, FileJson,
+  BarChart2, ScrollText, Users,
+  Settings, LogOut, ChevronDown, ChevronRight,
+} from "lucide-react";
+
+// href → lucide icon 映射
+const LUCIDE_ICONS: Record<string, React.ElementType> = {
+  "/chat":                    MessageSquare,
+  "/projects":                FolderKanban,
+  "/tasks":                   CheckSquare,
+  "/dev-studio":              Code2,
+  "/knowledge":               BookOpen,
+  "/skills":                  Zap,
+  "/data":                    Table2,
+  "/intel":                   Rss,
+  "/admin/knowledge":         ClipboardCheck,
+  "/admin/skills":            Zap,
+  "/admin/business-tables":   Table2,
+  "/admin/workspaces":        LayoutDashboard,
+  "/admin/models":            Bot,
+  "/admin/tools":             Wrench,
+  "/admin/skill-market":      Store,
+  "/admin/mcp-tokens":        Key,
+  "/admin/intel":             Globe2,
+  "/admin/approvals":         ShieldCheck,
+  "/admin/skill-policies":    ShieldAlert,
+  "/admin/mask-config":       EyeOff,
+  "/admin/output-schemas":    FileJson,
+  "/admin/contributions":     BarChart2,
+  "/admin/audit":             ScrollText,
+  "/admin/users":             Users,
+  "/settings":                Settings,
+};
 
 interface NavItemProps {
   href: string;
@@ -29,6 +67,8 @@ function NavItem({ href, label, icon, collapsed, badge, isLab }: NavItemProps) {
     ? "text-xs font-bold uppercase tracking-wide"
     : "text-sm font-medium";
 
+  const LucideIcon = LUCIDE_ICONS[href];
+
   return (
     <div className="relative">
       <Link
@@ -38,7 +78,13 @@ function NavItem({ href, label, icon, collapsed, badge, isLab }: NavItemProps) {
           collapsed ? "justify-center" : ""
         } ${isActive ? activeClass : inactiveClass}`}
       >
-        <PixelIcon {...icon} size={14} />
+        {isLab ? (
+          <PixelIcon {...icon} size={14} />
+        ) : LucideIcon ? (
+          <LucideIcon size={15} />
+        ) : (
+          <PixelIcon {...icon} size={14} />
+        )}
         {!collapsed && <span>{label}</span>}
       </Link>
       {badge !== undefined && badge > 0 && (
@@ -98,10 +144,13 @@ function NavGroup({
         }`}
       >
         <span>{isLab ? `— ${label}` : label}</span>
-        <PixelIcon
-          {...(open ? ICONS.chevronDown : ICONS.chevronRight)}
-          size={8}
-        />
+        {isLab ? (
+          <PixelIcon {...(open ? ICONS.chevronDown : ICONS.chevronRight)} size={8} />
+        ) : open ? (
+          <ChevronDown size={12} />
+        ) : (
+          <ChevronRight size={12} />
+        )}
       </button>
       {open && <div className="space-y-0.5">{children}</div>}
     </div>
@@ -264,12 +313,13 @@ export function Sidebar({ user, taskPending = 0, onLogout }: SidebarProps) {
               <NavItem href="/settings" label="设置" icon={ICONS.settings} collapsed={false} isLab={isLab} />
               <button
                 onClick={onLogout}
-                className={`w-full text-left px-2 py-1.5 transition-colors ${
+                className={`w-full text-left px-2 py-1.5 transition-colors flex items-center gap-2 ${
                   isLab
                     ? "text-[10px] font-bold uppercase tracking-wide text-gray-500 hover:bg-white/60 border border-transparent hover:border-gray-400"
                     : "text-xs text-muted-foreground hover:bg-accent rounded-md hover:text-foreground"
                 }`}
               >
+                {!isLab && <LogOut size={13} />}
                 {isLab ? "[退出登录]" : "退出登录"}
               </button>
             </>
@@ -282,9 +332,13 @@ export function Sidebar({ user, taskPending = 0, onLogout }: SidebarProps) {
             title={collapsed ? "展开侧边栏" : "收起侧边栏"}
             className={`${collapsed ? "mx-auto" : "ml-auto"} flex items-center justify-center w-8 h-8 transition-colors ${toggleBtnClass}`}
           >
-            <span className={`text-[10px] font-bold ${isLab ? "text-[#1A202C]" : "text-foreground"}`}>
-              {collapsed ? "»" : "«"}
-            </span>
+            {isLab ? (
+              <span className="text-[10px] font-bold text-[#1A202C]">{collapsed ? "»" : "«"}</span>
+            ) : collapsed ? (
+              <ChevronRight size={14} className="text-foreground" />
+            ) : (
+              <ChevronDown size={14} className="text-foreground" />
+            )}
           </button>
         </div>
       </div>
