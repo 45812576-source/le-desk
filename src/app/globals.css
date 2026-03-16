@@ -2,42 +2,51 @@
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
 
-@custom-variant dark (&:is(.dark *));
+/* dark: 变体响应 data-theme="dark" */
+@custom-variant dark (&:is([data-theme="dark"] *));
 
-@theme {
-  --font-sans: "Roboto Mono", ui-monospace, monospace;
-  --color-primary: #00D1FF;
-  --color-primary-dark: #00A3C4;
-  --color-accent: #00CC99;
-  --color-bg: #F0F4F8;
-  --color-sidebar: #EBF4F7;
-  --color-text: #1A202C;
-  --color-border: #1A202C;
+/* ── Lab Edition（Pixel Art）tokens ── */
+[data-theme="lab"] {
+  --background: oklch(0.953 0.008 220);
+  --foreground: oklch(0.13 0 0);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.13 0 0);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.13 0 0);
+  --primary: oklch(0.13 0 0);
+  --primary-foreground: oklch(1 0 0);
+  --secondary: oklch(0.9 0.02 200);
+  --secondary-foreground: oklch(0.13 0 0);
+  --muted: oklch(0.94 0.01 210);
+  --muted-foreground: oklch(0.45 0 0);
+  --accent: oklch(0.9 0.02 200);
+  --accent-foreground: oklch(0.13 0 0);
+  --destructive: oklch(0.577 0.245 27.325);
+  --border: oklch(0.13 0 0);
+  --input: oklch(0.13 0 0);
+  --ring: oklch(0.13 0 0);
+  --radius: 0rem;
+  --sidebar: oklch(0.924 0.012 210);
+  --sidebar-foreground: oklch(0.13 0 0);
+  --sidebar-primary: oklch(0.13 0 0);
+  --sidebar-primary-foreground: oklch(1 0 0);
+  --sidebar-accent: oklch(0.85 0.04 200);
+  --sidebar-accent-foreground: oklch(0.13 0 0);
+  --sidebar-border: oklch(0.13 0 0);
+  --sidebar-ring: oklch(0.13 0 0);
+
+  /* Lab 专属 tokens */
+  --lab-primary: #00D1FF;
+  --lab-primary-dark: #00A3C4;
+  --lab-accent: #00CC99;
+  --lab-bg: #F0F4F8;
+  --lab-sidebar: #EBF4F7;
+  --lab-text: #1A202C;
+  --lab-border: #1A202C;
 }
 
-html, body {
-  font-family: 'Roboto Mono', monospace;
-  background-color: #F0F4F8;
-  color: #1A202C;
-}
-
-.pixel-border {
-  border: 2px solid #1A202C;
-  box-shadow: 2px 2px 0px 0px #1A202C;
-}
-
-.pixel-border-sm {
-  border: 1px solid #1A202C;
-}
-
-::-webkit-scrollbar { width: 8px; }
-::-webkit-scrollbar-track { background: #F0F4F8; }
-::-webkit-scrollbar-thumb { background: #1A202C; }
-
-.no-scrollbar::-webkit-scrollbar { display: none; }
-.no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
-
-:root {
+/* ── 正式 Light tokens（shadcn/ui new-york 官方）── */
+[data-theme="light"] {
   --background: oklch(1 0 0);
   --foreground: oklch(0.145 0 0);
   --card: oklch(1 0 0);
@@ -72,7 +81,8 @@ html, body {
   --sidebar-ring: oklch(0.708 0 0);
 }
 
-.dark {
+/* ── 正式 Dark tokens（shadcn/ui new-york 官方）── */
+[data-theme="dark"] {
   --background: oklch(0.145 0 0);
   --foreground: oklch(0.985 0 0);
   --card: oklch(0.205 0 0);
@@ -96,6 +106,7 @@ html, body {
   --chart-3: oklch(0.546 0.245 262.881);
   --chart-4: oklch(0.488 0.243 264.376);
   --chart-5: oklch(0.424 0.199 265.638);
+  --radius: 0.625rem;
   --sidebar: oklch(0.205 0 0);
   --sidebar-foreground: oklch(0.985 0 0);
   --sidebar-primary: oklch(0.488 0.243 264.376);
@@ -159,3 +170,24 @@ html, body {
     @apply font-sans;
   }
 }
+
+/* ── Lab Edition 专属全局样式（仅在 lab 主题下生效）── */
+[data-theme="lab"] {
+  font-family: 'Roboto Mono', monospace;
+}
+
+[data-theme="lab"] .pixel-border {
+  border: 2px solid #1A202C;
+  box-shadow: 2px 2px 0px 0px #1A202C;
+}
+
+[data-theme="lab"] .pixel-border-sm {
+  border: 1px solid #1A202C;
+}
+
+[data-theme="lab"] ::-webkit-scrollbar { width: 8px; }
+[data-theme="lab"] ::-webkit-scrollbar-track { background: #F0F4F8; }
+[data-theme="lab"] ::-webkit-scrollbar-thumb { background: #1A202C; }
+
+.no-scrollbar::-webkit-scrollbar { display: none; }
+.no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }

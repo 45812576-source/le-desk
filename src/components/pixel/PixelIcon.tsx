@@ -168,4 +168,8 @@ export const ICONS = {
     pattern: ["PPPPPPP", "P.....P", "PP.P..P", "P.PPP.P", "P..PP.P", "P.....P", "PPPPPPP", "......."],
     colors: { P: "#6B46C1" },
   },
+  settings: {
+    pattern: [".GGGGG.", "G.....G", "G.GGG.G", "GG...GG", "G.GGG.G", "G.....G", ".GGGGG.", "......."],
+    colors: { G: "#718096" },
+  },
 } as const;
