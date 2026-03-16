@@ -79,7 +79,7 @@ export function RichEditor({ content, onChange, editable = true }: RichEditorPro
     },
     editorProps: {
       attributes: {
-        class: "prose prose-sm max-w-none focus:outline-none min-h-[300px] px-5 py-4 text-[12px] leading-relaxed text-gray-700",
+        class: "prose prose-sm max-w-none focus:outline-none min-h-[300px] px-5 py-4 text-[12px] leading-relaxed",
       },
     },
   }, []);
@@ -219,6 +219,15 @@ export function RichEditor({ content, onChange, editable = true }: RichEditorPro
           background: #F0F4F8;
           font-weight: bold;
         }
+        [data-theme="dark"] .ProseMirror table td,
+        [data-theme="dark"] .ProseMirror table th {
+          border-color: var(--border);
+          background-color: var(--card);
+          color: var(--foreground);
+        }
+        [data-theme="dark"] .ProseMirror table th {
+          background-color: var(--muted);
+        }
         .ProseMirror table .selectedCell::after {
           background: rgba(0, 209, 255, 0.2);
           content: "";
@@ -242,6 +251,9 @@ export function RichEditor({ content, onChange, editable = true }: RichEditorPro
         .ProseMirror h3 { font-size: 1.05em; font-weight: bold; margin: 0.3rem 0; }
         .ProseMirror ul, .ProseMirror ol { padding-left: 1.4em; margin: 0.25rem 0; }
         .ProseMirror blockquote { border-left: 3px solid #00D1FF; padding-left: 0.75em; color: #718096; margin: 0.5rem 0; }
+        [data-theme="dark"] .ProseMirror blockquote { border-left-color: var(--border); color: var(--muted-foreground); }
+        [data-theme="light"] .ProseMirror, [data-theme="dark"] .ProseMirror { color: var(--foreground); }
+        [data-theme="dark"] .ProseMirror code { background: var(--muted); color: var(--foreground); }
       `}</style>
     </div>
   );
