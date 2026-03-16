@@ -196,87 +196,80 @@
    Tailwind 4 arbitrary value classes 映射到 CSS variables
    让所有页面无需修改即可响应主题切换
 ── */
-:is([data-theme="light"], [data-theme="dark"]) {
-  /* 字体：正式主题用系统无衬线字体 */
+
+/* ── Light 专属覆盖 ── */
+[data-theme="light"] {
   font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 
-  /* bg-white / bg-white/xx 映射到 card */
-  .bg-white {
-    background-color: var(--card);
-  }
-  /* white with opacity variants */
-  .bg-white\/40, .bg-white\/50, .bg-white\/60, .bg-white\/80 {
-    background-color: var(--card);
-  }
+  .bg-white, .bg-white\/40, .bg-white\/50, .bg-white\/60, .bg-white\/80 { background-color: var(--card); }
+  .bg-\[\#F0F4F8\], .bg-\[\#EBF4F7\], .bg-\[\#F8FAFC\], .bg-\[\#FAFBFC\], .bg-\[\#F8FBFD\], .bg-\[\#F8FCFE\] { background-color: var(--background); }
+  .bg-gray-50, .bg-gray-100 { background-color: var(--muted); }
+  .bg-\[\#1A202C\] { background-color: var(--primary); color: var(--primary-foreground); }
+  .bg-\[\#00D1FF\], .bg-\[\#00A3C4\] { background-color: var(--muted); }
+  .bg-\[\#CCF2FF\] { background-color: var(--accent); }
+  .bg-\[\#00CC99\], .bg-\[\#00A87A\] { background-color: var(--muted); }
+  .bg-\[\#6B46C1\], .bg-\[\#805AD5\], .bg-\[\#E9D8FD\] { background-color: var(--secondary); }
 
-  /* 背景色：lab 浅灰蓝色系 → background */
-  .bg-\[\#F0F4F8\], .bg-\[\#EBF4F7\], .bg-\[\#F8FAFC\], .bg-\[\#FAFBFC\], .bg-\[\#F8FBFD\], .bg-\[\#F8FCFE\] {
+  .text-\[\#1A202C\] { color: var(--foreground); }
+  .text-\[\#00A3C4\], .text-\[\#00D1FF\], .text-\[\#00CC99\] { color: var(--muted-foreground); }
+  .text-\[\#6B46C1\], .text-\[\#805AD5\] { color: var(--foreground); }
+
+  .border-\[\#1A202C\] { border-color: var(--border); }
+  .border-\[\#00D1FF\], .border-\[\#00A3C4\], .border-\[\#00CC99\] { border-color: var(--border); }
+  .border-\[\#E2E8F0\], .border-gray-100, .border-gray-200 { border-color: var(--border); }
+  .border-\[\#6B46C1\], .border-\[\#805AD5\] { border-color: var(--border); }
+}
+
+/* ── Dark 专属覆盖 ── */
+[data-theme="dark"] {
+  font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+
+  .bg-white, .bg-white\/40, .bg-white\/50, .bg-white\/60, .bg-white\/80 { background-color: var(--card); }
+  .bg-\[\#F0F4F8\], .bg-\[\#EBF4F7\], .bg-\[\#F8FAFC\], .bg-\[\#FAFBFC\], .bg-\[\#F8FBFD\], .bg-\[\#F8FCFE\] { background-color: var(--background); }
+  .bg-gray-50, .bg-gray-100 { background-color: var(--muted); }
+
+  /* dark 下 Lab 深色主按钮 → secondary（深色卡片），文字用 foreground */
+  .bg-\[\#1A202C\] { background-color: var(--secondary); color: var(--secondary-foreground); }
+  /* text-white / text-[#1A202C] 在 bg-[#1A202C] 内部也用 secondary-foreground */
+  .bg-\[\#1A202C\] .text-white { color: var(--secondary-foreground); }
+  .bg-\[\#1A202C\] .text-\[\#1A202C\] { color: var(--secondary-foreground); }
+
+  .bg-\[\#00D1FF\], .bg-\[\#00A3C4\] { background-color: var(--muted); }
+  .bg-\[\#CCF2FF\] { background-color: var(--accent); color: var(--accent-foreground); }
+  .bg-\[\#00CC99\], .bg-\[\#00A87A\] { background-color: var(--muted); }
+  .bg-\[\#6B46C1\], .bg-\[\#805AD5\], .bg-\[\#E9D8FD\] { background-color: var(--secondary); }
+
+  .text-\[\#1A202C\] { color: var(--foreground); }
+  .text-\[\#00A3C4\], .text-\[\#00D1FF\], .text-\[\#00CC99\] { color: var(--muted-foreground); }
+  .text-\[\#6B46C1\], .text-\[\#805AD5\] { color: var(--foreground); }
+  /* gray text 映射 */
+  .text-gray-400, .text-gray-500 { color: var(--muted-foreground); }
+  .text-gray-300 { color: var(--muted-foreground); }
+
+  .border-\[\#1A202C\] { border-color: var(--border); }
+  .border-\[\#00D1FF\], .border-\[\#00A3C4\], .border-\[\#00CC99\] { border-color: var(--border); }
+  .border-\[\#E2E8F0\], .border-gray-100, .border-gray-200 { border-color: var(--border); }
+  .border-\[\#6B46C1\], .border-\[\#805AD5\] { border-color: var(--border); }
+
+  /* RichEditor: ProseMirror 文字 & 工具栏 */
+  .ProseMirror {
+    color: var(--foreground) !important;
     background-color: var(--background);
   }
-  /* 深色背景块 → primary */
-  .bg-\[\#1A202C\] {
-    background-color: var(--primary);
-  }
-  /* 青色背景 → muted（作为强调背景） */
-  .bg-\[\#00D1FF\], .bg-\[\#00A3C4\] {
-    background-color: var(--muted);
-  }
-  /* 浅青高亮 → accent */
-  .bg-\[\#CCF2FF\] {
-    background-color: var(--accent);
-  }
-  /* 绿色 → muted */
-  .bg-\[\#00CC99\], .bg-\[\#00A87A\] {
-    background-color: var(--muted);
-  }
-  /* 紫色 → secondary */
-  .bg-\[\#6B46C1\], .bg-\[\#805AD5\] {
-    background-color: var(--secondary);
-  }
-  .bg-\[\#E9D8FD\] {
-    background-color: var(--muted);
-  }
-  /* gray-50 / gray-100 类 */
-  .bg-gray-50, .bg-gray-100 {
-    background-color: var(--muted);
-  }
-  /* amber/red 提示背景保留，不覆盖 */
-
-  /* 文字色 */
-  .text-\[\#1A202C\] {
+  .ProseMirror table td, .ProseMirror table th {
+    border-color: var(--border);
+    background-color: var(--card);
     color: var(--foreground);
   }
-  .text-\[\#00A3C4\], .text-\[\#00D1FF\], .text-\[\#00CC99\] {
-    color: var(--muted-foreground);
-  }
-  .text-\[\#6B46C1\], .text-\[\#805AD5\] {
-    color: var(--foreground);
-  }
-  /* white text on dark bg */
-  .bg-\[\#1A202C\] .text-white,
-  .bg-\[\#1A202C\] .text-\[\#00D1FF\] {
-    color: var(--primary-foreground);
-  }
+  .ProseMirror table th { background-color: var(--muted); }
+  .ProseMirror blockquote { border-left-color: var(--border); color: var(--muted-foreground); }
+  .ProseMirror code, .ProseMirror pre { background-color: var(--muted); color: var(--foreground); }
+  /* RichEditor toolbar */
+  .prose { color: var(--foreground); }
+}
 
-  /* 边框色 */
-  .border-\[\#1A202C\] {
-    border-color: var(--border);
-  }
-  .border-\[\#00D1FF\], .border-\[\#00A3C4\], .border-\[\#00CC99\] {
-    border-color: var(--border);
-  }
-  .border-\[\#E2E8F0\] {
-    border-color: var(--border);
-  }
-  .border-\[\#6B46C1\], .border-\[\#805AD5\] {
-    border-color: var(--border);
-  }
-  /* gray border */
-  .border-gray-100, .border-gray-200 {
-    border-color: var(--border);
-  }
-
-  /* pixel-border → 普通圆角边框 */
+/* ── 两个主题共用的结构覆盖 ── */
+:is([data-theme="light"], [data-theme="dark"]) {
   .pixel-border {
     border: 1px solid var(--border) !important;
     box-shadow: none !important;
@@ -286,24 +279,17 @@
     border: 1px solid var(--border) !important;
     border-radius: var(--radius-sm);
   }
-
-  /* 边框宽度：2px → 1px */
   .border-b-2 { border-bottom-width: 1px; }
   .border-r-2 { border-right-width: 1px; }
   .border-t-2 { border-top-width: 1px; }
   .border-2   { border-width: 1px; }
 
-  /* 文字大小：正式主题下 lab 的超小字号稍微放大 */
   .text-\[9px\]  { font-size: 11px; }
   .text-\[10px\] { font-size: 12px; }
-  .text-xs       { font-size: 13px; }
-
-  /* uppercase tracking 在正式主题下取消强制大写 */
-  .uppercase { text-transform: none; }
+  .uppercase     { text-transform: none; }
   .tracking-widest { letter-spacing: 0; }
   .tracking-wide   { letter-spacing: 0; }
 
-  /* focus outline */
   textarea:focus, input:focus {
     outline: 2px solid var(--ring);
     outline-offset: 0;
