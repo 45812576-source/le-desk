@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, useCallback } from "react";
 import { apiFetch } from "@/lib/api";
+import { useTheme } from "@/lib/theme";
 
 export interface SuggestedUser {
   id: number;
@@ -24,17 +25,19 @@ const ACCENT = {
     border: "border-[#00A3C4]",
     ring: "focus-within:border-[#00D1FF]",
     hover: "hover:bg-[#CCF2FF]",
-    selected: "bg-[#CCF2FF]/50",
+    selectedBg: "#CCF2FF",
     tag: "bg-[#00A3C4] text-white",
     hint: "text-[#00A3C4]",
+    avatarBg: "#00A3C4",
   },
   purple: {
     border: "border-[#6B46C1]",
     ring: "focus-within:border-[#9F7AEA]",
     hover: "hover:bg-[#E9D8FD]",
-    selected: "bg-[#E9D8FD]/50",
+    selectedBg: "#E9D8FD",
     tag: "bg-[#6B46C1] text-white",
     hint: "text-[#6B46C1]",
+    avatarBg: "#6B46C1",
   },
 };
 
@@ -55,6 +58,8 @@ export function PixelUserPicker({
   const fetchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const accent = ACCENT[accentColor];
+  const { theme } = useTheme();
+  const isFormal = theme === "light" || theme === "dark";
 
   // 关闭时点击外部
   useEffect(() => {
@@ -140,9 +145,9 @@ export function PixelUserPicker({
     return (
       <div
         className={`flex-shrink-0 flex items-center justify-center font-bold text-white ${
-          accentColor === "purple" ? "bg-[#6B46C1]" : "bg-[#00A3C4]"
-        } ${small ? "w-5 h-5 text-[8px]" : "w-6 h-6 text-[9px]"}`}
-        style={{ imageRendering: "pixelated" }}
+          small ? "w-5 h-5 text-[8px]" : "w-6 h-6 text-[9px]"
+        }`}
+        style={{ backgroundColor: accent.avatarBg, imageRendering: "pixelated" }}
       >
         {name.charAt(0)}
       </div>
@@ -155,9 +160,10 @@ export function PixelUserPicker({
       <button
         type="button"
         onClick={handleOpen}
-        className={`w-full flex items-center justify-between gap-2 border-2 px-2 py-1.5 bg-white transition-colors text-left ${
+        className={`w-full flex items-center justify-between gap-2 border-2 px-2 py-1.5 transition-colors text-left ${
           open ? accent.border : "border-[#1A202C]"
         } ${accent.ring}`}
+        style={{ backgroundColor: "var(--card)", color: "var(--foreground)" }}
       >
         {value ? (
           <div className="flex items-center gap-2 min-w-0">
@@ -185,7 +191,13 @@ export function PixelUserPicker({
 
       {/* Dropdown */}
       {open && (
-        <div className="absolute z-50 top-full left-0 right-0 mt-0.5 border-2 border-[#1A202C] bg-white shadow-[4px_4px_0px_#1A202C]">
+        <div
+          className="absolute z-50 top-full left-0 right-0 mt-0.5 border-2 border-[#1A202C]"
+          style={{
+            backgroundColor: "var(--card)",
+            boxShadow: isFormal ? "0 4px 12px var(--border)" : "4px 4px 0px #1A202C",
+          }}
+        >
           {/* Search input */}
           <div className="border-b-2 border-[#1A202C] px-2 py-1.5 flex items-center gap-1.5">
             <span className="text-[9px] text-gray-400 font-bold">@</span>
@@ -217,8 +229,9 @@ export function PixelUserPicker({
                   onClick={() => handleSelect(user)}
                   onMouseEnter={() => setActiveIndex(idx)}
                   className={`w-full flex items-center gap-2.5 px-2.5 py-2 text-left transition-colors border-b border-[#E2E8F0] last:border-b-0 ${
-                    idx === activeIndex ? accent.selected : "hover:bg-[#F0F4F8]"
+                    idx !== activeIndex ? accent.hover : ""
                   }`}
+                  style={idx === activeIndex ? { backgroundColor: accent.selectedBg + (isFormal ? "33" : "80") } : undefined}
                 >
                   <Avatar name={user.display_name} />
                   <div className="flex-1 min-w-0">

@@ -18,6 +18,7 @@ interface AuthState {
 interface AuthContextValue extends AuthState {
   login: (username: string, password: string) => Promise<void>;
   logout: () => void;
+  refreshUser: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -76,8 +77,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     window.location.href = "/login";
   }, []);
 
+  const refreshUser = useCallback(async () => {
+    const saved = localStorage.getItem("token");
+    if (!saved) return;
+    const res = await fetch("/api/proxy/auth/me", {
+      headers: { Authorization: `Bearer ${saved}` },
+    });
+    if (res.ok) {
+      const user = await res.json();
+      setState((s) => ({ ...s, user }));
+    }
+  }, []);
+
   return (
-    <AuthContext.Provider value={{ ...state, login, logout }}>
+    <AuthContext.Provider value={{ ...state, login, logout, refreshUser }}>
       {children}
     </AuthContext.Provider>
   );

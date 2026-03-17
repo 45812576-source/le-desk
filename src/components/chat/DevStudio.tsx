@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { apiFetch } from "@/lib/api";
 import { PixelButton } from "@/components/pixel/PixelButton";
 import { PixelBadge } from "@/components/pixel/PixelBadge";
+import { useTheme } from "@/lib/theme";
 
 // ─── Save Modal ────────────────────────────────────────────────────────────────
 
@@ -216,6 +217,7 @@ function RequirementsBanner({ workspaceId }: { workspaceId: number }) {
 type Status = "loading" | "ready" | "error";
 
 export function DevStudio({ convId: _convId, workspaceId }: { convId: number; workspaceId?: number }) {
+  const { theme } = useTheme();
   const [status, setStatus] = useState<Status>("loading");
   const [opencodeUrl, setOpencodeUrl] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -290,7 +292,7 @@ export function DevStudio({ convId: _convId, workspaceId }: { convId: number; wo
           </span>
           <PixelBadge color={statusBadge.color}>{statusBadge.label}</PixelBadge>
           {status === "ready" && (
-            <span className="text-[9px] text-gray-400 font-mono">Kimi K2.5</span>
+            <span className="text-[9px] text-gray-400 font-mono">百炼 Coding Plan</span>
           )}
         </div>
         <div className="flex items-center gap-2">
@@ -346,7 +348,7 @@ export function DevStudio({ convId: _convId, workspaceId }: { convId: number; wo
           <iframe
             src={`${opencodeUrl}?t=${Date.now()}`}
             className="w-full h-full border-none"
-            style={{ filter: "invert(1) hue-rotate(180deg)" }}
+            style={theme !== "dark" ? { filter: "invert(1) hue-rotate(180deg)" } : undefined}
             title="OpenCode Dev Studio"
             allow="clipboard-read; clipboard-write"
           />

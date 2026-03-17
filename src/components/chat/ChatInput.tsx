@@ -1,7 +1,9 @@
 "use client";
 
 import { useState, useRef, useCallback, useEffect } from "react";
+import { Paperclip, Mic, MicOff } from "lucide-react";
 import { apiFetch } from "@/lib/api";
+import { useTheme } from "@/lib/theme";
 import { useVoiceTranscription } from "@/lib/use-voice-transcription";
 
 interface SkillOption {
@@ -72,6 +74,8 @@ export function ChatInput({ onSend, disabled, quote, onClearQuote, workspaceSkil
   const dropdownRef = useRef<HTMLDivElement>(null);
   const voice = useVoiceTranscription();
   const [voiceError, setVoiceError] = useState<string | null>(null);
+  const { theme } = useTheme();
+  const isLab = theme === "lab";
 
   // 语音转录：实时同步 transcript 到输入框
   useEffect(() => {
@@ -349,7 +353,8 @@ export function ChatInput({ onSend, disabled, quote, onClearQuote, workspaceSkil
   return (
     <form
       onSubmit={handleSubmit}
-      className="border-t-2 border-[#1A202C] bg-white px-4 py-3 flex flex-col gap-2"
+      className="border-t-2 border-[#1A202C] px-4 py-3 flex flex-col gap-2"
+      style={{ backgroundColor: "var(--card)" }}
     >
       {/* Chips 区域：对话引用 + Skill + Tool + @ 引用 + 文件 */}
       {(quote || activeSkill || activeTool || mentions.length > 0 || file) && (
@@ -541,9 +546,11 @@ export function ChatInput({ onSend, disabled, quote, onClearQuote, workspaceSkil
           onClick={() => fileInputRef.current?.click()}
           disabled={isBlocked}
           title="上传文件（PDF/Word/PPT/Excel/TXT/图片/音频）"
-          className="flex-shrink-0 w-9 h-9 border-2 border-[#1A202C] bg-white text-[#1A202C] flex items-center justify-center hover:bg-gray-100 disabled:opacity-40 transition-colors text-sm"
+          className={`flex-shrink-0 w-9 h-9 border-2 border-[#1A202C] flex items-center justify-center disabled:opacity-40 transition-colors ${
+            isLab ? "bg-white text-[#1A202C] hover:bg-gray-100" : "bg-card text-muted-foreground hover:bg-muted hover:text-foreground rounded-md"
+          }`}
         >
-          📎
+          <Paperclip size={isLab ? 14 : 16} strokeWidth={isLab ? 2.5 : 2} />
         </button>
 
         {/* 🎤 麦克风按钮 */}
@@ -558,13 +565,18 @@ export function ChatInput({ onSend, disabled, quote, onClearQuote, workspaceSkil
           }}
           disabled={isBlocked}
           title={voice.isRecording ? "停止录音" : "语音输入"}
-          className={`flex-shrink-0 w-9 h-9 border-2 border-[#1A202C] flex items-center justify-center transition-colors text-sm disabled:opacity-40 ${
+          className={`flex-shrink-0 w-9 h-9 border-2 border-[#1A202C] flex items-center justify-center transition-colors disabled:opacity-40 ${
             voice.isRecording
-              ? "bg-red-500 text-white animate-pulse"
-              : "bg-white text-[#1A202C] hover:bg-gray-100"
+              ? "bg-red-500 text-white animate-pulse" + (isLab ? "" : " rounded-md")
+              : isLab
+                ? "bg-white text-[#1A202C] hover:bg-gray-100"
+                : "bg-card text-muted-foreground hover:bg-muted hover:text-foreground rounded-md"
           }`}
         >
-          🎤
+          {voice.isRecording
+            ? <MicOff size={isLab ? 14 : 16} strokeWidth={isLab ? 2.5 : 2} />
+            : <Mic size={isLab ? 14 : 16} strokeWidth={isLab ? 2.5 : 2} />
+          }
         </button>
 
         <div className="flex-1 flex flex-col gap-1">
@@ -580,14 +592,18 @@ export function ChatInput({ onSend, disabled, quote, onClearQuote, workspaceSkil
           placeholder={localSubmitting ? "正在获取知识摘要..." : file ? "补充说明（可选）" : "输入消息，@ 引用知识库，Enter 换行，Ctrl+Enter 发送"}
           rows={1}
           disabled={isBlocked}
-          className="w-full border-2 border-[#1A202C] px-3 py-2 text-xs font-bold resize-none focus:outline-none focus:border-[#00D1FF] disabled:opacity-40"
-          style={{ minHeight: 36, maxHeight: 120 }}
+          className={`w-full border-2 border-[#1A202C] px-3 py-2 text-xs font-bold resize-none focus:outline-none focus:border-[#00D1FF] disabled:opacity-40 ${isLab ? "" : "rounded-md"}`}
+          style={{ minHeight: 36, maxHeight: 120, backgroundColor: "var(--card)", color: "var(--foreground)" }}
         />
         </div>
         <button
           type="submit"
           disabled={!canSend}
-          className="px-4 py-2 bg-[#1A202C] text-white text-[10px] font-bold uppercase tracking-wide border-2 border-[#1A202C] hover:bg-black transition-colors disabled:opacity-40 flex-shrink-0"
+          className={`flex-shrink-0 px-4 py-2 text-[10px] font-bold uppercase tracking-wide border-2 border-[#1A202C] transition-colors disabled:opacity-40 ${
+            isLab
+              ? "bg-[#1A202C] text-white hover:bg-black"
+              : "bg-primary text-primary-foreground hover:opacity-90 rounded-md"
+          }`}
         >
           {localSubmitting ? "获取中..." : "发送"}
         </button>

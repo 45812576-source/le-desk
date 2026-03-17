@@ -4,6 +4,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { PixelButton } from "@/components/pixel/PixelButton";
 import { PixelBadge } from "@/components/pixel/PixelBadge";
 import { PixelIcon, ICONS } from "@/components/pixel";
+import { ThemedPageIcon } from "@/components/layout/PageShell";
+import { useTheme } from "@/lib/theme";
 import { apiFetch } from "@/lib/api";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -1194,14 +1196,16 @@ function ManageTab() {
 export default function DataPage() {
   const [tab, setTab] = useState<Tab>("manage");
   const [manageKey, setManageKey] = useState(0);
+  const { theme } = useTheme();
+  const isLab = theme === "lab";
 
   return (
     <div className="h-full flex flex-col">
       {/* Header */}
-      <div className="border-b-2 border-[#1A202C] bg-white px-6 h-12 flex items-center gap-4 flex-shrink-0">
+      <div className="border-b-2 border-[#1A202C] px-6 h-12 flex items-center gap-4 flex-shrink-0" style={{ backgroundColor: "var(--card)" }}>
         <div className="flex items-center gap-2 mr-4">
-          <PixelIcon {...ICONS.data} size={16} />
-          <h1 className="text-xs font-bold uppercase tracking-widest text-[#1A202C]">
+          <ThemedPageIcon icon={ICONS.data} size={16} />
+          <h1 className={`text-xs font-bold uppercase tracking-widest ${isLab ? "text-[#1A202C]" : "text-foreground"}`}>
             数据表
           </h1>
         </div>

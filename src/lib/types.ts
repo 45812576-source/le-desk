@@ -9,6 +9,7 @@ export interface User {
   report_to_name: string | null;
   is_active: boolean;
   created_at: string;
+  avatar_url?: string | null;
 }
 
 export type ContentBlock =
