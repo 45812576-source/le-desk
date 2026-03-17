@@ -218,6 +218,10 @@
   .border-\[\#00D1FF\], .border-\[\#00A3C4\], .border-\[\#00CC99\] { border-color: var(--border); }
   .border-\[\#E2E8F0\], .border-gray-100, .border-gray-200 { border-color: var(--border); }
   .border-\[\#6B46C1\], .border-\[\#805AD5\] { border-color: var(--border); }
+
+  /* MarkdownBlock prose */
+  .prose pre { background-color: var(--muted) !important; }
+  .prose th { background-color: var(--muted) !important; }
 }
 
 /* ── Dark 专属覆盖 ── */
@@ -243,12 +247,19 @@
   .text-\[\#00A3C4\], .text-\[\#00D1FF\], .text-\[\#00CC99\] { color: var(--muted-foreground); }
   .text-\[\#6B46C1\], .text-\[\#805AD5\] { color: var(--foreground); }
   /* gray text 映射 */
-  .text-gray-400, .text-gray-500 { color: var(--muted-foreground); }
-  .text-gray-300 { color: var(--muted-foreground); }
+  .text-gray-300, .text-gray-400, .text-gray-500, .text-gray-600 { color: var(--muted-foreground); }
+
+  /* 浅色 tint 背景（成功/错误/知识引用）→ muted */
+  .bg-red-50 { background-color: color-mix(in srgb, var(--destructive) 15%, var(--card)); }
+  .bg-\[\#F0FFF8\] { background-color: color-mix(in srgb, oklch(0.7 0.15 160) 10%, var(--card)); }
+  .bg-\[\#F0FAFF\] { background-color: color-mix(in srgb, oklch(0.7 0.1 220) 12%, var(--card)); }
 
   .border-\[\#1A202C\] { border-color: var(--border); }
   .border-\[\#00D1FF\], .border-\[\#00A3C4\], .border-\[\#00CC99\] { border-color: var(--border); }
   .border-\[\#E2E8F0\], .border-gray-100, .border-gray-200 { border-color: var(--border); }
+  /* border-left 变体 */
+  .border-l-\[\#00CC99\] { border-left-color: oklch(0.7 0.15 160); }
+  .border-l-red-400 { border-left-color: var(--destructive); }
   .border-\[\#6B46C1\], .border-\[\#805AD5\] { border-color: var(--border); }
 
   /* RichEditor: ProseMirror 文字 & 工具栏 */
@@ -266,6 +277,13 @@
   .ProseMirror code, .ProseMirror pre { background-color: var(--muted); color: var(--foreground); }
   /* RichEditor toolbar */
   .prose { color: var(--foreground); }
+
+  /* Chat 区域：textarea/input 无显式 bg 类时跟随 card 背景 */
+  textarea, input[type="text"] { background-color: var(--card); color: var(--foreground); }
+
+  /* MarkdownBlock prose：arbitrary variant [&_pre]/[&_th] 不被 class 覆盖，需直接选元素 */
+  .prose pre { background-color: var(--muted) !important; color: var(--foreground); }
+  .prose th { background-color: var(--muted) !important; color: var(--foreground); }
 }
 
 /* ── 两个主题共用的结构覆盖 ── */

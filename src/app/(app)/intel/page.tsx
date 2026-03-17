@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useState, useRef } from "react";
 import { PageShell } from "@/components/layout/PageShell";
 import { ICONS, PixelIcon } from "@/components/pixel";
+import { ThemedPageIcon } from "@/components/layout/PageShell";
+import { useTheme } from "@/lib/theme";
 import { PixelButton } from "@/components/pixel/PixelButton";
 import { PixelBadge } from "@/components/pixel/PixelBadge";
 import { apiFetch } from "@/lib/api";
@@ -964,14 +966,16 @@ export default function IntelPage() {
   const isAdmin =
     user?.role === "super_admin" || user?.role === "dept_admin";
   const [tab, setTab] = useState<Tab>("entries");
+  const { theme } = useTheme();
+  const isLab = theme === "lab";
 
   return (
     <div className="h-full flex flex-col">
       {/* Page header */}
-      <div className="border-b-2 border-[#1A202C] bg-white px-6 h-12 flex items-center gap-4 flex-shrink-0">
+      <div className="border-b-2 border-[#1A202C] px-6 h-12 flex items-center gap-4 flex-shrink-0" style={{ backgroundColor: "var(--card)" }}>
         <div className="flex items-center gap-2 mr-4">
-          <PixelIcon {...ICONS.intel} size={16} />
-          <h1 className="text-xs font-bold uppercase tracking-widest text-[#1A202C]">
+          <ThemedPageIcon icon={ICONS.intel} size={16} />
+          <h1 className={`text-xs font-bold uppercase tracking-widest ${isLab ? "text-[#1A202C]" : "text-foreground"}`}>
             行业情报
           </h1>
         </div>

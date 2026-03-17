@@ -7,6 +7,8 @@ import { apiFetch } from "@/lib/api";
 import { useChatStore } from "@/lib/chat-store";
 import type { Conversation, Workspace } from "@/lib/types";
 import { PixelIcon, ICONS } from "@/components/pixel";
+import { ThemedPageIcon } from "@/components/layout/PageShell";
+import { useTheme } from "@/lib/theme";
 
 // Color palette for tabs — cycles through like notebook binder rings
 const TAB_COLORS = [
@@ -247,6 +249,8 @@ export default function ChatLayout({
   const router = useRouter();
   const pathname = usePathname();
   const tabsRef = useRef<HTMLDivElement>(null);
+  const { theme } = useTheme();
+  const isLab = theme === "lab";
 
   const activeId = pathname.match(/^\/chat\/(\d+)/)?.[1];
 
@@ -331,10 +335,10 @@ export default function ChatLayout({
   return (
     <div className="h-full flex flex-col">
       {/* Header bar */}
-      <div className="border-b-2 border-[#1A202C] bg-white px-6 h-12 flex items-center justify-between flex-shrink-0">
+      <div className="border-b-2 border-[#1A202C] px-6 h-12 flex items-center justify-between flex-shrink-0" style={{ backgroundColor: "var(--card)" }}>
         <div className="flex items-center gap-2">
-          <PixelIcon {...ICONS.chat} size={16} />
-          <h1 className="text-xs font-bold uppercase tracking-widest text-[#1A202C]">
+          <ThemedPageIcon icon={ICONS.chat} size={16} />
+          <h1 className={`text-xs font-bold uppercase tracking-widest ${isLab ? "text-[#1A202C]" : "text-foreground"}`}>
             对话
           </h1>
         </div>

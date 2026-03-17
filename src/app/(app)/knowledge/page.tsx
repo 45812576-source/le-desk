@@ -1,13 +1,30 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { PageShell } from "@/components/layout/PageShell";
+import { FileText, BookOpen, Eye, Upload } from "lucide-react";
+import { PageShell, ThemedPageIcon } from "@/components/layout/PageShell";
 import { ICONS, PixelIcon } from "@/components/pixel";
 import { PixelButton } from "@/components/pixel/PixelButton";
 import { PixelBadge } from "@/components/pixel/PixelBadge";
+import { useTheme } from "@/lib/theme";
 import { apiFetch } from "@/lib/api";
 import type { ChunkSearchResult, KnowledgeChunkDetail, KnowledgeDetail } from "@/lib/types";
 import { RichEditor } from "@/components/knowledge/RichEditor";
+
+// 局部主题感知 icon 包装
+function ThemedIcon({
+  pixelIcon,
+  LucideIcon,
+  size,
+}: {
+  pixelIcon: React.ComponentProps<typeof PixelIcon>;
+  LucideIcon: React.ElementType;
+  size: number;
+}) {
+  const { theme } = useTheme();
+  if (theme === "lab") return <PixelIcon {...pixelIcon} size={size} />;
+  return <LucideIcon size={size} className="text-muted-foreground" />;
+}
 
 type Tab = "files" | "search";
 
@@ -86,7 +103,7 @@ function FileRow({
       }`}
       style={{ paddingLeft: `${8 + depth * 16 + 20}px`, paddingRight: "8px" }}
     >
-      <PixelIcon {...ICONS.files} size={12} />
+      <ThemedIcon pixelIcon={ICONS.files} LucideIcon={FileText} size={12} />
       {renaming ? (
         <input
           ref={inputRef}
@@ -199,7 +216,7 @@ function FolderNode({
           {open ? "▾" : "▸"}
         </span>
         <span className="mr-1 flex-shrink-0">
-          <PixelIcon {...ICONS.knowledgeMy} size={12} />
+          <ThemedIcon pixelIcon={ICONS.knowledgeMy} LucideIcon={BookOpen} size={12} />
         </span>
         {renaming ? (
           <input
@@ -323,7 +340,7 @@ function PreviewPanel({
   if (!entry) {
     return (
       <div className="flex-1 min-h-0 overflow-y-auto bg-white flex flex-col items-center justify-center text-[9px] text-gray-400 uppercase tracking-widest">
-        <div className="mb-3 opacity-40"><PixelIcon {...ICONS.eyePreview} size={32} /></div>
+        <div className="mb-3 opacity-40"><ThemedIcon pixelIcon={ICONS.eyePreview} LucideIcon={Eye} size={32} /></div>
         选择文件预览
       </div>
     );
@@ -696,7 +713,7 @@ function FileManagerTab() {
               {/* Pending upload placeholders */}
               {pendingFiles.map((name) => (
                 <div key={name} className="flex items-center gap-2 py-1 px-3 border-b border-gray-100 opacity-60 animate-pulse">
-                  <PixelIcon {...ICONS.files} size={12} />
+                  <ThemedIcon pixelIcon={ICONS.files} LucideIcon={FileText} size={12} />
                   <span className="flex-1 text-[10px] truncate">{name}</span>
                   <span className="text-[7px] font-bold px-1 border border-[#00D1FF] text-[#00A3C4]">上传中</span>
                 </div>
@@ -706,7 +723,7 @@ function FileManagerTab() {
               {(tree.get(null) ?? []).length === 0 && rootFiles.length === 0 && pendingFiles.length === 0 && (
                 <div className="flex flex-col items-center justify-center h-48 text-[9px] text-gray-400 uppercase tracking-widest">
                   <div className="mb-3 opacity-40">
-                    <PixelIcon {...ICONS.uploadArrow} size={28} />
+                    <ThemedIcon pixelIcon={ICONS.uploadArrow} LucideIcon={Upload} size={28} />
                   </div>
                   拖拽文件上传
                 </div>
@@ -809,7 +826,7 @@ function SearchTab() {
       {!searched ? (
         <div className="flex flex-col items-center justify-center py-20">
           <div className="w-12 h-12 bg-[#CCF2FF] border-2 border-[#00A3C4] flex items-center justify-center mb-4">
-            <PixelIcon {...ICONS.knowledgeMy} size={20} />
+          <ThemedIcon pixelIcon={ICONS.knowledgeMy} LucideIcon={BookOpen} size={20} />
           </div>
           <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400">
             输入关键词搜索知识切片
@@ -890,9 +907,9 @@ export default function KnowledgePage() {
   return (
     <div className="h-full flex flex-col">
       {/* Page header */}
-      <div className="border-b-2 border-[#1A202C] bg-white px-6 h-12 flex items-center gap-4 flex-shrink-0">
+      <div className="border-b-2 border-[#1A202C] px-6 h-12 flex items-center gap-4 flex-shrink-0" style={{ backgroundColor: "var(--card)" }}>
         <div className="flex items-center gap-2 mr-4">
-          <PixelIcon {...ICONS.knowledgeMy} size={16} />
+          <ThemedPageIcon icon={ICONS.knowledgeMy} size={16} />
           <h1 className="text-xs font-bold uppercase tracking-widest text-[#1A202C]">我的知识</h1>
         </div>
         <div className="flex gap-1">

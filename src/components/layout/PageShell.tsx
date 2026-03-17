@@ -47,32 +47,28 @@ interface PageShellProps {
   actions?: React.ReactNode;
 }
 
+// 导出：供自定义 header 的页面复用
+export function ThemedPageIcon({ icon, size = 16 }: { icon: PixelIconProps; size?: number }) {
+  const { theme } = useTheme();
+  const isLab = theme === "lab";
+  const iconKey = (Object.keys(ICONS) as (keyof typeof ICONS)[]).find(
+    (k) => ICONS[k].pattern.join("") === icon.pattern.join("")
+  );
+  const LucideIcon = iconKey ? LUCIDE_MAP[iconKey] : undefined;
+  if (isLab || !LucideIcon) return <PixelIcon {...icon} size={size} />;
+  return <LucideIcon size={size} className="text-muted-foreground" />;
+}
+
 export function PageShell({ title, icon, children, actions }: PageShellProps) {
   const { theme } = useTheme();
   const isLab = theme === "lab";
 
-  // 通过 pattern 内容匹配 key（支持 Server Component 序列化后的对象）
-  const iconKey = icon
-    ? (Object.keys(ICONS) as (keyof typeof ICONS)[]).find(
-        (k) => ICONS[k].pattern.join("") === icon.pattern.join("")
-      )
-    : undefined;
-  const LucideIcon = iconKey ? LUCIDE_MAP[iconKey] : undefined;
-
   return (
     <div className="h-full flex flex-col">
-      <div className="border-b-2 border-[#1A202C] bg-card px-6 h-12 flex items-center justify-between flex-shrink-0">
+      <div className="border-b-2 border-[#1A202C] px-6 h-12 flex items-center justify-between flex-shrink-0" style={{ backgroundColor: "var(--card)" }}>
         <div className="flex items-center gap-2">
-          {icon && (
-            isLab ? (
-              <PixelIcon {...icon} size={16} />
-            ) : LucideIcon ? (
-              <LucideIcon size={16} className="text-muted-foreground" />
-            ) : (
-              <PixelIcon {...icon} size={16} />
-            )
-          )}
-          <h1 className="text-xs font-bold uppercase tracking-widest text-[#1A202C]">
+          {icon && <ThemedPageIcon icon={icon} size={16} />}
+          <h1 className={`text-xs font-bold uppercase tracking-widest text-[#1A202C] ${isLab ? "" : "text-foreground"}`}>
             {title}
           </h1>
         </div>

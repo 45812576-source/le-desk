@@ -161,6 +161,7 @@ interface SidebarProps {
   user: {
     display_name: string;
     role: string;
+    avatar_url?: string | null;
   };
   taskPending?: number;
   onLogout?: () => void;
@@ -295,7 +296,13 @@ export function Sidebar({ user, taskPending = 0, onLogout }: SidebarProps) {
       <div className={`${footerBorder} ${footerBg} flex-shrink-0`}>
         {!collapsed && (
           <div className="p-3 flex items-center space-x-2">
-            <div className={`w-7 h-7 ${avatarBg} flex-shrink-0`} />
+            <div className={`w-7 h-7 ${avatarBg} flex-shrink-0 overflow-hidden`}>
+              {user.avatar_url
+                // eslint-disable-next-line @next/next/no-img-element
+                ? <img src={`/api/proxy${user.avatar_url}`} alt="" className="w-full h-full object-cover" />
+                : <span className="w-full h-full flex items-center justify-center text-[9px] font-bold text-white">{user.display_name.charAt(0)}</span>
+              }
+            </div>
             <div className="min-w-0">
               <div className={`truncate ${isLab ? "text-[10px] font-bold uppercase" : "text-xs font-medium text-foreground"}`}>
                 {user.display_name}
