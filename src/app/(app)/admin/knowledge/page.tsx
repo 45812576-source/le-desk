@@ -27,7 +27,7 @@ export default function AdminKnowledgePage() {
   const [reviewNote, setReviewNote] = useState("");
 
   const fetchEntries = useCallback(() => {
-    setLoading(true);
+    Promise.resolve().then(() => setLoading(true));
     const params = new URLSearchParams();
     if (stageFilter) params.set("review_stage", stageFilter);
     apiFetch<KnowledgeDetail[]>(`/knowledge?${params}`)

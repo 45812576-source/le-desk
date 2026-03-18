@@ -7,6 +7,7 @@ import { ICONS, PixelIcon } from "@/components/pixel";
 import { PixelButton } from "@/components/pixel/PixelButton";
 import { PixelBadge } from "@/components/pixel/PixelBadge";
 import { useTheme } from "@/lib/theme";
+import { useAuth } from "@/lib/auth";
 import { apiFetch } from "@/lib/api";
 import type { SkillDetail, SavedSkill } from "@/lib/types";
 
@@ -16,7 +17,7 @@ function ThemedIcon({ size }: { size: number }) {
   return <Zap size={size} className="text-muted-foreground" />;
 }
 
-type Tab = "mine" | "dept" | "company";
+type Tab = "mine" | "dept" | "company" | "all";
 type ScopeOption = "company" | "department" | "personal";
 
 const STATUS_BADGE: Record<string, { color: "cyan" | "green" | "yellow" | "gray" | "red"; label: string }> = {
@@ -224,15 +225,19 @@ function MySkillCard({ skill, onRefresh }: { skill: SkillDetail; onRefresh: () =
               >
                 {editing ? "取消编辑" : "编辑"}
               </PixelButton>
-              {skill.status !== "published" ? (
+              {skill.status === "draft" || skill.status === "archived" ? (
                 <PixelButton size="sm" variant="secondary" onClick={() => setShowPublishModal(true)}>
                   发布
                 </PixelButton>
-              ) : (
+              ) : skill.status === "reviewing" ? (
+                <span className="text-[9px] font-bold text-yellow-600 border border-yellow-400 bg-yellow-50 px-2 py-1">
+                  审批中
+                </span>
+              ) : skill.status === "published" ? (
                 <PixelButton size="sm" variant="secondary" onClick={handleArchive}>
                   归档
                 </PixelButton>
-              )}
+              ) : null}
               {(skill.status === "draft" || skill.status === "archived") && (
                 <PixelButton size="sm" variant="secondary" onClick={handleDelete}>
                   删除
@@ -402,14 +407,121 @@ function CompanySkillCard({ skill, onUnsave }: { skill: SavedSkill; onUnsave: (i
   );
 }
 
+// ─── All Skill Card (super_admin only) ───────────────────────────────────────
+function AllSkillCard({ skill, onRefresh }: { skill: SkillDetail; onRefresh: () => void }) {
+  const [acting, setActing] = useState(false);
+  const [comment, setComment] = useState("");
+  const [showReject, setShowReject] = useState(false);
+  const badge = STATUS_BADGE[skill.status] || STATUS_BADGE.draft;
+
+  async function findApproval() {
+    // 找到该 skill 的 pending 审批单
+    const data = await apiFetch<{ items: { id: number; status: string; target_id: number }[] }>(
+      `/approvals?type=skill_publish&status=pending`
+    );
+    return data.items.find((a) => a.target_id === skill.id);
+  }
+
+  async function handleApprove() {
+    setActing(true);
+    try {
+      const approval = await findApproval();
+      if (!approval) {
+        // 超管直接发布（无审批单时的兜底）
+        await apiFetch(`/skills/${skill.id}/status?status=published`, { method: "PATCH" });
+      } else {
+        await apiFetch(`/approvals/${approval.id}/actions`, {
+          method: "POST",
+          body: JSON.stringify({ action: "approve", comment: comment || "审批通过" }),
+        });
+      }
+      onRefresh();
+    } catch {
+      // ignore
+    } finally {
+      setActing(false);
+      setComment("");
+    }
+  }
+
+  async function handleReject() {
+    if (!comment.trim()) return;
+    setActing(true);
+    try {
+      const approval = await findApproval();
+      if (approval) {
+        await apiFetch(`/approvals/${approval.id}/actions`, {
+          method: "POST",
+          body: JSON.stringify({ action: "reject", comment }),
+        });
+        // 驳回后把 skill 状态改回 draft
+        await apiFetch(`/skills/${skill.id}/status?status=draft`, { method: "PATCH" });
+      }
+      onRefresh();
+    } catch {
+      // ignore
+    } finally {
+      setActing(false);
+      setComment("");
+      setShowReject(false);
+    }
+  }
+
+  return (
+    <div className="bg-white border-2 border-[#1A202C] p-4">
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap mb-1">
+            <ThemedIcon size={12} />
+            <span className="text-xs font-bold uppercase">{skill.name}</span>
+            <PixelBadge color={badge.color}>{badge.label}</PixelBadge>
+            {skill.current_version > 0 && <PixelBadge color="cyan">v{skill.current_version}</PixelBadge>}
+            <PixelBadge color="gray">{skill.scope}</PixelBadge>
+          </div>
+          <p className="text-[9px] text-gray-500 line-clamp-2">{skill.description || "无描述"}</p>
+        </div>
+        {/* 审批操作：仅 reviewing 状态显示 */}
+        {skill.status === "reviewing" && (
+          <div className="flex items-center gap-1.5 flex-shrink-0">
+            <PixelButton size="sm" onClick={handleApprove} disabled={acting}>
+              {acting ? "处理中..." : "通过"}
+            </PixelButton>
+            <PixelButton size="sm" variant="secondary" onClick={() => setShowReject((v) => !v)} disabled={acting}>
+              驳回
+            </PixelButton>
+          </div>
+        )}
+      </div>
+      {/* 驳回理由输入 */}
+      {skill.status === "reviewing" && showReject && (
+        <div className="mt-3 flex gap-2 items-center">
+          <input
+            type="text"
+            placeholder="请填写驳回原因"
+            value={comment}
+            onChange={(e) => setComment(e.target.value)}
+            className="flex-1 border-2 border-[#1A202C] px-3 py-1.5 text-xs font-bold focus:outline-none focus:border-[#E53E3E]"
+          />
+          <PixelButton size="sm" variant="secondary" onClick={handleReject} disabled={acting || !comment.trim()}>
+            确认驳回
+          </PixelButton>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Main Page ────────────────────────────────────────────────────────────────
 const TAB_TITLE: Record<Tab, string> = {
   mine: "我的 Skill",
   dept: "部门 Skill",
   company: "公司 Skill",
+  all: "全部 Skill",
 };
 
 export default function SkillsPage() {
+  const { user } = useAuth();
+  const isSuperAdmin = user?.role === "super_admin";
   const [tab, setTab] = useState<Tab>("mine");
   const [mySkills, setMySkills] = useState<SkillDetail[]>([]);
   const [myLoading, setMyLoading] = useState(false);
@@ -420,6 +532,8 @@ export default function SkillsPage() {
   const [deptLoading, setDeptLoading] = useState(false);
   const [savedSkills, setSavedSkills] = useState<SavedSkill[]>([]);
   const [savedLoading, setSavedLoading] = useState(false);
+  const [allSkills, setAllSkills] = useState<SkillDetail[]>([]);
+  const [allLoading, setAllLoading] = useState(false);
 
   const fetchMySkills = useCallback(() => {
     setMyLoading(true);
@@ -445,11 +559,20 @@ export default function SkillsPage() {
       .finally(() => setSavedLoading(false));
   }, []);
 
+  const fetchAllSkills = useCallback(() => {
+    setAllLoading(true);
+    apiFetch<SkillDetail[]>("/skills")
+      .then(setAllSkills)
+      .catch(() => setAllSkills([]))
+      .finally(() => setAllLoading(false));
+  }, []);
+
   useEffect(() => {
     if (tab === "mine") fetchMySkills();
     else if (tab === "dept") fetchDeptSkills();
+    else if (tab === "all") fetchAllSkills();
     else fetchSavedSkills();
-  }, [tab, fetchMySkills, fetchDeptSkills, fetchSavedSkills]);
+  }, [tab, fetchMySkills, fetchDeptSkills, fetchSavedSkills, fetchAllSkills]);
 
   function handleUnsave(skillId: number) {
     setSavedSkills((prev) => prev.filter((s) => s.id !== skillId));
@@ -522,6 +645,15 @@ export default function SkillsPage() {
         >
           公司 Skill
         </PixelButton>
+        {isSuperAdmin && (
+          <PixelButton
+            variant={tab === "all" ? "primary" : "secondary"}
+            size="sm"
+            onClick={() => setTab("all")}
+          >
+            全部 Skill
+          </PixelButton>
+        )}
       </div>
 
       {/* Tab: 我的 Skill */}
@@ -646,6 +778,41 @@ export default function SkillsPage() {
             <div className="space-y-2">
               {savedSkills.map((skill) => (
                 <CompanySkillCard key={skill.id} skill={skill} onUnsave={handleUnsave} />
+              ))}
+            </div>
+          )}
+        </>
+      )}
+      {/* Tab: 全部 Skill（仅超管） */}
+      {tab === "all" && isSuperAdmin && (
+        <>
+          <div className="flex items-center gap-3 mb-4">
+            <span className="text-[10px] font-bold uppercase tracking-widest text-gray-500">
+              共 {allSkills.length} 个
+            </span>
+            <span className="text-[9px] text-yellow-600 font-bold border border-yellow-400 bg-yellow-50 px-2 py-0.5">
+              审核中 {allSkills.filter(s => s.status === "reviewing").length} 个待审批
+            </span>
+          </div>
+          {allLoading ? (
+            <div className="flex items-center justify-center py-20">
+              <div className="text-[10px] font-bold uppercase tracking-widest text-[#00A3C4] animate-pulse">
+                Loading...
+              </div>
+            </div>
+          ) : allSkills.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-20">
+              <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400">暂无 Skill</p>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {/* 待审批的排最前 */}
+              {[...allSkills].sort((a, b) => {
+                if (a.status === "reviewing" && b.status !== "reviewing") return -1;
+                if (a.status !== "reviewing" && b.status === "reviewing") return 1;
+                return 0;
+              }).map((skill) => (
+                <AllSkillCard key={skill.id} skill={skill} onRefresh={fetchAllSkills} />
               ))}
             </div>
           )}

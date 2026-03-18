@@ -34,7 +34,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     const saved = localStorage.getItem("token");
     if (!saved) {
-      setState({ user: null, token: null, loading: false });
+      Promise.resolve().then(() => setState({ user: null, token: null, loading: false }));
       return;
     }
 

@@ -40,7 +40,7 @@ export default function AdminBusinessTablesPage() {
   const [query, setQuery] = useState("");
 
   const fetchTables = useCallback(() => {
-    setLoading(true);
+    Promise.resolve().then(() => setLoading(true));
     apiFetch<BusinessTable[]>("/business-tables")
       .then(setTables)
       .catch(() => setTables([]))

@@ -1,15 +1,17 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 export function ThinkingBlock({ text, streaming }: { text: string; streaming?: boolean }) {
   const [open, setOpen] = useState(!!streaming);
+  const prevStreaming = useRef(streaming);
 
   // Auto-collapse when streaming ends
   useEffect(() => {
-    if (!streaming && open) {
-      setOpen(false);
+    if (prevStreaming.current && !streaming) {
+      Promise.resolve().then(() => setOpen(false));
     }
+    prevStreaming.current = streaming;
   }, [streaming]);
 
   return (

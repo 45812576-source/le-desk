@@ -299,7 +299,7 @@ export function Sidebar({ user, taskPending = 0, onLogout }: SidebarProps) {
             <div className={`w-7 h-7 ${avatarBg} flex-shrink-0 overflow-hidden`}>
               {user.avatar_url
                 // eslint-disable-next-line @next/next/no-img-element
-                ? <img src={`/api/proxy${user.avatar_url}`} alt="" className="w-full h-full object-cover" />
+                ? <img src={`/api/proxy${user.avatar_url.replace(/^\/api/, "")}`} alt="" className="w-full h-full object-cover" />
                 : <span className="w-full h-full flex items-center justify-center text-[9px] font-bold text-white">{user.display_name.charAt(0)}</span>
               }
             </div>

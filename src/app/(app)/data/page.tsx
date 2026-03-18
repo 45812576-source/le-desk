@@ -567,10 +567,10 @@ function TablePreview({
   const rowScope: ScopeValue = table.validation_rules?.row_scope ?? "all";
   const rowDeptIds = table.validation_rules?.row_department_ids ?? [];
 
-  useEffect(() => { setNameVal(table.display_name); }, [table.id, table.display_name]);
+  useEffect(() => { Promise.resolve().then(() => setNameVal(table.display_name)); }, [table.id, table.display_name]);
 
   useEffect(() => {
-    setLoadingRows(true);
+    Promise.resolve().then(() => setLoadingRows(true));
     apiFetch<{ columns: string[]; rows: Record<string, unknown>[] }>(
       `/data/${table.table_name}/rows?page=1&page_size=20`
     )
@@ -775,7 +775,7 @@ function TableRow({
 // Folder node
 function FolderNode({
   folder,
-  children: childFolders,
+  subFolders: childFolders,
   tables,
   selectedId,
   onSelectTable,
@@ -788,7 +788,7 @@ function FolderNode({
   depth,
 }: {
   folder: VirtualFolder;
-  children: VirtualFolder[];
+  subFolders: VirtualFolder[];
   tables: BusinessTable[];
   selectedId: number | null;
   onSelectTable: (t: BusinessTable) => void;
@@ -895,7 +895,7 @@ function FolderNode({
             <FolderNode
               key={cf.id}
               folder={cf}
-              children={[]}
+              subFolders={[]}
               tables={tables.filter((t) => (t.validation_rules?.folder_id ?? null) === cf.id)}
               selectedId={selectedId}
               onSelectTable={onSelectTable}
@@ -1120,7 +1120,7 @@ function ManageTab() {
                   <FolderNode
                     key={f.id}
                     folder={f}
-                    children={childFolders}
+                    subFolders={childFolders}
                     tables={tablesInFolder(f.id)}
                     selectedId={selectedTable?.id ?? null}
                     onSelectTable={setSelectedTable}

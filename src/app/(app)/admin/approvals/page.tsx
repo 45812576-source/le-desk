@@ -69,7 +69,7 @@ export default function AdminApprovalsPage() {
   const [conditions, setConditions] = useState("");
 
   const fetchData = useCallback(() => {
-    setLoading(true);
+    Promise.resolve().then(() => setLoading(true));
     const params = new URLSearchParams({ page: String(page), page_size: "20" });
     if (statusFilter) params.set("status", statusFilter);
     if (typeFilter) params.set("type", typeFilter);
@@ -233,7 +233,7 @@ export default function AdminApprovalsPage() {
                             />
                           </div>
                           <div>
-                            <label className="text-[10px] font-bold uppercase text-[#B7791F] block mb-1">附加条件（每行一条，仅"附条件通过"时填写）</label>
+                            <label className="text-[10px] font-bold uppercase text-[#B7791F] block mb-1">附加条件（每行一条，仅&ldquo;附条件通过&rdquo;时填写）</label>
                             <textarea
                               value={conditions}
                               onChange={(e) => setConditions(e.target.value)}

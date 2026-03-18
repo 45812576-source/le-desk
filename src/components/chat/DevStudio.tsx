@@ -220,6 +220,7 @@ export function DevStudio({ convId: _convId, workspaceId }: { convId: number; wo
   const { theme } = useTheme();
   const [status, setStatus] = useState<Status>("loading");
   const [opencodeUrl, setOpencodeUrl] = useState<string | null>(null);
+  const [instanceKey, setInstanceKey] = useState<number>(0);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [saveMode, setSaveMode] = useState<SaveMode | null>(null);
   const [saveSuccess, setSaveSuccess] = useState<string | null>(null);
@@ -235,6 +236,7 @@ export function DevStudio({ convId: _convId, workspaceId }: { convId: number; wo
         const data = await apiFetch<{ url: string }>("/dev-studio/instance");
         if (!cancelled) {
           setOpencodeUrl(data.url);
+          setInstanceKey(Date.now());
           setStatus("ready");
         }
       } catch (err) {
@@ -258,6 +260,7 @@ export function DevStudio({ convId: _convId, workspaceId }: { convId: number; wo
     apiFetch<{ url: string }>("/dev-studio/instance")
       .then((data) => {
         setOpencodeUrl(data.url);
+        setInstanceKey(Date.now());
         setStatus("ready");
       })
       .catch((err) => {
@@ -349,7 +352,7 @@ export function DevStudio({ convId: _convId, workspaceId }: { convId: number; wo
 
         {status === "ready" && opencodeUrl && (
           <iframe
-            src={`${opencodeUrl}?t=${Date.now()}`}
+            src={`${opencodeUrl}?t=${instanceKey}`}
             className="w-full h-full border-none"
             style={theme !== "dark" ? { filter: "invert(1) hue-rotate(180deg)" } : undefined}
             title="OpenCode Dev Studio"
