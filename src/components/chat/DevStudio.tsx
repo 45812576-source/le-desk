@@ -323,22 +323,25 @@ export function DevStudio({ convId: _convId, workspaceId }: { convId: number; wo
         )}
 
         {status === "error" && (
-          <div className="h-full flex flex-col items-center justify-center gap-4">
-            <div className="w-10 h-10 border-2 border-red-300 bg-red-50 flex items-center justify-center">
+          <div className="h-full flex flex-col items-center justify-center gap-4 px-6">
+            <div className="w-10 h-10 border-2 border-red-300 bg-red-50 flex items-center justify-center flex-shrink-0">
               <span className="text-red-400 font-bold text-sm">!</span>
             </div>
-            <div className="text-center">
-              <p className="text-[10px] font-bold text-red-500 mb-3">{errorMsg}</p>
-              {errorMsg?.includes("未安装") && (
-                <p className="text-[9px] text-gray-400 font-mono bg-gray-100 border border-gray-200 px-3 py-1.5 mb-4">
-                  npm install -g opencode-ai
+            <div className="text-center max-w-sm">
+              <p className="text-[11px] font-bold text-red-500 mb-2">工作台服务未启动</p>
+              <p className="text-[10px] text-gray-500 leading-relaxed mb-3">
+                OpenCode 服务无法连接。请联系管理员检查后端服务是否正常运行。
+              </p>
+              {errorMsg && (
+                <p className="text-[9px] text-gray-400 font-mono bg-gray-100 border border-gray-200 px-3 py-1.5 mb-4 text-left break-all">
+                  {errorMsg}
                 </p>
               )}
               <button
                 onClick={handleRetry}
                 className="px-4 py-2 text-[9px] font-bold uppercase tracking-widest border-2 border-[#6B46C1] text-[#6B46C1] hover:bg-[#6B46C1]/10 transition-colors"
               >
-                重试
+                重试连接
               </button>
             </div>
           </div>

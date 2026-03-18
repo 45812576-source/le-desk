@@ -265,21 +265,21 @@ export default function TasksPage() {
               {(["urgent_important", "important", "urgent", "neither"] as const).map((p) => (
                 <div
                   key={p}
-                  className="border-2 border-[#1A202C] bg-white p-2 flex flex-col items-center"
+                  className="border-2 border-[#1A202C] bg-white p-3 flex flex-col items-center"
                 >
                   <div
-                    className="w-2 h-2 mb-1"
+                    className="w-3 h-3 mb-1"
                     style={{ background: PRIORITY_COLOR[p] }}
                   />
-                  <div className="text-[18px] font-bold leading-none">{stats[p]}</div>
+                  <div className="text-2xl font-bold leading-none">{stats[p]}</div>
                   <div className="text-[8px] font-bold uppercase text-gray-500 mt-0.5 text-center">
                     {PRIORITY_LABEL[p]}
                   </div>
                 </div>
               ))}
-              <div className="border-2 border-[#E53E3E] bg-red-50 p-2 flex flex-col items-center">
-                <div className="w-2 h-2 mb-1 bg-[#E53E3E]" />
-                <div className="text-[18px] font-bold leading-none text-[#E53E3E]">
+              <div className="border-2 border-[#E53E3E] bg-red-50 p-3 flex flex-col items-center">
+                <div className="w-3 h-3 mb-1 bg-[#E53E3E]" />
+                <div className="text-2xl font-bold leading-none text-[#E53E3E]">
                   {stats.overdue}
                 </div>
                 <div className="text-[8px] font-bold uppercase text-[#E53E3E] mt-0.5">

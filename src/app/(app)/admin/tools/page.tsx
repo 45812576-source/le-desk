@@ -2,7 +2,18 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { PageShell } from "@/components/layout/PageShell";
+import { BookOpen, Wrench } from "lucide-react";
 import { ICONS, PixelIcon } from "@/components/pixel";
+import { useTheme } from "@/lib/theme";
+
+function ThemedIcon({ iconKey, size }: { iconKey: "knowledgeMy" | "tools"; size: number }) {
+  const { theme } = useTheme();
+  if (theme === "lab") {
+    return <PixelIcon {...(iconKey === "knowledgeMy" ? ICONS.knowledgeMy : ICONS.tools)} size={size} />;
+  }
+  const Icon = iconKey === "knowledgeMy" ? BookOpen : Wrench;
+  return <Icon size={size} className="text-muted-foreground" />;
+}
 import { PixelButton } from "@/components/pixel/PixelButton";
 import { PixelBadge } from "@/components/pixel/PixelBadge";
 import { apiFetch } from "@/lib/api";
@@ -96,7 +107,7 @@ export default function AdminToolsPage() {
         {/* Search */}
         <div className="flex items-center gap-0 border-2 border-[#1A202C] bg-white flex-1 min-w-[180px] max-w-xs">
           <span className="px-2 opacity-40">
-            <PixelIcon {...ICONS.knowledgeMy} size={12} />
+            <ThemedIcon iconKey="knowledgeMy" size={12} />
           </span>
           <input
             value={q}
@@ -136,7 +147,7 @@ export default function AdminToolsPage() {
       ) : filtered.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-20">
           <div className="w-10 h-10 bg-[#EBF4F7] border-2 border-[#1A202C] flex items-center justify-center mb-4 opacity-40">
-            <PixelIcon {...ICONS.tools} size={20} />
+            <ThemedIcon iconKey="tools" size={20} />
           </div>
           <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400">
             {tools.length === 0 ? "暂无工具" : "无匹配结果"}
