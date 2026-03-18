@@ -35,7 +35,7 @@ export default function AdminAuditPage() {
   const [expandedId, setExpandedId] = useState<number | null>(null);
 
   const fetchLogs = useCallback(() => {
-    setLoading(true);
+    Promise.resolve().then(() => setLoading(true));
     const params = new URLSearchParams({ page: String(page), page_size: "20" });
     if (tableFilter) params.set("table_name", tableFilter);
     if (opFilter) params.set("operation", opFilter);

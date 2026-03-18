@@ -48,7 +48,7 @@ function StatusIndicator({ stage, isFileUpload }: { stage: string | null; isFile
   const [elapsed, setElapsed] = useState(0);
 
   useEffect(() => {
-    setElapsed(0);
+    Promise.resolve().then(() => setElapsed(0));
     const tick = setInterval(() => setElapsed((s) => s + 1), 1000);
     return () => clearInterval(tick);
   }, [stage, isFileUpload]);
@@ -222,7 +222,7 @@ export default function ChatDetailPage() {
 
   // Load messages via store (cache preserved across navigation)
   useEffect(() => {
-    setLoading(true);
+    Promise.resolve().then(() => setLoading(true));
     useChatStore.getState().loadMessages(convId).finally(() => setLoading(false));
   }, [convId]);
 

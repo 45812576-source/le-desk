@@ -19,7 +19,9 @@ function AvatarSection() {
   const [uploading, setUploading] = useState(false);
   const [msg, setMsg] = useState<{ text: string; ok: boolean } | null>(null);
 
-  const avatarUrl = user?.avatar_url ? `/api/proxy${user.avatar_url}` : null;
+  const avatarUrl = user?.avatar_url
+    ? `/api/proxy${user.avatar_url.replace(/^\/api/, "")}`
+    : null;
   const initials = user?.display_name?.slice(0, 2) ?? "?";
 
   async function handleFile(e: React.ChangeEvent<HTMLInputElement>) {

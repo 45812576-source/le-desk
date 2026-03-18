@@ -22,13 +22,14 @@ export function useTheme() {
 }
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
-  const [theme, setThemeState] = useState<Theme>(DEFAULT_THEME);
+  const [theme, setThemeState] = useState<Theme>(() => {
+    if (typeof window === "undefined") return DEFAULT_THEME;
+    return (localStorage.getItem(STORAGE_KEY) as Theme | null) ?? DEFAULT_THEME;
+  });
 
   useEffect(() => {
-    const saved = localStorage.getItem(STORAGE_KEY) as Theme | null;
-    const initial = saved ?? DEFAULT_THEME;
-    setThemeState(initial);
-    document.documentElement.setAttribute("data-theme", initial);
+    document.documentElement.setAttribute("data-theme", theme);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   function setTheme(t: Theme) {

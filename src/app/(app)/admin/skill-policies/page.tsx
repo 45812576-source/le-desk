@@ -69,7 +69,7 @@ export default function AdminSkillPoliciesPage() {
   const [createError, setCreateError] = useState("");
 
   const fetchAll = useCallback(() => {
-    setLoading(true);
+    Promise.resolve().then(() => setLoading(true));
     Promise.all([
       apiFetch<SkillPolicy[]>("/admin/skill-policies"),
       apiFetch<SkillItem[]>("/skills"),
