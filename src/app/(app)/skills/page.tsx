@@ -1,12 +1,20 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { Zap } from "lucide-react";
 import { PageShell } from "@/components/layout/PageShell";
 import { ICONS, PixelIcon } from "@/components/pixel";
 import { PixelButton } from "@/components/pixel/PixelButton";
 import { PixelBadge } from "@/components/pixel/PixelBadge";
+import { useTheme } from "@/lib/theme";
 import { apiFetch } from "@/lib/api";
 import type { SkillDetail, SavedSkill } from "@/lib/types";
+
+function ThemedIcon({ size }: { size: number }) {
+  const { theme } = useTheme();
+  if (theme === "lab") return <PixelIcon {...ICONS.skills} size={size} />;
+  return <Zap size={size} className="text-muted-foreground" />;
+}
 
 type Tab = "mine" | "dept" | "company";
 type ScopeOption = "company" | "department" | "personal";
@@ -26,7 +34,7 @@ function PublishScopeModal({
   onConfirm: (scope: ScopeOption, departmentId?: number) => void;
   onCancel: () => void;
 }) {
-  const [scope, setScope] = useState<ScopeOption>("company");
+  const [scope, setScope] = useState<ScopeOption>("personal");
   const [deptId, setDeptId] = useState("");
 
   const scopeOptions: { value: ScopeOption; label: string; desc: string }[] = [
@@ -100,13 +108,28 @@ function MySkillCard({ skill, onRefresh }: { skill: SkillDetail; onRefresh: () =
   const [showPublishModal, setShowPublishModal] = useState(false);
   const [detail, setDetail] = useState<SkillDetail | null>(null);
 
+  // 当 detail 加载完成后，自动同步 prompt（仅非编辑中时）
+  useEffect(() => {
+    if (!editing) {
+      const latest = detail?.versions?.[0];
+      if (latest?.system_prompt) setPrompt(latest.system_prompt);
+    }
+  }, [detail, editing]);
+
   async function loadDetail() {
     if (detail) return;
     try {
       const data = await apiFetch<SkillDetail>(`/skills/${skill.id}`);
       setDetail(data);
-      const latest = data.versions?.[0];
-      if (latest?.system_prompt) setPrompt(latest.system_prompt);
+    } catch {
+      // ignore
+    }
+  }
+
+  async function handleDelete() {
+    try {
+      await apiFetch(`/skills/${skill.id}`, { method: "DELETE" });
+      onRefresh();
     } catch {
       // ignore
     }
@@ -177,7 +200,7 @@ function MySkillCard({ skill, onRefresh }: { skill: SkillDetail; onRefresh: () =
         >
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 flex-wrap mb-1">
-              <PixelIcon {...ICONS.skills} size={12} />
+              <ThemedIcon size={12} />
               <span className="text-xs font-bold uppercase">{skill.name}</span>
               <PixelBadge color={badge.color}>{badge.label}</PixelBadge>
               {skill.current_version > 0 && (
@@ -197,10 +220,7 @@ function MySkillCard({ skill, onRefresh }: { skill: SkillDetail; onRefresh: () =
               <PixelButton
                 size="sm"
                 variant={editing ? "primary" : "secondary"}
-                onClick={() => {
-                  if (!editing && latestVersion?.system_prompt) setPrompt(latestVersion.system_prompt);
-                  setEditing((v) => !v);
-                }}
+                onClick={() => setEditing((v) => !v)}
               >
                 {editing ? "取消编辑" : "编辑"}
               </PixelButton>
@@ -211,6 +231,11 @@ function MySkillCard({ skill, onRefresh }: { skill: SkillDetail; onRefresh: () =
               ) : (
                 <PixelButton size="sm" variant="secondary" onClick={handleArchive}>
                   归档
+                </PixelButton>
+              )}
+              {(skill.status === "draft" || skill.status === "archived") && (
+                <PixelButton size="sm" variant="secondary" onClick={handleDelete}>
+                  删除
                 </PixelButton>
               )}
             </div>
@@ -262,10 +287,19 @@ function NewSkillForm({ onCreated }: { onCreated: () => void }) {
   const [description, setDescription] = useState("");
   const [prompt, setPrompt] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [errors, setErrors] = useState<{ name?: string; prompt?: string }>({});
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!name.trim() || !prompt.trim() || submitting) return;
+    const newErrors: { name?: string; prompt?: string } = {};
+    if (!name.trim()) newErrors.name = "Skill 名称不能为空";
+    if (!prompt.trim()) newErrors.prompt = "System Prompt 不能为空";
+    if (Object.keys(newErrors).length > 0) {
+      setErrors(newErrors);
+      return;
+    }
+    setErrors({});
+    if (submitting) return;
     setSubmitting(true);
     try {
       await apiFetch("/skills", {
@@ -296,9 +330,10 @@ function NewSkillForm({ onCreated }: { onCreated: () => void }) {
         type="text"
         placeholder="Skill 名称"
         value={name}
-        onChange={(e) => setName(e.target.value)}
-        className="w-full border-2 border-[#1A202C] px-3 py-1.5 text-xs font-bold mb-2 focus:outline-none focus:border-[#00D1FF]"
+        onChange={(e) => { setName(e.target.value); if (errors.name) setErrors((prev) => ({ ...prev, name: undefined })); }}
+        className={`w-full border-2 px-3 py-1.5 text-xs font-bold mb-1 focus:outline-none focus:border-[#00D1FF] ${errors.name ? "border-red-500" : "border-[#1A202C]"}`}
       />
+      {errors.name && <div className="text-[9px] text-red-500 font-bold mb-2">{errors.name}</div>}
       <input
         type="text"
         placeholder="描述（可选）"
@@ -309,10 +344,11 @@ function NewSkillForm({ onCreated }: { onCreated: () => void }) {
       <textarea
         placeholder="System Prompt"
         value={prompt}
-        onChange={(e) => setPrompt(e.target.value)}
+        onChange={(e) => { setPrompt(e.target.value); if (errors.prompt) setErrors((prev) => ({ ...prev, prompt: undefined })); }}
         rows={6}
-        className="w-full border-2 border-[#1A202C] px-3 py-2 text-[10px] font-mono resize-y mb-3 focus:outline-none focus:border-[#00D1FF]"
+        className={`w-full border-2 px-3 py-2 text-[10px] font-mono resize-y mb-1 focus:outline-none focus:border-[#00D1FF] ${errors.prompt ? "border-red-500" : "border-[#1A202C]"}`}
       />
+      {errors.prompt && <div className="text-[9px] text-red-500 font-bold mb-2">{errors.prompt}</div>}
       <PixelButton type="submit" disabled={submitting}>
         {submitting ? "创建中..." : "创建"}
       </PixelButton>
@@ -342,7 +378,7 @@ function CompanySkillCard({ skill, onUnsave }: { skill: SavedSkill; onUnsave: (i
     <div className="bg-white border-2 border-[#1A202C] p-4 flex items-start justify-between gap-3">
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 flex-wrap mb-1">
-          <PixelIcon {...ICONS.skills} size={12} />
+          <ThemedIcon size={12} />
           <span className="text-xs font-bold uppercase">{skill.name}</span>
           <PixelBadge color={badge.color}>{badge.label}</PixelBadge>
           {skill.current_version > 0 && (
@@ -367,12 +403,19 @@ function CompanySkillCard({ skill, onUnsave }: { skill: SavedSkill; onUnsave: (i
 }
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
+const TAB_TITLE: Record<Tab, string> = {
+  mine: "我的 Skill",
+  dept: "部门 Skill",
+  company: "公司 Skill",
+};
+
 export default function SkillsPage() {
   const [tab, setTab] = useState<Tab>("mine");
   const [mySkills, setMySkills] = useState<SkillDetail[]>([]);
   const [myLoading, setMyLoading] = useState(false);
   const [showNewForm, setShowNewForm] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
   const [deptSkills, setDeptSkills] = useState<SkillDetail[]>([]);
   const [deptLoading, setDeptLoading] = useState(false);
   const [savedSkills, setSavedSkills] = useState<SavedSkill[]>([]);
@@ -416,16 +459,17 @@ export default function SkillsPage() {
     const file = e.target.files?.[0];
     if (!file) return;
     setUploading(true);
+    setUploadError(null);
     const form = new FormData();
     form.append("file", file);
     try {
       await apiFetch("/skills/upload-md", { method: "POST", body: form });
-      fetchMySkills();
-    } catch {
-      // ignore
+    } catch (err) {
+      setUploadError(err instanceof Error ? err.message : "上传失败");
     } finally {
       setUploading(false);
       e.target.value = "";
+      fetchMySkills();
     }
   }
 
@@ -451,7 +495,7 @@ export default function SkillsPage() {
 
   return (
     <PageShell
-      title="我的 Skill"
+      title={TAB_TITLE[tab]}
       icon={ICONS.skills}
       actions={tab === "mine" ? MineActions : undefined}
     >
@@ -483,6 +527,11 @@ export default function SkillsPage() {
       {/* Tab: 我的 Skill */}
       {tab === "mine" && (
         <>
+          {uploadError && (
+            <div className="border-2 border-red-400 bg-red-50 px-4 py-2 mb-3 text-[9px] font-bold text-red-500">
+              上传失败：{uploadError}
+            </div>
+          )}
           {showNewForm && (
             <NewSkillForm onCreated={() => { setShowNewForm(false); fetchMySkills(); }} />
           )}
@@ -495,7 +544,7 @@ export default function SkillsPage() {
           ) : mySkills.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-20">
               <div className="w-10 h-10 bg-[#CCF2FF] border-2 border-[#00A3C4] flex items-center justify-center mb-4">
-                <PixelIcon {...ICONS.skills} size={16} />
+                <ThemedIcon size={16} />
               </div>
               <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400">
                 暂无 Skill，点击新建或上传 .md
@@ -523,7 +572,7 @@ export default function SkillsPage() {
           ) : deptSkills.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-20">
               <div className="w-10 h-10 bg-[#CCF2FF] border-2 border-[#00A3C4] flex items-center justify-center mb-4">
-                <PixelIcon {...ICONS.skills} size={16} />
+                <ThemedIcon size={16} />
               </div>
               <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400">
                 暂无部门 Skill
@@ -536,7 +585,7 @@ export default function SkillsPage() {
                 return (
                   <div key={skill.id} className="bg-white border-2 border-[#1A202C] p-4">
                     <div className="flex items-center gap-2 flex-wrap mb-1">
-                      <PixelIcon {...ICONS.skills} size={12} />
+                      <ThemedIcon size={12} />
                       <span className="text-xs font-bold uppercase">{skill.name}</span>
                       <PixelBadge color={badge.color}>{badge.label}</PixelBadge>
                       {(skill.current_version ?? 0) > 0 && (
@@ -584,7 +633,7 @@ export default function SkillsPage() {
           ) : savedSkills.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-20">
               <div className="w-10 h-10 bg-[#CCF2FF] border-2 border-[#00A3C4] flex items-center justify-center mb-4">
-                <PixelIcon {...ICONS.skills} size={16} />
+                <ThemedIcon size={16} />
               </div>
               <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400 mb-4">
                 尚未保存任何公司 Skill

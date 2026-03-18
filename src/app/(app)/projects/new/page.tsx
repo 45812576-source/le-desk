@@ -6,6 +6,7 @@ import { PageShell } from "@/components/layout/PageShell";
 import { ICONS } from "@/components/pixel";
 import { PixelUserPicker, type SuggestedUser } from "@/components/pixel/PixelUserPicker";
 import { apiFetch } from "@/lib/api";
+import { useAuth } from "@/lib/auth";
 
 interface MemberInput {
   user_id: number;
@@ -17,6 +18,7 @@ type ProjectType = "dev" | "custom";
 
 export default function NewProjectPage() {
   const router = useRouter();
+  const { user } = useAuth();
   const [projectType, setProjectType] = useState<ProjectType>("custom");
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
@@ -104,10 +106,11 @@ export default function NewProjectPage() {
     }
   }
 
-  // 已选的 user_id 列表（用于 exclude）
+  // 已选的 user_id 列表（用于 exclude），同时排除当前登录用户
+  const currentUserId = user?.id ?? 0;
   const selectedCustomIds = members.map((m) => m.user_id).filter(Boolean);
-  const devExcludeForRequester = [developer?.id].filter(Boolean) as number[];
-  const devExcludeForDeveloper = [requester?.id].filter(Boolean) as number[];
+  const devExcludeForRequester = [developer?.id, currentUserId].filter(Boolean) as number[];
+  const devExcludeForDeveloper = [requester?.id, currentUserId].filter(Boolean) as number[];
 
   return (
     <PageShell title="新建项目" icon={ICONS.project}>
@@ -270,7 +273,7 @@ export default function NewProjectPage() {
                           : null
                       }
                       onChange={(u) => updateMemberUser(idx, u)}
-                      excludeIds={selectedCustomIds.filter((id) => id !== member.user_id)}
+                      excludeIds={[...selectedCustomIds.filter((id) => id !== member.user_id), currentUserId].filter(Boolean) as number[]}
                       placeholder="选择成员"
                       accentColor="cyan"
                     />

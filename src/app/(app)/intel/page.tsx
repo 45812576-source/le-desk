@@ -2,9 +2,19 @@
 
 import { useCallback, useEffect, useState, useRef } from "react";
 import { PageShell } from "@/components/layout/PageShell";
+import { Rss, Radio } from "lucide-react";
 import { ICONS, PixelIcon } from "@/components/pixel";
 import { ThemedPageIcon } from "@/components/layout/PageShell";
 import { useTheme } from "@/lib/theme";
+
+function ThemedIcon({ iconKey, size }: { iconKey: "intel" | "intelSource"; size: number }) {
+  const { theme } = useTheme();
+  if (theme === "lab") {
+    return <PixelIcon {...(iconKey === "intel" ? ICONS.intel : ICONS.intelSource)} size={size} />;
+  }
+  const Icon = iconKey === "intel" ? Rss : Radio;
+  return <Icon size={size} className="text-muted-foreground" />;
+}
 import { PixelButton } from "@/components/pixel/PixelButton";
 import { PixelBadge } from "@/components/pixel/PixelBadge";
 import { apiFetch } from "@/lib/api";
@@ -558,7 +568,7 @@ function SourcesTab() {
       {sources.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-20">
           <div className="w-10 h-10 bg-[#EBF4F7] border-2 border-[#1A202C] flex items-center justify-center mb-4">
-            <PixelIcon {...ICONS.intelSource} size={20} />
+            <ThemedIcon iconKey="intelSource" size={20} />
           </div>
           <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400">
             暂无数据源
@@ -683,7 +693,7 @@ function TasksTab() {
     return (
       <div className="flex flex-col items-center justify-center py-20">
         <div className="w-10 h-10 bg-[#EBF4F7] border-2 border-[#1A202C] flex items-center justify-center mb-4">
-          <PixelIcon {...ICONS.intel} size={20} />
+          <ThemedIcon iconKey="intel" size={20} />
         </div>
         <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400">
           暂无采集任务
@@ -900,7 +910,7 @@ function EntriesTab({ isAdmin }: { isAdmin: boolean }) {
       ) : entries.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-24">
           <div className="w-10 h-10 bg-[#EBF4F7] border-2 border-[#1A202C] flex items-center justify-center mb-4">
-            <PixelIcon {...ICONS.intel} size={20} />
+            <ThemedIcon iconKey="intel" size={20} />
           </div>
           <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400">
             暂无情报数据

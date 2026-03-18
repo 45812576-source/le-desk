@@ -6,6 +6,13 @@ import { PixelBadge } from "@/components/pixel/PixelBadge";
 import { PixelIcon, ICONS } from "@/components/pixel";
 import { ThemedPageIcon } from "@/components/layout/PageShell";
 import { useTheme } from "@/lib/theme";
+import { Table2 } from "lucide-react";
+
+function ThemedIcon({ size }: { size: number }) {
+  const { theme } = useTheme();
+  if (theme === "lab") return <PixelIcon {...ICONS.data} size={size} />;
+  return <Table2 size={size} className="text-muted-foreground" />;
+}
 import { apiFetch } from "@/lib/api";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -754,7 +761,7 @@ function TableRow({
       }`}
       style={{ paddingLeft: `${8 + depth * 16 + 20}px`, paddingRight: "8px" }}
     >
-      <PixelIcon {...ICONS.data} size={12} />
+      <ThemedIcon size={12} />
       <span className="flex-1 text-[10px] font-bold truncate">
         {table.display_name}
       </span>
@@ -1161,7 +1168,7 @@ function ManageTab() {
               {allTables.length === 0 && (
                 <div className="flex flex-col items-center justify-center h-48 text-[9px] text-gray-400 uppercase tracking-widest">
                   <div className="mb-3 opacity-40">
-                    <PixelIcon {...ICONS.data} size={28} />
+                    <ThemedIcon size={28} />
                   </div>
                   暂无数据表，先去连接数据源
                 </div>
@@ -1183,7 +1190,7 @@ function ManageTab() {
       ) : (
         <div className="flex-1 bg-white flex flex-col items-center justify-center text-[9px] text-gray-400 uppercase tracking-widest">
           <div className="mb-3 opacity-40">
-            <PixelIcon {...ICONS.data} size={32} />
+            <ThemedIcon size={32} />
           </div>
           选择左侧数据表预览
         </div>

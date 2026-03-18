@@ -2,7 +2,15 @@
 
 import { useEffect, useState } from "react";
 import { PageShell } from "@/components/layout/PageShell";
+import { Zap } from "lucide-react";
 import { ICONS, PixelIcon } from "@/components/pixel";
+import { useTheme } from "@/lib/theme";
+
+function ThemedIcon({ size }: { size: number }) {
+  const { theme } = useTheme();
+  if (theme === "lab") return <PixelIcon {...ICONS.skills} size={size} />;
+  return <Zap size={size} className="text-muted-foreground" />;
+}
 import { PixelButton } from "@/components/pixel/PixelButton";
 import { PixelBadge } from "@/components/pixel/PixelBadge";
 import { PixelSelect } from "@/components/pixel/PixelSelect";
@@ -260,7 +268,7 @@ export default function SkillMarketPage() {
           ) : filtered.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-16">
               <div className="w-10 h-10 bg-[#CCF2FF] border-2 border-[#00A3C4] flex items-center justify-center mb-4">
-                <PixelIcon {...ICONS.skills} size={16} />
+                <ThemedIcon size={16} />
               </div>
               <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400">
                 暂无可用 Skill
@@ -279,7 +287,7 @@ export default function SkillMarketPage() {
                   >
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 flex-wrap mb-1">
-                        <PixelIcon {...ICONS.skills} size={12} />
+                        <ThemedIcon size={12} />
                         <span className="text-xs font-bold uppercase">{skill.name}</span>
                         <PixelBadge color="green">公司</PixelBadge>
                         {(skill.current_version ?? 0) > 0 && (

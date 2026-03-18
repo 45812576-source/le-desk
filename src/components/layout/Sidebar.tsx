@@ -193,7 +193,7 @@ export function Sidebar({ user, taskPending = 0, onLogout }: SidebarProps) {
   const subText = isLab ? "text-[10px] text-[#00A3C4] font-bold uppercase mt-0.5" : "text-[11px] text-muted-foreground mt-0.5";
   const footerBorder = isLab ? "border-t-2 border-[#1A202C]" : "border-t border-border";
   const footerBg = isLab ? "bg-white/40" : "bg-sidebar";
-  const avatarBg = isLab ? "bg-[#00CC99] pixel-border" : "bg-primary/20 rounded-full";
+  const avatarBg = isLab ? "bg-[#00A3C4] pixel-border" : "bg-primary rounded-full";
   const toggleBtnClass = isLab
     ? "border-2 border-[#1A202C] bg-white hover:bg-[#CCF2FF]"
     : "border border-border bg-background hover:bg-accent rounded-md";
