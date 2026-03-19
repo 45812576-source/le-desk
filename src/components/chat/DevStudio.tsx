@@ -10,6 +10,14 @@ import { useTheme } from "@/lib/theme";
 
 type SaveMode = "tool" | "skill";
 
+interface LatestFile {
+  path: string;
+  filename: string;
+  content: string;
+  tool: string;
+  session_title: string;
+}
+
 function SaveModal({
   mode,
   onSave,
@@ -25,6 +33,45 @@ function SaveModal({
   const [systemPrompt, setSystemPrompt] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const [latestFiles, setLatestFiles] = useState<LatestFile[]>([]);
+  const [loadingFiles, setLoadingFiles] = useState(true);
+  const [selectedFile, setSelectedFile] = useState<string>("");
+
+  // 加载最近产出文件
+  useEffect(() => {
+    setLoadingFiles(true);
+    apiFetch<LatestFile[]>("/dev-studio/latest-output?limit=10")
+      .then((files) => {
+        setLatestFiles(files);
+        if (files.length > 0) {
+          setSelectedFile(files[0].path);
+          // 自动预填：skill 用文件内容作为 system prompt，tool 用文件名作为名称
+          const f = files[0];
+          const baseName = f.filename.replace(/\.[^.]+$/, "");
+          setName(baseName);
+          if (mode === "skill") {
+            setSystemPrompt(f.content);
+          } else {
+            setDisplayName(baseName);
+          }
+        }
+      })
+      .catch(() => {})
+      .finally(() => setLoadingFiles(false));
+  }, [mode]);
+
+  function handleFileSelect(path: string) {
+    setSelectedFile(path);
+    const f = latestFiles.find((x) => x.path === path);
+    if (!f) return;
+    const baseName = f.filename.replace(/\.[^.]+$/, "");
+    setName(baseName);
+    if (mode === "skill") {
+      setSystemPrompt(f.content);
+    } else {
+      setDisplayName(baseName);
+    }
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -66,10 +113,43 @@ function SaveModal({
 
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-      <div className="bg-white border-2 border-[#1A202C] p-6 w-96 max-h-[80vh] overflow-y-auto">
+      <div className="bg-white border-2 border-[#1A202C] p-6 w-[480px] max-h-[85vh] overflow-y-auto">
         <div className="text-[10px] font-bold uppercase tracking-widest text-[#6B46C1] mb-4">
           保存为 {mode === "tool" ? "Tool" : "Skill"}
         </div>
+
+        {/* 最近产出文件选择 */}
+        <div className="mb-4 border-2 border-[#E9D8FD] bg-[#FAF5FF] p-3">
+          <div className="text-[9px] font-bold uppercase tracking-widest text-[#6B46C1] mb-2">
+            从最近写入文件中选择（自动预填）
+          </div>
+          {loadingFiles ? (
+            <div className="text-[9px] text-gray-400 animate-pulse">读取中...</div>
+          ) : latestFiles.length === 0 ? (
+            <div className="text-[9px] text-gray-400">暂无最近写入文件，请手动填写</div>
+          ) : (
+            <div className="flex flex-col gap-1 max-h-32 overflow-y-auto">
+              {latestFiles.map((f) => (
+                <button
+                  key={f.path}
+                  type="button"
+                  onClick={() => handleFileSelect(f.path)}
+                  className={`text-left px-2 py-1.5 text-[9px] font-mono border transition-colors ${
+                    selectedFile === f.path
+                      ? "border-[#6B46C1] bg-[#6B46C1]/10 text-[#6B46C1] font-bold"
+                      : "border-gray-200 text-gray-600 hover:border-[#6B46C1]/50"
+                  }`}
+                >
+                  <span className="font-bold">{f.filename}</span>
+                  {f.session_title && (
+                    <span className="text-gray-400 ml-2">· {f.session_title}</span>
+                  )}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
         <form onSubmit={handleSubmit} className="space-y-3">
           <div>
             <div className="text-[9px] font-bold uppercase tracking-widest text-gray-400 mb-1">
@@ -214,6 +294,9 @@ function RequirementsBanner({ workspaceId }: { workspaceId: number }) {
 
 // ─── Dev Studio ───────────────────────────────────────────────────────────────
 
+// 受限模型 key 常量
+const RESTRICTED_MODELS = ["lemondata/gpt-5.4"];
+
 type Status = "loading" | "ready" | "error";
 
 export function DevStudio({ convId: _convId, workspaceId }: { convId: number; workspaceId?: number }) {
@@ -224,7 +307,15 @@ export function DevStudio({ convId: _convId, workspaceId }: { convId: number; wo
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [saveMode, setSaveMode] = useState<SaveMode | null>(null);
   const [saveSuccess, setSaveSuccess] = useState<string | null>(null);
+  const [grantedModels, setGrantedModels] = useState<string[]>([]);
   const retryRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // 拉取当前用户的受限模型授权
+  useEffect(() => {
+    apiFetch<{ model_keys: string[] }>("/auth/model-grants")
+      .then((data) => setGrantedModels(data.model_keys))
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -233,9 +324,10 @@ export function DevStudio({ convId: _convId, workspaceId }: { convId: number; wo
       setStatus("loading");
       setErrorMsg(null);
       try {
-        const data = await apiFetch<{ url: string }>("/dev-studio/instance");
+        await apiFetch<{ url: string; port: number }>("/dev-studio/instance");
         if (!cancelled) {
-          setOpencodeUrl(data.url);
+          // 通过 Next.js proxy 访问 opencode，兼容内网穿透场景（HTML 路径重写）
+          setOpencodeUrl("/api/opencode");
           setInstanceKey(Date.now());
           setStatus("ready");
         }
@@ -257,9 +349,9 @@ export function DevStudio({ convId: _convId, workspaceId }: { convId: number; wo
   function handleRetry() {
     setStatus("loading");
     setErrorMsg(null);
-    apiFetch<{ url: string }>("/dev-studio/instance")
-      .then((data) => {
-        setOpencodeUrl(data.url);
+    apiFetch<{ url: string; port: number }>("/dev-studio/instance")
+      .then(() => {
+        setOpencodeUrl("/api/opencode");
         setInstanceKey(Date.now());
         setStatus("ready");
       })
@@ -351,13 +443,26 @@ export function DevStudio({ convId: _convId, workspaceId }: { convId: number; wo
         )}
 
         {status === "ready" && opencodeUrl && (
-          <iframe
-            src={`${opencodeUrl}?t=${instanceKey}`}
-            className="w-full h-full border-none"
-            style={theme !== "dark" ? { filter: "invert(1) hue-rotate(180deg)" } : undefined}
-            title="OpenCode Dev Studio"
-            allow="clipboard-read; clipboard-write"
-          />
+          <>
+            <iframe
+              src={`${opencodeUrl}?t=${instanceKey}`}
+              className="w-full h-full border-none"
+              title="OpenCode Dev Studio"
+              allow="clipboard-read; clipboard-write"
+            />
+            {/* 受限模型遮罩：无权用户看到提示，有权用户不显示 */}
+            {RESTRICTED_MODELS.some((k) => !grantedModels.includes(k)) && (
+              <div className="absolute bottom-0 right-0 m-3 z-10 bg-white border-2 border-[#1A202C] px-4 py-3 max-w-xs shadow-lg">
+                <div className="text-[9px] font-bold uppercase tracking-widest text-[#D97706] mb-1 flex items-center gap-1.5">
+                  <span className="w-2 h-2 bg-[#D97706] inline-block" />
+                  受限模型
+                </div>
+                <p className="text-[9px] text-gray-500 leading-relaxed">
+                  <span className="font-bold text-[#1A202C]">GPT-5.4</span> 需要管理员授权后才可使用。请联系超级管理员开通权限。
+                </p>
+              </div>
+            )}
+          </>
         )}
       </div>
 

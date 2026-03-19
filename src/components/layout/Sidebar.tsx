@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { PixelIcon, ICONS } from "@/components/pixel";
@@ -30,6 +30,7 @@ const LUCIDE_ICONS: Record<string, React.ElementType> = {
   "/admin/business-tables":   Table2,
   "/admin/workspaces":        LayoutDashboard,
   "/admin/models":            Bot,
+  "/admin/model-grants":      Lock,
   "/admin/tools":             Wrench,
   "/admin/skill-market":      Store,
   "/admin/mcp-tokens":        Key,
@@ -176,8 +177,24 @@ export function Sidebar({ user, taskPending = 0, onLogout }: SidebarProps) {
     return localStorage.getItem("sidebar_collapsed") === "true";
   });
 
+  const [approvalPending, setApprovalPending] = useState(0);
+
   const isAdmin = user.role === "super_admin" || user.role === "dept_admin";
   const isSuperAdmin = user.role === "super_admin";
+
+  // 拉取待审批数量（管理员才需要）
+  useEffect(() => {
+    if (!isAdmin) return;
+    function fetchCount() {
+      fetch("/api/proxy/approvals/pending-count", { credentials: "include" })
+        .then((r) => r.json())
+        .then((d) => setApprovalPending(d.count ?? 0))
+        .catch(() => {});
+    }
+    fetchCount();
+    const timer = setInterval(fetchCount, 60000); // 每分钟刷新
+    return () => clearInterval(timer);
+  }, [isAdmin]);
 
   function toggleSidebar() {
     const next = !collapsed;
@@ -267,6 +284,7 @@ export function Sidebar({ user, taskPending = 0, onLogout }: SidebarProps) {
 
               <NavGroup label="AI 配置" storageKey="nav_group_admin_ai" collapsed={collapsed} isLab={isLab}>
                 <NavItem href="/admin/models" label="模型配置" icon={ICONS.models} {...navItemProps} />
+                <NavItem href="/admin/model-grants" label="模型授权" icon={ICONS.models} {...navItemProps} />
                 <NavItem href="/admin/tools" label="工具管理" icon={ICONS.tools} {...navItemProps} />
                 <NavItem href="/admin/skill-market" label="外部市场" icon={ICONS.skillMarket} {...navItemProps} />
                 <NavItem href="/admin/mcp-tokens" label="MCP Token" icon={ICONS.mcpToken} {...navItemProps} />
@@ -274,7 +292,7 @@ export function Sidebar({ user, taskPending = 0, onLogout }: SidebarProps) {
               </NavGroup>
 
               <NavGroup label="权限安全" storageKey="nav_group_admin_perm" collapsed={collapsed} isLab={isLab}>
-                <NavItem href="/admin/approvals" label="审批管理" icon={ICONS.approvals} {...navItemProps} />
+                <NavItem href="/admin/approvals" label="审批管理" icon={ICONS.approvals} badge={approvalPending || undefined} {...navItemProps} />
                 <NavItem href="/admin/skill-policies" label="Skill策略" icon={ICONS.skillPolicy} {...navItemProps} />
                 <NavItem href="/admin/mask-config" label="脱敏配置" icon={ICONS.maskConfig} {...navItemProps} />
                 <NavItem href="/admin/output-schemas" label="输出Schema" icon={ICONS.outputSchema} {...navItemProps} />
@@ -299,7 +317,7 @@ export function Sidebar({ user, taskPending = 0, onLogout }: SidebarProps) {
             <div className={`w-7 h-7 ${avatarBg} flex-shrink-0 overflow-hidden`}>
               {user.avatar_url
                 // eslint-disable-next-line @next/next/no-img-element
-                ? <img src={`/api/proxy${user.avatar_url.replace(/^\/api/, "")}`} alt="" className="w-full h-full object-cover" />
+                ? <img key={user.avatar_url} src={`/api/proxy${user.avatar_url.replace(/^\/api/, "")}`} alt="" className="w-full h-full object-cover" />
                 : <span className="w-full h-full flex items-center justify-center text-[9px] font-bold text-white">{user.display_name.charAt(0)}</span>
               }
             </div>

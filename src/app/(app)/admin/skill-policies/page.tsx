@@ -13,6 +13,7 @@ interface SkillPolicy {
   id: number;
   skill_id: number;
   publish_scope: string;
+  view_scope: string;
   default_data_scope: Record<string, unknown>;
   created_at: string;
 }
@@ -66,6 +67,7 @@ export default function AdminSkillPoliciesPage() {
   const [showCreate, setShowCreate] = useState(false);
   const [createSkillId, setCreateSkillId] = useState("");
   const [createScope, setCreateScope] = useState("same_role");
+  const [createViewScope, setCreateViewScope] = useState("org_wide");
   const [createError, setCreateError] = useState("");
 
   const fetchAll = useCallback(() => {
@@ -95,10 +97,10 @@ export default function AdminSkillPoliciesPage() {
     }
   }
 
-  async function updateScope(policy: SkillPolicy, scope: string) {
+  async function updateScope(policy: SkillPolicy, field: "publish_scope" | "view_scope", value: string) {
     await apiFetch(`/admin/skill-policies/${policy.id}`, {
       method: "PUT",
-      body: JSON.stringify({ publish_scope: scope }),
+      body: JSON.stringify({ [field]: value }),
     });
     fetchAll();
   }
@@ -124,7 +126,7 @@ export default function AdminSkillPoliciesPage() {
     try {
       await apiFetch("/admin/skill-policies", {
         method: "POST",
-        body: JSON.stringify({ skill_id: Number(createSkillId), publish_scope: createScope, default_data_scope: {} }),
+        body: JSON.stringify({ skill_id: Number(createSkillId), publish_scope: createScope, view_scope: createViewScope, default_data_scope: {} }),
       });
       setShowCreate(false);
       setCreateSkillId("");
@@ -156,7 +158,7 @@ export default function AdminSkillPoliciesPage() {
         <table className="w-full border-2 border-[#1A202C]">
           <thead>
             <tr className="bg-[#EBF4F7]">
-              {["ID", "Skill", "发布范围", "创建时间", "操作"].map((h) => (
+              {["ID", "Skill", "可见范围", "可用范围", "创建时间", "操作"].map((h) => (
                 <th key={h} className="text-left text-[10px] font-bold uppercase tracking-widest text-[#00A3C4] px-3 py-2 border-b-2 border-[#1A202C]">
                   {h}
                 </th>
@@ -171,8 +173,19 @@ export default function AdminSkillPoliciesPage() {
                   <td className="px-3 py-2 text-xs font-bold">{skillName(p.skill_id)}</td>
                   <td className="px-3 py-2">
                     <PixelSelect
+                      value={p.view_scope}
+                      onChange={(e) => updateScope(p, "view_scope", e.target.value)}
+                      pixelSize="sm"
+                    >
+                      {Object.entries(SCOPE_LABELS).map(([k, v]) => (
+                        <option key={k} value={k}>{v}</option>
+                      ))}
+                    </PixelSelect>
+                  </td>
+                  <td className="px-3 py-2">
+                    <PixelSelect
                       value={p.publish_scope}
-                      onChange={(e) => updateScope(p, e.target.value)}
+                      onChange={(e) => updateScope(p, "publish_scope", e.target.value)}
                       pixelSize="sm"
                     >
                       {Object.entries(SCOPE_LABELS).map(([k, v]) => (
@@ -291,7 +304,18 @@ export default function AdminSkillPoliciesPage() {
                 </PixelSelect>
               </div>
               <div>
-                <label className="text-[10px] font-bold uppercase text-[#00A3C4] block mb-1">发布范围</label>
+                <label className="text-[10px] font-bold uppercase text-[#00A3C4] block mb-1">可见范围</label>
+                <PixelSelect
+                  value={createViewScope}
+                  onChange={(e) => setCreateViewScope(e.target.value)}
+                >
+                  {Object.entries(SCOPE_LABELS).map(([k, v]) => (
+                    <option key={k} value={k}>{v}</option>
+                  ))}
+                </PixelSelect>
+              </div>
+              <div>
+                <label className="text-[10px] font-bold uppercase text-[#00A3C4] block mb-1">可用范围</label>
                 <PixelSelect
                   value={createScope}
                   onChange={(e) => setCreateScope(e.target.value)}
