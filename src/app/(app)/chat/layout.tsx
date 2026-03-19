@@ -47,12 +47,14 @@ function ConversationTab({
   const [editValue, setEditValue] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
 
+  const isOpencode = conv.workspace_type === "opencode";
   const color = conv.workspace
     ? { bg: conv.workspace.color + "22", border: conv.workspace.color, text: conv.workspace.color }
     : getTabColor(index);
-  const title = conv.title || `对话 #${conv.id}`;
+  const title = isOpencode ? "OpenCode 开发" : (conv.title || `对话 #${conv.id}`);
 
   function startEditing() {
+    if (isOpencode) return;
     setEditValue(conv.title || "");
     setEditing(true);
     setTimeout(() => inputRef.current?.select(), 0);
@@ -81,7 +83,7 @@ function ConversationTab({
       onClick={onNavigate}
       onDoubleClick={(e) => {
         e.stopPropagation();
-        startEditing();
+        if (!isOpencode) startEditing();
       }}
       className="group relative flex items-center gap-1.5 px-3 py-1.5 text-[10px] font-bold tracking-wide transition-all flex-shrink-0 max-w-[200px] cursor-pointer"
       style={{
@@ -111,11 +113,11 @@ function ConversationTab({
           maxLength={60}
         />
       ) : (
-        <span className="truncate" title="双击重命名">
+        <span className="truncate" title={isOpencode ? "OpenCode 开发工作台" : "双击重命名"}>
           {title}
         </span>
       )}
-      {!editing && (
+      {!editing && !isOpencode && (
         <span
           onClick={onDelete}
           className="ml-1 opacity-0 group-hover:opacity-100 text-[8px] hover:text-red-500 transition-opacity flex-shrink-0 cursor-pointer"

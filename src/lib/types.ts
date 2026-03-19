@@ -48,6 +48,7 @@ export interface Conversation {
     icon: string;
     color: string;
   } | null;
+  workspace_type?: string | null;
   created_at: string;
   updated_at: string;
   last_message?: string | null;
@@ -267,6 +268,46 @@ export interface KbContributionStat {
   output_tokens: number;
   models: Record<string, number>;
   top_model: string | null;
+}
+
+export interface OpenCodeOutputFile {
+  path: string;
+  session_title: string;
+}
+
+export interface OpenCodeUsageStat {
+  user_id: number;
+  display_name: string;
+  sessions: number;
+  input_tokens: number;
+  output_tokens: number;
+  cache_read_tokens: number;
+  models: Record<string, number>;
+  top_model: string | null;
+  files_changed: number;
+  lines_added: number;
+  lines_deleted: number;
+  output_files: OpenCodeOutputFile[];
+  skills_submitted: number;
+  tools_submitted: number;
+  workspaces: string[];
+  computed_at: string | null;
+}
+
+export interface OpenCodeWorkspace {
+  id: string;
+  worktree: string;
+  name: string | null;
+  icon_color: string | null;
+  time_created: number;
+}
+
+export interface OpenCodeMapping {
+  id: number;
+  opencode_workspace_id: string;
+  opencode_workspace_name: string | null;
+  user_id: number;
+  display_name: string | null;
 }
 
 export interface McpToken {

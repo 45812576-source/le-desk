@@ -549,8 +549,8 @@ export default function AdminSkillsPage() {
       await apiFetch(`/skills/${id}`, { method: "DELETE" });
       fetchSkills();
       if (selected?.id === id) setSelected(null);
-    } catch {
-      // ignore
+    } catch (e) {
+      alert(`删除失败：${e instanceof Error ? e.message : "未知错误"}`);
     }
   }
 

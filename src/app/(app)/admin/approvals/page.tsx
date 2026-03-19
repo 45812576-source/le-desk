@@ -18,14 +18,25 @@ interface ApprovalAction {
   created_at: string;
 }
 
+interface SkillDetail {
+  name: string;
+  description: string;
+  scope: string;
+  mode: string;
+  system_prompt: string;
+  change_note: string;
+}
+
 interface ApprovalItem {
   id: number;
   request_type: string;
   target_id: number | null;
   target_type: string | null;
+  target_detail: SkillDetail | Record<string, never>;
   requester_id: number;
   requester_name: string | null;
   status: string;
+  stage: string | null;
   conditions: string[];
   created_at: string;
   actions: ApprovalAction[];
@@ -145,14 +156,16 @@ export default function AdminApprovalsPage() {
             <tbody>
               {data.items.map((item) => (
                 <React.Fragment key={item.id}>
-                  <tr key={item.id} className="border-b border-gray-200 hover:bg-gray-50">
+                  <tr key={item.id} className="border-b border-border hover:bg-muted/50">
                     <td className="px-3 py-2 text-xs text-gray-400">{item.id}</td>
                     <td className="px-3 py-2">
                       <PixelBadge color="cyan">{TYPE_LABEL[item.request_type] || item.request_type}</PixelBadge>
                     </td>
                     <td className="px-3 py-2 text-xs">{item.requester_name || `#${item.requester_id}`}</td>
-                    <td className="px-3 py-2 text-xs text-gray-500">
-                      {item.target_type ? `${item.target_type} #${item.target_id}` : "-"}
+                    <td className="px-3 py-2 text-xs text-gray-700">
+                      {item.target_detail && "name" in item.target_detail
+                        ? <span className="font-bold">{(item.target_detail as SkillDetail).name}</span>
+                        : item.target_type ? `${item.target_type} #${item.target_id}` : "-"}
                     </td>
                     <td className="px-3 py-2">
                       <PixelBadge color={STATUS_COLOR[item.status] || "cyan"}>
@@ -183,13 +196,46 @@ export default function AdminApprovalsPage() {
                   {/* Expanded detail */}
                   {expandedId === item.id && (
                     <tr key={`${item.id}-detail`}>
-                      <td colSpan={7} className="px-4 py-3 bg-gray-50 border-b-2 border-[#1A202C]">
+                      <td colSpan={7} className="px-4 py-3 bg-muted border-b-2 border-border">
+
+                        {/* Skill 详情 */}
+                        {item.target_detail && "name" in item.target_detail && (() => {
+                          const d = item.target_detail as SkillDetail;
+                          return (
+                            <div className="mb-4 border-2 border-[#6B46C1] bg-card p-3 space-y-2">
+                              <div className="flex items-center gap-2">
+                                <span className="text-[9px] font-bold uppercase tracking-widest text-[#6B46C1]">Skill 详情</span>
+                                {item.stage && (
+                                  <span className={`text-[8px] font-bold px-1.5 py-0.5 border ${item.stage === "super_pending" ? "border-[#6B46C1] text-[#6B46C1]" : "border-[#B7791F] text-[#B7791F]"}`}>
+                                    {item.stage === "super_pending" ? "等待超管审批" : "等待部门审批"}
+                                  </span>
+                                )}
+                              </div>
+                              <div className="grid grid-cols-2 gap-2 text-xs">
+                                <div><span className="text-muted-foreground">名称：</span><span className="font-bold text-foreground">{d.name}</span></div>
+                                <div><span className="text-muted-foreground">描述：</span><span className="text-foreground">{d.description || <span className="text-muted-foreground">无</span>}</span></div>
+                              </div>
+                              {d.change_note && (
+                                <div className="text-xs"><span className="text-muted-foreground">变更说明：</span><span className="text-foreground">{d.change_note}</span></div>
+                              )}
+                              {d.system_prompt && (
+                                <div>
+                                  <div className="text-[9px] font-bold uppercase tracking-widest text-[#6B46C1] mb-1">System Prompt</div>
+                                  <pre className="text-[9px] text-foreground whitespace-pre-wrap leading-relaxed font-sans bg-muted border border-border px-3 py-2 max-h-48 overflow-y-auto">
+                                    {d.system_prompt}
+                                  </pre>
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })()}
+
                         {item.conditions.length > 0 && (
                           <div className="mb-2">
                             <span className="text-[9px] font-bold uppercase text-[#B7791F]">附加条件</span>
                             <ul className="mt-1 space-y-0.5">
                               {item.conditions.map((c, i) => (
-                                <li key={i} className="text-xs text-gray-700">• {c}</li>
+                                <li key={i} className="text-xs text-foreground">• {c}</li>
                               ))}
                             </ul>
                           </div>
@@ -200,14 +246,14 @@ export default function AdminApprovalsPage() {
                             <div className="mt-1 space-y-1">
                               {item.actions.map((a) => (
                                 <div key={a.id} className="flex items-start gap-2 text-xs">
-                                  <span className="text-gray-400 whitespace-nowrap">
+                                  <span className="text-muted-foreground whitespace-nowrap">
                                     {new Date(a.created_at).toLocaleString("zh-CN")}
                                   </span>
-                                  <span className="font-bold">{a.actor_name || `#${a.actor_id}`}</span>
+                                  <span className="font-bold text-foreground">{a.actor_name || `#${a.actor_id}`}</span>
                                   <PixelBadge color={a.action === "approve" ? "green" : a.action === "reject" ? "red" : "yellow"}>
                                     {a.action === "approve" ? "通过" : a.action === "reject" ? "拒绝" : "附条件"}
                                   </PixelBadge>
-                                  {a.comment && <span className="text-gray-600">{a.comment}</span>}
+                                  {a.comment && <span className="text-muted-foreground">{a.comment}</span>}
                                 </div>
                               ))}
                             </div>
@@ -220,7 +266,7 @@ export default function AdminApprovalsPage() {
                   {/* Action panel */}
                   {acting === item.id && (
                     <tr key={`${item.id}-act`}>
-                      <td colSpan={7} className="px-4 py-3 bg-[#FEFCBF] border-b-2 border-[#B7791F]">
+                      <td colSpan={7} className="px-4 py-3 bg-card border-b-2 border-[#B7791F]">
                         <div className="space-y-2">
                           <div>
                             <label className="text-[10px] font-bold uppercase text-[#B7791F] block mb-1">审批备注</label>
@@ -229,7 +275,7 @@ export default function AdminApprovalsPage() {
                               value={comment}
                               onChange={(e) => setComment(e.target.value)}
                               placeholder="可选"
-                              className="w-full border-2 border-[#B7791F] px-3 py-1.5 text-xs focus:outline-none bg-white"
+                              className="w-full border-2 border-[#B7791F] px-3 py-1.5 text-xs focus:outline-none bg-muted text-foreground"
                             />
                           </div>
                           <div>
@@ -238,7 +284,7 @@ export default function AdminApprovalsPage() {
                               value={conditions}
                               onChange={(e) => setConditions(e.target.value)}
                               rows={2}
-                              className="w-full border-2 border-[#B7791F] px-3 py-1.5 text-xs focus:outline-none bg-white resize-none"
+                              className="w-full border-2 border-[#B7791F] px-3 py-1.5 text-xs focus:outline-none bg-muted text-foreground resize-none"
                             />
                           </div>
                           <div className="flex gap-2">

@@ -18,9 +18,10 @@ function AvatarSection() {
   const fileRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
   const [msg, setMsg] = useState<{ text: string; ok: boolean } | null>(null);
+  const [avatarTs, setAvatarTs] = useState(0);
 
   const avatarUrl = user?.avatar_url
-    ? `/api/proxy${user.avatar_url.replace(/^\/api/, "")}`
+    ? `/api/proxy${user.avatar_url.replace(/^\/api/, "")}${avatarTs ? `?t=${avatarTs}` : ""}`
     : null;
   const initials = user?.display_name?.slice(0, 2) ?? "?";
 
@@ -35,7 +36,9 @@ function AvatarSection() {
       form.append("file", file);
       await apiFetch("/auth/avatar", { method: "POST", body: form });
       await refreshUser();
-      setMsg({ text: "头像已更新", ok: true });
+      setAvatarTs(Date.now());
+      setMsg({ text: "头像已更新，正在刷新...", ok: true });
+      setTimeout(() => window.location.reload(), 800);
     } catch (err: unknown) {
       setMsg({ text: err instanceof Error ? err.message : "上传失败", ok: false });
     } finally {
