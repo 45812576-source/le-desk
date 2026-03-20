@@ -199,6 +199,44 @@ export interface ModelConfig {
   is_default: boolean;
 }
 
+export interface ToolManifestDataSource {
+  key: string;
+  type: "registered_table" | "uploaded_file" | "chat_context";
+  required?: boolean;
+  description?: string;
+  accept?: string[];
+}
+
+export interface ToolDeployInfo {
+  purpose: string;           // 用途说明
+  env_requirements: string;  // 运行环境/依赖
+  permissions: string[];     // 权限声明（文字描述）
+  tested: boolean;           // 是否本地测试通过
+  test_note: string;         // 测试备注
+  extra_note: string;        // 其他说明
+}
+
+export interface ToolApprovalDetail {
+  name: string;
+  tool_name: string;
+  description: string;
+  tool_type: string;
+  scope: string;
+  input_schema: Record<string, unknown>;
+  invocation_mode: string;
+  data_sources: ToolManifestDataSource[];
+  permissions: string[];
+  preconditions: string[];
+  deploy_info: Partial<ToolDeployInfo>;
+}
+
+export interface ToolManifest {
+  invocation_mode?: "chat" | "registered_table" | "file_upload";
+  data_sources?: ToolManifestDataSource[];
+  permissions?: string[];
+  preconditions?: string[];
+}
+
 export interface ToolEntry {
   id: number;
   name: string;
@@ -208,9 +246,11 @@ export interface ToolEntry {
   tool_type?: string;
   input_schema?: Record<string, unknown>;
   output_format?: string;
-  config?: Record<string, unknown>;
+  config?: Record<string, unknown> & { manifest?: ToolManifest };
   created_by?: number;
   created_at?: string;
+  scope?: string;
+  status?: string;
 }
 
 export interface WorkspaceEntry {

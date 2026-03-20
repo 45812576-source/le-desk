@@ -364,7 +364,7 @@ export function DevStudio({ convId: _convId, workspaceId }: { convId: number; wo
   function handleSaveSuccess(data: { name: string }) {
     setSaveMode(null);
     setSaveSuccess(`已保存：${data.name}`);
-    setTimeout(() => setSaveSuccess(null), 4000);
+    setTimeout(() => setSaveSuccess(null), 6000);
   }
 
   const statusBadge = {
@@ -468,8 +468,14 @@ export function DevStudio({ convId: _convId, workspaceId }: { convId: number; wo
 
       {/* Save success */}
       {saveSuccess && (
-        <div className="flex-shrink-0 bg-green-50 border-t-2 border-[#00CC99] px-4 py-2 text-[9px] text-[#00A87A] font-bold">
-          ✓ {saveSuccess}
+        <div className="flex-shrink-0 bg-green-50 border-t-2 border-[#00CC99] px-4 py-2 flex items-center justify-between">
+          <span className="text-[9px] text-[#00A87A] font-bold">✓ {saveSuccess}</span>
+          <a
+            href="/skills"
+            className="text-[9px] font-bold uppercase tracking-widest text-[#00A3C4] border border-[#00D1FF] px-2 py-0.5 hover:bg-[#CCF2FF] transition-colors"
+          >
+            前往 Skills & Tools 查看 →
+          </a>
         </div>
       )}
 

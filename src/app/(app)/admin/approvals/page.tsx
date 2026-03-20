@@ -8,6 +8,7 @@ import { PixelButton } from "@/components/pixel/PixelButton";
 import { PixelBadge } from "@/components/pixel/PixelBadge";
 import { PixelSelect } from "@/components/pixel/PixelSelect";
 import { apiFetch } from "@/lib/api";
+import type { ToolApprovalDetail } from "@/lib/types";
 
 interface ApprovalAction {
   id: number;
@@ -32,7 +33,7 @@ interface ApprovalItem {
   request_type: string;
   target_id: number | null;
   target_type: string | null;
-  target_detail: SkillDetail | Record<string, never>;
+  target_detail: SkillDetail | ToolApprovalDetail | Record<string, never>;
   requester_id: number;
   requester_name: string | null;
   status: string;
@@ -63,6 +64,7 @@ const STATUS_LABEL: Record<string, string> = {
 };
 const TYPE_LABEL: Record<string, string> = {
   skill_publish: "Skill发布",
+  tool_publish: "工具发布",
   scope_change: "权限变更",
   mask_override: "脱敏覆盖",
   schema_approval: "Schema审批",
@@ -199,7 +201,7 @@ export default function AdminApprovalsPage() {
                       <td colSpan={7} className="px-4 py-3 bg-muted border-b-2 border-border">
 
                         {/* Skill 详情 */}
-                        {item.target_detail && "name" in item.target_detail && (() => {
+                        {item.target_type !== "tool" && item.target_detail && "name" in item.target_detail && (() => {
                           const d = item.target_detail as SkillDetail;
                           return (
                             <div className="mb-4 border-2 border-[#6B46C1] bg-card p-3 space-y-2">
@@ -226,6 +228,93 @@ export default function AdminApprovalsPage() {
                                   </pre>
                                 </div>
                               )}
+                            </div>
+                          );
+                        })()}
+
+                        {/* Tool 详情 */}
+                        {item.target_type === "tool" && item.target_detail && "tool_name" in item.target_detail && (() => {
+                          const d = item.target_detail as ToolApprovalDetail;
+                          const di = d.deploy_info ?? {};
+                          const TYPE_LABEL_MAP: Record<string, string> = { builtin: "内置 Python", mcp: "MCP", http: "HTTP" };
+                          const MODE_LABEL_MAP: Record<string, string> = { chat: "对话触发", registered_table: "业务表模式", file_upload: "文件上传" };
+                          const DS_TYPE_MAP: Record<string, string> = { registered_table: "业务表", uploaded_file: "上传文件", chat_context: "对话上下文" };
+                          return (
+                            <div className="mb-4 border-2 border-[#00CC99] bg-card p-3 space-y-3">
+                              {/* 标题行 */}
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className="text-[9px] font-bold uppercase tracking-widest text-[#00CC99]">工具详情</span>
+                                <span className="text-[8px] font-mono text-gray-500">{d.tool_name}</span>
+                                {d.tool_type && <span className="text-[7px] border border-[#00CC99] text-[#00CC99] px-1.5 py-0.5 font-bold uppercase">{TYPE_LABEL_MAP[d.tool_type] ?? d.tool_type}</span>}
+                                {item.stage && (
+                                  <span className={`text-[8px] font-bold px-1.5 py-0.5 border ml-auto ${item.stage === "super_pending" ? "border-[#6B46C1] text-[#6B46C1]" : "border-[#B7791F] text-[#B7791F]"}`}>
+                                    {item.stage === "super_pending" ? "等待超管审批" : "等待部门审批"}
+                                  </span>
+                                )}
+                              </div>
+
+                              {/* 基本信息 */}
+                              <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
+                                <div><span className="text-muted-foreground">显示名：</span><span className="font-bold">{d.name}</span></div>
+                                <div><span className="text-muted-foreground">发布范围：</span><span className="font-bold">{d.scope}</span></div>
+                                {d.invocation_mode && <div><span className="text-muted-foreground">触发方式：</span><span>{MODE_LABEL_MAP[d.invocation_mode] ?? d.invocation_mode}</span></div>}
+                                {d.description && <div className="col-span-2"><span className="text-muted-foreground">描述：</span><span>{d.description}</span></div>}
+                              </div>
+
+                              {/* 数据来源 */}
+                              {d.data_sources?.length > 0 && (
+                                <div>
+                                  <div className="text-[8px] font-bold uppercase tracking-widest text-gray-400 mb-1">数据来源</div>
+                                  <div className="space-y-1">
+                                    {d.data_sources.map((ds) => (
+                                      <div key={ds.key} className="flex items-center gap-2 text-[8px] border border-gray-200 bg-gray-50 px-2 py-1">
+                                        <span className="font-mono font-bold text-[#00A3C4]">{ds.key}</span>
+                                        <span className="text-gray-500">{DS_TYPE_MAP[ds.type] ?? ds.type}</span>
+                                        {ds.required !== false ? <span className="text-red-400 font-bold">必填</span> : <span className="text-gray-300">选填</span>}
+                                        {ds.accept?.length && <span className="font-mono text-gray-400">{ds.accept.join(" ")}</span>}
+                                        {ds.description && <span className="text-gray-500">{ds.description}</span>}
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
+
+                              {/* 权限声明 */}
+                              {d.permissions?.length > 0 && (
+                                <div>
+                                  <div className="text-[8px] font-bold uppercase tracking-widest text-gray-400 mb-1">权限声明</div>
+                                  <div className="flex flex-wrap gap-1">
+                                    {d.permissions.map((p) => (
+                                      <span key={p} className="text-[7px] font-mono border border-amber-300 bg-amber-50 text-amber-600 px-1.5 py-0.5">{p}</span>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
+
+                              {/* 部署说明（开发者填写） */}
+                              <div className="border-t border-gray-200 pt-2 space-y-1.5">
+                                <div className="text-[8px] font-bold uppercase tracking-widest text-[#00CC99] mb-1">开发者部署说明</div>
+                                {di.purpose && (
+                                  <div className="text-xs"><span className="text-muted-foreground font-bold">用途：</span><span>{di.purpose}</span></div>
+                                )}
+                                {di.env_requirements && (
+                                  <div className="text-xs"><span className="text-muted-foreground font-bold">运行环境：</span><span className="font-mono">{di.env_requirements}</span></div>
+                                )}
+                                <div className="flex items-center gap-2 text-xs">
+                                  <span className="text-muted-foreground font-bold">本地测试：</span>
+                                  {di.tested
+                                    ? <span className="text-[#00CC99] font-bold">✓ 已通过</span>
+                                    : <span className="text-red-400 font-bold">✗ 未确认</span>
+                                  }
+                                  {di.test_note && <span className="text-gray-500">— {di.test_note}</span>}
+                                </div>
+                                {di.extra_note && (
+                                  <div className="text-xs"><span className="text-muted-foreground font-bold">其他说明：</span><span>{di.extra_note}</span></div>
+                                )}
+                                {!di.purpose && !di.env_requirements && !di.extra_note && (
+                                  <div className="text-[8px] text-gray-400">开发者未填写部署说明</div>
+                                )}
+                              </div>
                             </div>
                           );
                         })()}
