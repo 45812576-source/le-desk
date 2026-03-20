@@ -43,6 +43,7 @@ interface ChatStore {
       activeSkillIds?: number[];
       toolId?: number;
       file?: File;
+      multiFiles?: Record<string, File>;
     }
   ) => Promise<void>;
   stopGeneration: () => void;
@@ -145,8 +146,120 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     if (get().isSending) return;
 
     const file = opts?.file;
+    const multiFiles = opts?.multiFiles;
 
-    // 文件上传走流式路径
+    // 多文件拼盘上传走流式路径
+    if (multiFiles && Object.keys(multiFiles).length > 0) {
+      const fileNames = Object.entries(multiFiles).map(([k, f]) => `${k}: ${f.name}`).join("、");
+      const optimisticContent = content ? `${content}\n\n[多文件上传: ${fileNames}]` : `[多文件上传: ${fileNames}]`;
+      const tempId = Date.now();
+      get().appendOptimisticMessage(convId, {
+        id: tempId,
+        role: "user",
+        content: optimisticContent,
+        created_at: new Date().toISOString(),
+      });
+
+      const abort = new AbortController();
+      set({
+        isSending: true,
+        isFileUpload: true,
+        streamError: null,
+        streamingText: "",
+        streamingBlocks: [],
+        streamStage: null,
+        abortController: abort,
+        currentRound: 0,
+        maxRounds: 0,
+        tokenUsage: null,
+      });
+
+      let accumulated = "";
+      let finalMessageId: number | null = null;
+      let finalMetadata: Record<string, unknown> = {};
+      const blocks: ContentBlock[] = [];
+
+      try {
+        const firstFile = Object.values(multiFiles)[0];
+        for await (const event of streamUpload(convId, firstFile, content || undefined, {
+          signal: abort.signal,
+          multiFiles,
+        })) {
+          switch (event.type) {
+            case "status":
+              set({ streamStage: event.data.stage as string });
+              break;
+            case "delta":
+              accumulated += event.data.text as string;
+              set({ streamingText: accumulated, streamStage: null });
+              break;
+            case "replace":
+              accumulated = event.data.text as string;
+              set({ streamingText: accumulated });
+              break;
+            case "content_block_start": {
+              const idx = event.data.index as number;
+              blocks[idx] = createBlockFromStart(event.data);
+              set({ streamingBlocks: [...blocks], streamStage: null });
+              break;
+            }
+            case "content_block_delta": {
+              const idx = event.data.index as number;
+              const delta = event.data.delta as Record<string, unknown>;
+              const updated = applyBlockDelta(blocks, idx, delta);
+              updated.forEach((b, i) => { blocks[i] = b; });
+              set({ streamingBlocks: [...blocks] });
+              break;
+            }
+            case "content_block_stop": {
+              const idx = event.data.index as number;
+              const finalized = finalizeBlock(blocks, idx, event.data);
+              finalized.forEach((b, i) => { blocks[i] = b; });
+              set({ streamingBlocks: [...blocks] });
+              break;
+            }
+            case "round_start":
+              set({ currentRound: event.data.round as number, maxRounds: event.data.max_rounds as number });
+              break;
+            case "done":
+              finalMessageId = event.data.message_id as number;
+              finalMetadata = (event.data.metadata as Record<string, unknown>) ?? {};
+              break;
+            case "error": {
+              const errorType = (event.data.error_type as string) || "unknown";
+              set({ streamError: { type: errorType, message: (event.data.message as string) || "未知错误" } });
+              break;
+            }
+          }
+        }
+        if (finalMessageId) {
+          const finalBlocks = blocks.length > 0 ? blocks : undefined;
+          const finalContent = finalBlocks ? blocksToPlainText(finalBlocks) : accumulated;
+          get().updateMessage(convId, {
+            id: finalMessageId,
+            role: "assistant",
+            content: finalContent || accumulated,
+            content_blocks: finalBlocks,
+            created_at: new Date().toISOString(),
+            metadata: finalMetadata,
+          });
+        }
+      } catch (err: unknown) {
+        if (!(err instanceof DOMException && err.name === "AbortError")) {
+          set((s) => {
+            const next = new Map(s.messagesMap);
+            const prev = next.get(convId) ?? [];
+            next.set(convId, prev.filter((m) => m.id !== tempId));
+            return { messagesMap: next };
+          });
+        }
+      } finally {
+        set({ isSending: false, isFileUpload: false, streamingText: "", streamingBlocks: [], streamStage: null, abortController: null });
+      }
+      return;
+    }
+
+    // 单文件上传走流式路径
     if (file) {
       const optimisticContent = content ? `${content}\n\n[文件: ${file.name}]` : `[文件: ${file.name}]`;
       const tempId = Date.now();

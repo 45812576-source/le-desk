@@ -37,6 +37,7 @@ export interface StreamChatOptions {
   signal?: AbortSignal;
   activeSkillIds?: number[];
   toolId?: number;
+  multiFiles?: Record<string, File>;
 }
 
 const API_BASE = "/api/proxy";
@@ -130,7 +131,14 @@ export async function* streamUpload(
     typeof window !== "undefined" ? localStorage.getItem("token") : null;
 
   const form = new FormData();
-  form.append("file", file);
+  // 多文件拼盘：每个 key 对应一个文件，以 file_<key> 字段名上传
+  if (options?.multiFiles && Object.keys(options.multiFiles).length > 0) {
+    for (const [key, f] of Object.entries(options.multiFiles)) {
+      form.append(`file_${key}`, f, f.name);
+    }
+  } else {
+    form.append("file", file);
+  }
   if (message) form.append("message", message);
 
   const resp = await fetch(

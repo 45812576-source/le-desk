@@ -5,6 +5,7 @@ import { Paperclip, Mic, MicOff } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 import { useTheme } from "@/lib/theme";
 import { useVoiceTranscription } from "@/lib/use-voice-transcription";
+import type { ToolManifestDataSource } from "@/lib/types";
 
 interface SkillOption {
   id: number;
@@ -18,10 +19,11 @@ interface ToolOption {
   display_name: string;
   description?: string;
   tool_type?: string;
+  config?: { manifest?: { data_sources?: ToolManifestDataSource[] } };
 }
 
 interface ChatInputProps {
-  onSend: (content: string, file?: File, toolId?: number) => void;
+  onSend: (content: string, file?: File, toolId?: number, multiFiles?: Record<string, File>) => void;
   disabled?: boolean;
   quote?: string | null;
   onClearQuote?: () => void;
@@ -60,6 +62,8 @@ function quotePreview(text: string) {
 export function ChatInput({ onSend, disabled, quote, onClearQuote, workspaceSkills = [], activeSkill, onSelectSkill, workspaceTools = [], prefill, onClearPrefill }: ChatInputProps) {
   const [value, setValue] = useState("");
   const [file, setFile] = useState<File | null>(null);
+  // 多文件拼盘：key = data_source.key, value = File
+  const [multiFiles, setMultiFiles] = useState<Record<string, File>>({});
   const [mentions, setMentions] = useState<KbMention[]>([]);
   const [atQuery, setAtQuery] = useState<string | null>(null); // null = 未激活
   const [suggestions, setSuggestions] = useState<KbSuggestion[]>([]);
@@ -68,7 +72,7 @@ export function ChatInput({ onSend, disabled, quote, onClearQuote, workspaceSkil
   const localSubmitting = false;
   const [hashQuery, setHashQuery] = useState<string | null>(null); // # 触发 skill/tool 选择
   const [skillActiveIdx, setSkillActiveIdx] = useState(0);
-  const [activeTool, setActiveTool] = useState<{ id: number; display_name: string } | null>(null);
+  const [activeTool, setActiveTool] = useState<{ id: number; display_name: string; config?: ToolOption["config"] } | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -223,7 +227,8 @@ export function ChatInput({ onSend, disabled, quote, onClearQuote, workspaceSkil
     const newValue = value.slice(0, hashIdx) + value.slice(cursor);
     setValue(newValue);
     setHashQuery(null);
-    setActiveTool({ id: tool.id, display_name: tool.display_name });
+    setActiveTool({ id: tool.id, display_name: tool.display_name, config: tool.config });
+    setMultiFiles({});
     setTimeout(() => {
       textareaRef.current?.focus();
       textareaRef.current?.setSelectionRange(hashIdx, hashIdx);
@@ -248,10 +253,32 @@ export function ChatInput({ onSend, disabled, quote, onClearQuote, workspaceSkil
 
     const pendingToolId = activeTool?.id;
 
+    // 多文件拼盘：工具有 uploaded_file 数据源时走多文件路径
+    const uploadSources = activeTool?.config?.manifest?.data_sources?.filter(
+      (ds) => ds.type === "uploaded_file"
+    ) ?? [];
+    const isMultiUpload = uploadSources.length > 1;
+
+    if (isMultiUpload) {
+      const requiredKeys = uploadSources.filter((ds) => ds.required !== false).map((ds) => ds.key);
+      const missingRequired = requiredKeys.filter((k) => !multiFiles[k]);
+      if (missingRequired.length > 0) return; // 必填未全部填入，不允许发送
+      onSend((quotePrefix + trimmed).trim(), undefined, pendingToolId, multiFiles);
+      setValue("");
+      setFile(null);
+      setMultiFiles({});
+      setMentions([]);
+      setActiveTool(null);
+      onClearQuote?.();
+      if (textareaRef.current) textareaRef.current.style.height = "auto";
+      return;
+    }
+
     if (file) {
       onSend((quotePrefix + trimmed).trim(), file, pendingToolId);
       setValue("");
       setFile(null);
+      setMultiFiles({});
       setMentions([]);
       setActiveTool(null);
       onClearQuote?.();
@@ -270,6 +297,7 @@ export function ChatInput({ onSend, disabled, quote, onClearQuote, workspaceSkil
 
     setValue("");
     setFile(null);
+    setMultiFiles({});
     setMentions([]);
     setActiveTool(null);
     onClearQuote?.();
@@ -348,7 +376,11 @@ export function ChatInput({ onSend, disabled, quote, onClearQuote, workspaceSkil
   const showSkillDropdown = hashQuery !== null && (workspaceSkills.length > 0 || workspaceTools.length > 0);
   const showDropdown = atQuery !== null && (suggestions.length > 0 || loadingSuggest);
   const isBlocked = disabled || localSubmitting;
-  const canSend = !isBlocked && (value.trim() || file || mentions.length > 0 || !!quote);
+  const uploadSources = activeTool?.config?.manifest?.data_sources?.filter((ds) => ds.type === "uploaded_file") ?? [];
+  const isMultiUpload = uploadSources.length > 1;
+  const requiredUploadKeys = uploadSources.filter((ds) => ds.required !== false).map((ds) => ds.key);
+  const multiUploadReady = !isMultiUpload || requiredUploadKeys.every((k) => !!multiFiles[k]);
+  const canSend = !isBlocked && multiUploadReady && (value.trim() || file || mentions.length > 0 || !!quote || (isMultiUpload && Object.keys(multiFiles).length > 0));
 
   return (
     <form
@@ -398,7 +430,7 @@ export function ChatInput({ onSend, disabled, quote, onClearQuote, workspaceSkil
               <span className="text-[9px] font-bold text-[#1A202C] max-w-[160px] truncate">{activeTool.display_name}</span>
               <button
                 type="button"
-                onClick={() => setActiveTool(null)}
+                onClick={() => { setActiveTool(null); setMultiFiles({}); }}
                 className="text-[#00CC99] hover:text-red-500 text-xs font-bold leading-none ml-0.5 shrink-0"
               >
                 ×
@@ -431,6 +463,16 @@ export function ChatInput({ onSend, disabled, quote, onClearQuote, workspaceSkil
             </div>
           )}
         </div>
+      )}
+
+      {/* 多文件拼盘上传台 */}
+      {isMultiUpload && (
+        <MultiFileBoard
+          sources={uploadSources}
+          files={multiFiles}
+          onChange={setMultiFiles}
+          disabled={isBlocked}
+        />
       )}
 
       <div className="flex gap-2 items-end relative">
@@ -609,5 +651,149 @@ export function ChatInput({ onSend, disabled, quote, onClearQuote, workspaceSkil
         </button>
       </div>
     </form>
+  );
+}
+
+// ─── MultiFileBoard ────────────────────────────────────────────────────────────
+
+function requiredNotFilled(sources: ToolManifestDataSource[], files: Record<string, File>) {
+  return sources
+    .filter((ds) => ds.required !== false && !files[ds.key])
+    .map((ds) => ds.key);
+}
+
+const DS_ACCEPT_MAP: Record<string, string> = {
+  ".xls": ".xlsx,.xls",
+};
+
+function MultiFileBoard({
+  sources,
+  files,
+  onChange,
+  disabled,
+}: {
+  sources: ToolManifestDataSource[];
+  files: Record<string, File>;
+  onChange: (files: Record<string, File>) => void;
+  disabled: boolean;
+}) {
+  const [dragOverKey, setDragOverKey] = useState<string | null>(null);
+  const inputRefs = useRef<Record<string, HTMLInputElement | null>>({});
+
+  function handleFile(key: string, file: File) {
+    onChange({ ...files, [key]: file });
+  }
+
+  function removeFile(key: string) {
+    const next = { ...files };
+    delete next[key];
+    onChange(next);
+  }
+
+  function buildAccept(ds: ToolManifestDataSource) {
+    if (!ds.accept?.length) return "*";
+    return ds.accept.map((a) => DS_ACCEPT_MAP[a] ?? a).join(",");
+  }
+
+  return (
+    <div className="border-2 border-[#00CC99] bg-[#00CC99]/5 p-3 mb-1">
+      <div className="text-[8px] font-bold uppercase tracking-widest text-[#00CC99] mb-2">
+        此工具需要以下数据文件
+      </div>
+      <div className="flex flex-wrap gap-2">
+        {sources.map((ds) => {
+          const filled = !!files[ds.key];
+          const isRequired = ds.required !== false;
+
+          return (
+            <div key={ds.key} className="relative group">
+              {/* Slot */}
+              <div
+                onDragOver={(e) => { e.preventDefault(); setDragOverKey(ds.key); }}
+                onDragLeave={() => setDragOverKey(null)}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  setDragOverKey(null);
+                  const f = e.dataTransfer.files[0];
+                  if (f) handleFile(ds.key, f);
+                }}
+                onClick={() => !disabled && inputRefs.current[ds.key]?.click()}
+                className={`relative w-32 h-20 border-2 flex flex-col items-center justify-center cursor-pointer transition-colors select-none ${
+                  disabled ? "opacity-40 cursor-not-allowed" :
+                  dragOverKey === ds.key ? "border-[#00D1FF] bg-[#CCF2FF]/40" :
+                  filled ? "border-[#00CC99] bg-[#CCFFF0]/60" :
+                  isRequired ? "border-dashed border-[#1A202C] hover:border-[#00CC99] hover:bg-[#00CC99]/5" :
+                  "border-dashed border-gray-300 hover:border-[#00A3C4] hover:bg-[#CCF2FF]/20"
+                }`}
+              >
+                <input
+                  ref={(el) => { inputRefs.current[ds.key] = el; }}
+                  type="file"
+                  accept={buildAccept(ds)}
+                  className="hidden"
+                  disabled={disabled}
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    if (f) handleFile(ds.key, f);
+                    e.target.value = "";
+                  }}
+                />
+
+                {filled ? (
+                  <>
+                    <span className="text-lg mb-0.5">📄</span>
+                    <span className="text-[8px] font-bold text-[#1A202C] text-center px-1 leading-tight line-clamp-2 max-w-full">
+                      {files[ds.key].name}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); removeFile(ds.key); }}
+                      className="absolute top-1 right-1 w-4 h-4 flex items-center justify-center border border-gray-300 bg-white text-[8px] font-bold text-gray-400 hover:text-red-500 hover:border-red-300"
+                    >
+                      ×
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <span className="text-lg mb-0.5 opacity-30">📂</span>
+                    <span className="text-[8px] font-bold text-gray-400 text-center px-1 leading-tight">
+                      {ds.key}
+                    </span>
+                    {isRequired && (
+                      <span className="text-[7px] text-red-400 font-bold uppercase mt-0.5">必填</span>
+                    )}
+                  </>
+                )}
+              </div>
+
+              {/* Hover tooltip */}
+              <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 z-50 pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity duration-150 w-48 border-2 border-[#1A202C] bg-white shadow-lg p-2">
+                <div className="text-[8px] font-bold text-[#1A202C] mb-1 uppercase tracking-wide">{ds.key}</div>
+                {ds.description && (
+                  <div className="text-[8px] text-gray-500 mb-1">{ds.description}</div>
+                )}
+                {ds.accept && ds.accept.length > 0 && (
+                  <div className="text-[7px] font-mono text-[#00A3C4]">接受格式：{ds.accept.join("  ")}</div>
+                )}
+                <div className="absolute top-full left-1/2 -translate-x-1/2 w-0 h-0 border-l-4 border-r-4 border-t-4 border-l-transparent border-r-transparent border-t-[#1A202C]" />
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* 进度提示 */}
+      <div className="mt-2 text-[8px] text-gray-400 font-bold uppercase tracking-widest flex items-center gap-2">
+        <span>{Object.keys(files).length} / {sources.length} 已上传</span>
+        {requiredNotFilled(sources, files).length > 0 && (
+          <span className="text-red-400">
+            还需：{requiredNotFilled(sources, files).join("、")}
+          </span>
+        )}
+        {requiredNotFilled(sources, files).length === 0 && Object.keys(files).length > 0 && (
+          <span className="text-[#00CC99]">✓ 可以发送</span>
+        )}
+      </div>
+    </div>
   );
 }

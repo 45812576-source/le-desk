@@ -257,11 +257,12 @@ export default function ChatDetailPage() {
 
   /* ── Send message via store ── */
 
-  async function handleSend(content: string, file?: File, toolId?: number) {
+  async function handleSend(content: string, file?: File, toolId?: number, multiFiles?: Record<string, File>) {
     await useChatStore.getState().sendMessage(convId, content, {
       activeSkillIds: enabledSkillIds !== null ? Array.from(enabledSkillIds) : undefined,
       toolId,
       file,
+      multiFiles,
     });
   }
 
