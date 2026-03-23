@@ -1,15 +1,31 @@
 import { NextRequest, NextResponse } from "next/server";
 
-const OPENCODE_URL = process.env.OPENCODE_URL || "http://127.0.0.1:17171";
+const OPENCODE_BASE_PORT = 17171;
+
+/** 解析用户专属 opencode 端口：优先 URL query _oc_port，其次 cookie oc_port，最后 fallback。*/
+function resolveOpencodeUrl(req: NextRequest): string {
+  const fromQuery = req.nextUrl.searchParams.get("_oc_port");
+  const fromCookie = req.cookies.get("oc_port")?.value;
+  const raw = fromQuery || fromCookie;
+  const portNum = raw ? parseInt(raw, 10) : NaN;
+  const safePort = Number.isFinite(portNum) && portNum > 1024 && portNum < 65536
+    ? portNum
+    : OPENCODE_BASE_PORT;
+  return `http://127.0.0.1:${safePort}`;
+}
 
 export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ path?: string[] }> }
 ) {
+  const opencodeUrl = resolveOpencodeUrl(req);
   const { path } = await params;
   const subpath = path && path.length > 0 ? "/" + path.join("/") : "/";
-  const search = req.nextUrl.search || "";
-  const target = `${OPENCODE_URL}${subpath}${search}`;
+  // 去掉内部路由参数 _oc_port，不透传给 opencode 上游
+  const upstreamParams = new URLSearchParams(req.nextUrl.searchParams);
+  upstreamParams.delete("_oc_port");
+  const search = upstreamParams.size > 0 ? "?" + upstreamParams.toString() : "";
+  const target = `${opencodeUrl}${subpath}${search}`;
 
   const headers = new Headers();
   req.headers.forEach((v, k) => {
@@ -33,10 +49,23 @@ export async function GET(
       /(src|href)="(\/(?!api\/opencode)[^"]+)"/g,
       (_, attr, p) => `${attr}="/api/opencode${p}"`
     );
+    // 从请求中取端口，注入到脚本里，让 iframe 内的 fetch/WebSocket 带上正确的端口参数
+    const ocPort = req.nextUrl.searchParams.get("_oc_port") || req.cookies.get("oc_port")?.value || "";
     // 注入脚本：清除 localStorage 里硬编码的 defaultServerUrl，避免覆盖代理替换
     // 同时 patch fetch/WebSocket，把所有指向当前 origin 根路径的请求重定向到 /api/opencode-rpc
     const injectScript = `<script>
 (function() {
+  var _ocPort = ${JSON.stringify(ocPort)};
+  var _portSuffix = _ocPort ? ("?_oc_port=" + _ocPort) : "";
+
+  function _addPort(url) {
+    if (!_ocPort) return url;
+    try {
+      var sep = url.includes("?") ? "&" : "?";
+      return url + sep + "_oc_port=" + _ocPort;
+    } catch(e) { return url; }
+  }
+
   try {
     // 清除 opencode 存储的服务器 URL，强制使用代理
     localStorage.removeItem("opencode.settings.dat:defaultServerUrl");
@@ -48,27 +77,38 @@ export async function GET(
     }
   } catch(e) {}
 
-  // patch fetch：把 /api 以外的同源请求重写到 /api/opencode-rpc
+  // patch fetch：把 /api 以外的同源请求重写到 /api/opencode-rpc，并带端口参数
   var _origFetch = window.fetch;
   window.fetch = function(input, init) {
     var url = typeof input === "string" ? input : (input instanceof Request ? input.url : String(input));
-    // 把指向 location.origin 根路径（非代理前缀）的请求重定向到 opencode-rpc
     if (url.startsWith(location.origin + "/") && !url.startsWith(location.origin + "/api/")) {
-      var rewritten = "/api/opencode-rpc" + url.slice(location.origin.length);
+      var rewritten = _addPort("/api/opencode-rpc" + url.slice(location.origin.length));
       input = typeof input === "string" ? rewritten : new Request(rewritten, input instanceof Request ? input : undefined);
     } else if (url.startsWith("/") && !url.startsWith("/api/") && !url.startsWith("/opencode")) {
-      input = "/api/opencode-rpc" + url;
+      input = _addPort("/api/opencode-rpc" + url);
     }
     return _origFetch.call(this, input, init);
   };
 
-  // patch WebSocket：同源 ws/wss 连接重定向到 /api/opencode-rpc
+  // patch window.open：拦截新 tab，改为在当前页面内导航
+  var _origOpen = window.open;
+  window.open = function(url, target, features) {
+    if (url && typeof url === "string" && (url.startsWith("/") || url.startsWith(location.origin))) {
+      // 同源链接：在当前 iframe 内导航，不开新 tab
+      location.href = url.startsWith("/") ? url : url.slice(location.origin.length);
+      return null;
+    }
+    // 外部链接：正常开新 tab
+    return _origOpen.call(this, url, target, features);
+  };
+
+  // patch WebSocket：同源 ws/wss 连接重定向到 /api/opencode-rpc，并带端口参数
   var _origWS = window.WebSocket;
   window.WebSocket = function(url, protocols) {
     var wsUrl = String(url);
     var originWs = location.origin.replace(/^http/, "ws");
     if (wsUrl.startsWith(originWs + "/") && !wsUrl.includes("/api/")) {
-      wsUrl = originWs + "/api/opencode-rpc" + wsUrl.slice(originWs.length);
+      wsUrl = _addPort(originWs + "/api/opencode-rpc" + wsUrl.slice(originWs.length));
     }
     return protocols ? new _origWS(wsUrl, protocols) : new _origWS(wsUrl);
   };
@@ -156,10 +196,13 @@ async function proxyMethod(
   params: Promise<{ path?: string[] }>,
   method: string
 ) {
+  const opencodeUrl = resolveOpencodeUrl(req);
   const { path } = await params;
   const subpath = path && path.length > 0 ? "/" + path.join("/") : "/";
-  const search = req.nextUrl.search || "";
-  const target = `${OPENCODE_URL}${subpath}${search}`;
+  const upstreamParams = new URLSearchParams(req.nextUrl.searchParams);
+  upstreamParams.delete("_oc_port");
+  const search = upstreamParams.size > 0 ? "?" + upstreamParams.toString() : "";
+  const target = `${opencodeUrl}${subpath}${search}`;
 
   const headers = new Headers();
   req.headers.forEach((v, k) => {

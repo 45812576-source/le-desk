@@ -53,6 +53,22 @@ export async function handler(
     });
   }
 
+  // Binary responses (images, files) must be passed through as ArrayBuffer,
+  // not text(), which would corrupt the bytes.
+  const isBinary = respContentType.startsWith("image/")
+    || respContentType.startsWith("video/")
+    || respContentType.startsWith("audio/")
+    || respContentType.includes("octet-stream")
+    || respContentType.includes("pdf");
+
+  if (isBinary) {
+    const respBody = await resp.arrayBuffer();
+    return new NextResponse(respBody, {
+      status: resp.status,
+      headers: { "Content-Type": respContentType },
+    });
+  }
+
   const respBody = await resp.text();
   return new NextResponse(respBody, {
     status: resp.status,

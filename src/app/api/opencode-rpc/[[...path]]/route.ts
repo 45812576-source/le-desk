@@ -1,13 +1,26 @@
 import { NextRequest, NextResponse } from "next/server";
 
-// opencode API 与 UI 共用同一端口
-const OPENCODE_API_URL = process.env.OPENCODE_URL || "http://127.0.0.1:17171";
+const OPENCODE_BASE_PORT = 17171;
+
+function resolveOpencodeUrl(req: NextRequest): string {
+  const fromQuery = req.nextUrl.searchParams.get("_oc_port");
+  const fromCookie = req.cookies.get("oc_port")?.value;
+  const raw = fromQuery || fromCookie;
+  const portNum = raw ? parseInt(raw, 10) : NaN;
+  const safePort = Number.isFinite(portNum) && portNum > 1024 && portNum < 65536
+    ? portNum
+    : OPENCODE_BASE_PORT;
+  return `http://127.0.0.1:${safePort}`;
+}
 
 async function proxyToOpenCodeApi(req: NextRequest, params: Promise<{ path?: string[] }>, method: string) {
+  const opencodeUrl = resolveOpencodeUrl(req);
   const { path } = await params;
   const subpath = path && path.length > 0 ? "/" + path.join("/") : "/";
-  const search = req.nextUrl.search || "";
-  const target = `${OPENCODE_API_URL}${subpath}${search}`;
+  const upstreamParams = new URLSearchParams(req.nextUrl.searchParams);
+  upstreamParams.delete("_oc_port");
+  const search = upstreamParams.size > 0 ? "?" + upstreamParams.toString() : "";
+  const target = `${opencodeUrl}${subpath}${search}`;
 
   const headers = new Headers();
   req.headers.forEach((v, k) => {

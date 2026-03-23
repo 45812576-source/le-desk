@@ -8,6 +8,7 @@ import { PixelButton } from "@/components/pixel/PixelButton";
 import { PixelBadge } from "@/components/pixel/PixelBadge";
 import { useTheme } from "@/lib/theme";
 import { apiFetch } from "@/lib/api";
+import { useAuth } from "@/lib/auth";
 import type { ChunkSearchResult, KnowledgeChunkDetail, KnowledgeDetail } from "@/lib/types";
 import { RichEditor } from "@/components/knowledge/RichEditor";
 
@@ -298,17 +299,34 @@ function PreviewPanel({
   onUpdateContent,
   onDelete,
   onRename,
+  folders,
+  onMoveToFolder,
 }: {
   entry: KnowledgeDetail | null;
   onUpdateContent: (id: number, content: string) => Promise<void>;
   onDelete: (id: number) => void;
   onRename: (id: number, title: string) => void;
+  folders?: Folder[];
+  onMoveToFolder?: (entryId: number, folderId: number | null) => void;
 }) {
   const [editing, setEditing] = useState(false);
   const [contentVal, setContentVal] = useState("");
   const [editingTitle, setEditingTitle] = useState(false);
   const [titleVal, setTitleVal] = useState("");
   const [saving, setSaving] = useState(false);
+  const [showFolderPicker, setShowFolderPicker] = useState(false);
+  const folderPickerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!showFolderPicker) return;
+    function onOutsideClick(e: MouseEvent) {
+      if (folderPickerRef.current && !folderPickerRef.current.contains(e.target as Node)) {
+        setShowFolderPicker(false);
+      }
+    }
+    document.addEventListener("mousedown", onOutsideClick);
+    return () => document.removeEventListener("mousedown", onOutsideClick);
+  }, [showFolderPicker]);
 
   useEffect(() => {
     setEditing(false);
@@ -347,7 +365,7 @@ function PreviewPanel({
   }
 
   return (
-    <div className="flex-1 min-h-0 bg-white flex flex-col overflow-hidden">
+    <div className="flex-1 min-h-0 bg-white flex flex-col overflow-y-auto">
       {/* Header */}
       <div className="flex items-center gap-2 px-5 pt-4 pb-3 border-b-2 border-[#1A202C] flex-shrink-0 flex-wrap">
         {editingTitle ? (
@@ -368,7 +386,42 @@ function PreviewPanel({
         {entry.source_file && (
           <span className="text-[8px] text-[#00A3C4] font-bold truncate max-w-[160px]">📎 {entry.source_file}</span>
         )}
-        <div className="flex items-center gap-1 ml-auto">
+        <div className="flex items-center gap-1 ml-auto flex-wrap">
+          {/* 移入文件夹（系统归档视图提供文件夹列表时显示） */}
+          {onMoveToFolder && folders && folders.length > 0 && (
+            <div className="relative" ref={folderPickerRef}>
+              <button
+                onClick={() => setShowFolderPicker((v) => !v)}
+                className="px-2 py-0.5 border-2 border-[#00CC99] text-[#00CC99] text-[9px] font-bold uppercase hover:bg-[#00CC99] hover:text-white transition-colors"
+              >
+                {entry.folder_id ? "移动到…" : "↗ 归入文件夹"}
+              </button>
+              {showFolderPicker && (
+                <div className="absolute right-0 top-full mt-1 z-50 bg-white border-2 border-[#1A202C] shadow-lg min-w-[160px] max-h-60 overflow-y-auto">
+                  <div className="text-[8px] font-bold uppercase tracking-widest text-gray-400 px-3 py-1.5 border-b border-gray-100">
+                    选择文件夹
+                  </div>
+                  {entry.folder_id && (
+                    <button
+                      onClick={() => { onMoveToFolder(entry.id, null); setShowFolderPicker(false); }}
+                      className="w-full text-left px-3 py-1.5 text-[9px] font-bold text-gray-500 hover:bg-[#F0F4F8] border-b border-gray-100"
+                    >
+                      ✕ 移出文件夹
+                    </button>
+                  )}
+                  {folders.map((f) => (
+                    <button
+                      key={f.id}
+                      onClick={() => { onMoveToFolder(entry.id, f.id); setShowFolderPicker(false); }}
+                      className={`w-full text-left px-3 py-1.5 text-[9px] font-bold hover:bg-[#CCF2FF] transition-colors ${entry.folder_id === f.id ? "text-[#00A3C4] bg-[#F0FAFF]" : "text-[#1A202C]"}`}
+                    >
+                      📁 {f.name}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
           {editing ? (
             <>
               <button onClick={handleSave} disabled={saving} className="px-2 py-0.5 border-2 border-[#1A202C] bg-[#1A202C] text-white text-[9px] font-bold uppercase hover:bg-[#00A3C4] hover:border-[#00A3C4] disabled:opacity-50">
@@ -384,7 +437,7 @@ function PreviewPanel({
       </div>
 
       {/* Rich text editor / viewer */}
-      <div className="flex-1 min-h-0 overflow-hidden">
+      <div className={editing ? "flex-1 min-h-0 overflow-hidden" : "min-h-0"}>
         <RichEditor
           key={entry.id}
           content={toHtml(contentVal)}
@@ -396,8 +449,217 @@ function PreviewPanel({
   );
 }
 
+// ─── Taxonomy constants (mirrors backend knowledge_taxonomy.py) ───────────────
+const BOARD_LABELS: Record<string, string> = {
+  A: "A. 渠道与平台",
+  B: "B. 投放策略与方法论",
+  C: "C. 行业与客户知识",
+  D: "D. 产品与工具知识",
+  E: "E. 运营与管理",
+  F: "F. 外部资料与研究",
+};
+
+const BOARD_ORDER = ["A", "B", "C", "D", "E", "F"];
+
+// ─── TaxonomyTreeView ─────────────────────────────────────────────────────────
+function TaxonomyTreeView({
+  entries,
+  selectedEntry,
+  onSelectEntry,
+}: {
+  entries: KnowledgeDetail[];
+  selectedEntry: KnowledgeDetail | null;
+  onSelectEntry: (e: KnowledgeDetail) => void;
+}) {
+  // openBoards: which board A-F are expanded
+  const [openBoards, setOpenBoards] = useState<Set<string>>(new Set(["A"]));
+  // openCodes: which taxonomy_code subtrees are expanded (e.g. "A1")
+  const [openCodes, setOpenCodes] = useState<Set<string>>(new Set());
+
+  function toggleBoard(b: string) {
+    setOpenBoards((prev) => {
+      const next = new Set(prev);
+      next.has(b) ? next.delete(b) : next.add(b);
+      return next;
+    });
+  }
+
+  function toggleCode(code: string) {
+    setOpenCodes((prev) => {
+      const next = new Set(prev);
+      next.has(code) ? next.delete(code) : next.add(code);
+      return next;
+    });
+  }
+
+  // Group entries by board + code
+  // For entries without taxonomy_board → "unclassified"
+  const byBoard: Record<string, KnowledgeDetail[]> = {};
+  const unclassified: KnowledgeDetail[] = [];
+
+  for (const e of entries) {
+    if (!e.taxonomy_board) {
+      unclassified.push(e);
+    } else {
+      if (!byBoard[e.taxonomy_board]) byBoard[e.taxonomy_board] = [];
+      byBoard[e.taxonomy_board].push(e);
+    }
+  }
+
+  // Within a board, group by taxonomy_code prefix (e.g. "A1" from "A1.1")
+  function groupByPrefix(boardEntries: KnowledgeDetail[]): Map<string, { label: string; entries: KnowledgeDetail[] }> {
+    const map = new Map<string, { label: string; entries: KnowledgeDetail[] }>();
+    for (const e of boardEntries) {
+      if (!e.taxonomy_code) {
+        const key = "__no_code__";
+        if (!map.has(key)) map.set(key, { label: "其他", entries: [] });
+        map.get(key)!.entries.push(e);
+        continue;
+      }
+      // prefix = first segment before ".", e.g. "A1" from "A1.1"
+      const prefix = e.taxonomy_code.split(".")[0];
+      // label from taxonomy_path[1] e.g. "A1.国内付费渠道"
+      const label = (e.taxonomy_path && e.taxonomy_path[1]) ? e.taxonomy_path[1] : prefix;
+      if (!map.has(prefix)) map.set(prefix, { label, entries: [] });
+      map.get(prefix)!.entries.push(e);
+    }
+    return map;
+  }
+
+  return (
+    <div className="flex-1 overflow-y-auto">
+      {/* Boards A-F */}
+      {BOARD_ORDER.map((board) => {
+        const boardEntries = byBoard[board] ?? [];
+        const isOpen = openBoards.has(board);
+        const grouped = groupByPrefix(boardEntries);
+
+        return (
+          <div key={board}>
+            {/* Board header */}
+            <div
+              className="flex items-center gap-1 py-1 hover:bg-white group select-none cursor-pointer"
+              style={{ paddingLeft: "8px", paddingRight: "8px" }}
+              onClick={() => toggleBoard(board)}
+            >
+              <span className="text-[10px] w-4 text-gray-400 flex-shrink-0 text-center">
+                {isOpen ? "▾" : "▸"}
+              </span>
+              <span className="mr-1 flex-shrink-0">
+                <ThemedIcon pixelIcon={ICONS.knowledgeMy} LucideIcon={BookOpen} size={12} />
+              </span>
+              <span className="flex-1 text-[10px] font-bold truncate">{BOARD_LABELS[board]}</span>
+              <span className="text-[8px] text-gray-400 flex-shrink-0">{boardEntries.length}</span>
+            </div>
+
+            {isOpen && (
+              <>
+                {grouped.size === 0 && (
+                  <div className="text-[9px] text-gray-400 px-8 py-1">暂无文件</div>
+                )}
+                {Array.from(grouped.entries()).map(([prefix, group]) => {
+                  const codeKey = `${board}:${prefix}`;
+                  const isCodeOpen = openCodes.has(codeKey);
+                  return (
+                    <div key={prefix}>
+                      {/* Sub-group header */}
+                      <div
+                        className="flex items-center gap-1 py-1 hover:bg-white select-none cursor-pointer"
+                        style={{ paddingLeft: "24px", paddingRight: "8px" }}
+                        onClick={() => toggleCode(codeKey)}
+                      >
+                        <span className="text-[10px] w-4 text-gray-400 flex-shrink-0 text-center">
+                          {isCodeOpen ? "▾" : "▸"}
+                        </span>
+                        <span className="flex-1 text-[9px] font-bold truncate text-gray-600">{group.label}</span>
+                        <span className="text-[8px] text-gray-400 flex-shrink-0">{group.entries.length}</span>
+                      </div>
+
+                      {isCodeOpen && group.entries.map((e) => {
+                        const ext = e.source_file?.split(".").pop()?.toUpperCase() ?? "TXT";
+                        const isSelected = selectedEntry?.id === e.id;
+                        return (
+                          <div
+                            key={e.id}
+                            onClick={() => onSelectEntry(e)}
+                            className={`flex items-center gap-2 py-1 select-none border-b border-gray-100 cursor-pointer transition-colors ${
+                              isSelected ? "bg-[#CCF2FF]" : "hover:bg-white"
+                            }`}
+                            style={{ paddingLeft: "44px", paddingRight: "8px" }}
+                          >
+                            <ThemedIcon pixelIcon={ICONS.files} LucideIcon={FileText} size={12} />
+                            <span className="flex-1 text-[10px] truncate">{e.title || e.source_file}</span>
+                            <span className={`text-[7px] font-bold px-1 border flex-shrink-0 ${
+                              e.status === "approved" ? "border-green-400 text-green-600" :
+                              e.status === "pending" ? "border-yellow-400 text-yellow-600" :
+                              "border-gray-300 text-gray-400"
+                            }`}>{ext}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                })}
+              </>
+            )}
+          </div>
+        );
+      })}
+
+      {/* Unclassified */}
+      {(() => {
+        const isOpen = openBoards.has("__unclassified__");
+        return (
+          <div>
+            <div
+              className="flex items-center gap-1 py-1 hover:bg-white group select-none cursor-pointer"
+              style={{ paddingLeft: "8px", paddingRight: "8px" }}
+              onClick={() => toggleBoard("__unclassified__")}
+            >
+              <span className="text-[10px] w-4 text-gray-400 flex-shrink-0 text-center">
+                {isOpen ? "▾" : "▸"}
+              </span>
+              <span className="mr-1 flex-shrink-0">
+                <ThemedIcon pixelIcon={ICONS.knowledgeMy} LucideIcon={BookOpen} size={12} />
+              </span>
+              <span className="flex-1 text-[10px] font-bold truncate text-gray-400">未分类</span>
+              <span className="text-[8px] text-gray-400 flex-shrink-0">{unclassified.length}</span>
+            </div>
+            {isOpen && unclassified.map((e) => {
+              const ext = e.source_file?.split(".").pop()?.toUpperCase() ?? "TXT";
+              const isSelected = selectedEntry?.id === e.id;
+              return (
+                <div
+                  key={e.id}
+                  onClick={() => onSelectEntry(e)}
+                  className={`flex items-center gap-2 py-1 select-none border-b border-gray-100 cursor-pointer transition-colors ${
+                    isSelected ? "bg-[#CCF2FF]" : "hover:bg-white"
+                  }`}
+                  style={{ paddingLeft: "28px", paddingRight: "8px" }}
+                >
+                  <ThemedIcon pixelIcon={ICONS.files} LucideIcon={FileText} size={12} />
+                  <span className="flex-1 text-[10px] truncate">{e.title || e.source_file}</span>
+                  <span className={`text-[7px] font-bold px-1 border flex-shrink-0 ${
+                    e.status === "approved" ? "border-green-400 text-green-600" :
+                    e.status === "pending" ? "border-yellow-400 text-yellow-600" :
+                    "border-gray-300 text-gray-400"
+                  }`}>{ext}</span>
+                </div>
+              );
+            })}
+          </div>
+        );
+      })()}
+    </div>
+  );
+}
+
 // ─── File Manager Tab ─────────────────────────────────────────────────────────
+type TreeMode = "user" | "rag";
+
 function FileManagerTab() {
+  const { user: currentUser } = useAuth();
+  const [treeMode, setTreeMode] = useState<TreeMode>("user");
   const [folders, setFolders] = useState<Folder[]>([]);
   const [entries, setEntries] = useState<KnowledgeDetail[]>([]);
   const [selectedEntry, setSelectedEntry] = useState<KnowledgeDetail | null>(null);
@@ -489,9 +751,14 @@ function FileManagerTab() {
     fetchAll();
   }
 
+  // 「我的整理」只显示当前用户自己上传的文件
+  const myEntries = currentUser
+    ? entries.filter((e) => e.created_by === currentUser.id)
+    : entries;
+
   const tree = buildTree(folders);
-  // files with no folder (root-level)
-  const rootFiles = entries.filter((e) => !e.folder_id);
+  // files with no folder (root-level)，仅用 myEntries
+  const rootFiles = myEntries.filter((e) => !e.folder_id);
 
   function openNewFolder() {
     setNewFolderParentId(null);
@@ -545,6 +812,7 @@ function FileManagerTab() {
       ? `/knowledge/${entryId}/folder?folder_id=${folderId}`
       : `/knowledge/${entryId}/folder`;
     await apiFetch(url, { method: "PATCH" });
+    setSelectedEntry((prev) => prev?.id === entryId ? { ...prev, folder_id: folderId } : prev);
     fetchAll();
   }
 
@@ -581,157 +849,206 @@ function FileManagerTab() {
     <div className="flex h-full border-2 border-[#1A202C]">
       {/* Left: unified file tree (drop zone) */}
       <div
-        className={`w-80 flex-shrink-0 border-r-2 border-[#1A202C] flex flex-col transition-colors ${dragging ? "bg-[#CCF2FF]" : "bg-[#F0F4F8]"}`}
-        onDragOver={(e) => { if (!draggingEntryId) { e.preventDefault(); setDragging(true); } }}
+        className={`w-80 flex-shrink-0 border-r-2 border-[#1A202C] flex flex-col transition-colors ${treeMode === "user" && dragging ? "bg-[#CCF2FF]" : "bg-[#F0F4F8]"}`}
+        onDragOver={(e) => { if (treeMode === "user" && !draggingEntryId) { e.preventDefault(); setDragging(true); } }}
         onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setDragging(false); }}
-        onDrop={(e) => { if (draggingEntryId) return; e.preventDefault(); setDragging(false); handleUploadFiles(e.dataTransfer.files); }}
+        onDrop={(e) => { if (treeMode !== "user" || draggingEntryId) return; e.preventDefault(); setDragging(false); handleUploadFiles(e.dataTransfer.files); }}
         onDragEnd={() => setDraggingEntryId(null)}
       >
         {/* Header */}
-        <div className="flex items-center justify-between px-3 py-1.5 border-b-2 border-[#1A202C] flex-shrink-0">
-          <span className="text-[9px] font-bold uppercase tracking-widest text-[#00A3C4]">
-            {uploading ? "上传中..." : "知识文件"}
-          </span>
-          <div className="flex items-center gap-1.5">
-            {selectedIds.size > 0 && (
-              <button
-                onClick={handleBatchDelete}
-                className="flex items-center gap-1 px-2 py-1 border-2 border-red-400 bg-red-50 text-red-500 text-[9px] font-bold uppercase tracking-widest hover:bg-red-400 hover:text-white transition-colors"
-              >
-                删除 {selectedIds.size} 个
-              </button>
-            )}
-            <label className="cursor-pointer">
-              <input type="file" multiple className="hidden" onChange={(e) => handleUploadFiles(e.target.files ?? [])} />
-              <span className="flex items-center gap-1 px-2 py-1 border-2 border-[#1A202C] bg-white text-[9px] font-bold uppercase tracking-widest hover:bg-[#00D1FF] hover:border-[#00D1FF] transition-colors">
-                ↑ 上传
-              </span>
-            </label>
+        <div className="flex-shrink-0 border-b-2 border-[#1A202C]">
+          {/* Mode toggle */}
+          <div className="flex border-b border-gray-200">
             <button
-              onClick={openNewFolder}
-              className="flex items-center gap-1 px-2 py-1 border-2 border-[#1A202C] bg-white text-[9px] font-bold uppercase tracking-widest hover:bg-[#1A202C] hover:text-white transition-colors"
+              onClick={() => setTreeMode("user")}
+              className={`flex-1 py-1 text-[8px] font-bold uppercase tracking-widest transition-colors ${
+                treeMode === "user"
+                  ? "bg-[#1A202C] text-white"
+                  : "bg-white text-gray-500 hover:bg-[#F0F4F8]"
+              }`}
             >
-              + 文件夹
+              我的整理
+            </button>
+            <button
+              onClick={() => setTreeMode("rag")}
+              className={`flex-1 py-1 text-[8px] font-bold uppercase tracking-widest transition-colors ${
+                treeMode === "rag"
+                  ? "bg-[#1A202C] text-white"
+                  : "bg-white text-gray-500 hover:bg-[#F0F4F8]"
+              }`}
+            >
+              系统归档
             </button>
           </div>
+          {/* Actions row — only in user mode */}
+          {treeMode === "user" && (
+            <div className="flex items-center justify-between px-3 py-1.5">
+              <span className="text-[9px] font-bold uppercase tracking-widest text-[#00A3C4]">
+                {uploading ? "上传中..." : "知识文件"}
+              </span>
+              <div className="flex items-center gap-1.5">
+                {selectedIds.size > 0 && (
+                  <button
+                    onClick={handleBatchDelete}
+                    className="flex items-center gap-1 px-2 py-1 border-2 border-red-400 bg-red-50 text-red-500 text-[9px] font-bold uppercase tracking-widest hover:bg-red-400 hover:text-white transition-colors"
+                  >
+                    删除 {selectedIds.size} 个
+                  </button>
+                )}
+                <label className="cursor-pointer">
+                  <input type="file" multiple className="hidden" onChange={(e) => handleUploadFiles(e.target.files ?? [])} />
+                  <span className="flex items-center gap-1 px-2 py-1 border-2 border-[#1A202C] bg-white text-[9px] font-bold uppercase tracking-widest hover:bg-[#00D1FF] hover:border-[#00D1FF] transition-colors">
+                    ↑ 上传
+                  </span>
+                </label>
+                <button
+                  onClick={openNewFolder}
+                  className="flex items-center gap-1 px-2 py-1 border-2 border-[#1A202C] bg-white text-[9px] font-bold uppercase tracking-widest hover:bg-[#1A202C] hover:text-white transition-colors"
+                >
+                  + 文件夹
+                </button>
+              </div>
+            </div>
+          )}
+          {treeMode === "rag" && (
+            <div className="flex items-center px-3 py-1.5">
+              <span className="text-[9px] font-bold uppercase tracking-widest text-[#00A3C4]">
+                RAG 自动归档
+              </span>
+            </div>
+          )}
         </div>
 
-        {/* Drop overlay hint */}
-        {dragging && (
+        {/* Drop overlay hint — user mode only */}
+        {treeMode === "user" && dragging && (
           <div className="mx-3 mt-2 border-2 border-dashed border-[#00D1FF] px-2 py-2 text-center text-[9px] font-bold text-[#00A3C4] uppercase tracking-widest flex-shrink-0">
             松开以上传（无文件夹）
           </div>
         )}
 
-        {/* Tree body */}
-        <div
-          ref={treeRef}
-          className="flex-1 overflow-y-auto relative"
-          onMouseDown={handleTreeMouseDown}
-          onMouseMove={handleTreeMouseMove}
-          onMouseUp={handleTreeMouseUp}
-          onMouseLeave={handleTreeMouseUp}
-        >
-          {/* Lasso rect */}
-          {lasso && (
-            <div
-              className="fixed border border-[#00D1FF] bg-[#00D1FF]/10 pointer-events-none z-50"
-              style={{
-                left: Math.min(lasso.x1, lasso.x2),
-                top: Math.min(lasso.y1, lasso.y2),
-                width: Math.abs(lasso.x2 - lasso.x1),
-                height: Math.abs(lasso.y2 - lasso.y1),
-              }}
-            />
-          )}
-          {/* inner wrapper needed to close the extra div */}
-          <div>
-          {loading ? (
+        {/* RAG taxonomy view — 用全量 entries（后端已按权限过滤） */}
+        {treeMode === "rag" && (
+          loading ? (
             <div className="text-[9px] text-gray-400 px-3 py-4">Loading...</div>
           ) : (
-            <>
-              {/* Inline new-root-folder input */}
-              {newFolderParentId === null && (
-                <div className="flex items-center gap-1 px-2 py-1 border-b border-[#CBD5E0]">
-                  <input
-                    ref={newFolderInputRef}
-                    value={newFolderName}
-                    onChange={(e) => setNewFolderName(e.target.value)}
-                    onKeyDown={(e) => { if (e.key === "Enter") submitNewFolder(); if (e.key === "Escape") setNewFolderParentId(undefined); }}
-                    placeholder="文件夹名称"
-                    className="flex-1 text-[10px] border-2 border-[#00D1FF] px-1.5 py-0.5 focus:outline-none font-bold bg-white"
-                  />
-                  <button onClick={submitNewFolder} className="text-[9px] font-bold px-1.5 py-0.5 border-2 border-[#1A202C] bg-[#1A202C] text-white hover:bg-[#00A3C4] hover:border-[#00A3C4]">✓</button>
-                  <button onClick={() => setNewFolderParentId(undefined)} className="text-[9px] font-bold px-1.5 py-0.5 border-2 border-gray-300 text-gray-500 hover:border-red-400 hover:text-red-400">✕</button>
-                </div>
-              )}
+            <TaxonomyTreeView
+              entries={entries}
+              selectedEntry={selectedEntry}
+              onSelectEntry={handleSelectEntry}
+            />
+          )
+        )}
 
-              {/* Root-level folders */}
-              {(tree.get(null) ?? []).map((f) => (
-                <FolderNode
-                  key={f.id}
-                  folder={f}
-                  tree={tree}
-                  entries={entries}
-                  selectedEntry={selectedEntry}
-                  selectedIds={selectedIds}
-                  onSelectEntry={handleSelectEntry}
-                  onRename={handleRename}
-                  onDelete={handleDelete}
-                  onNewSubfolder={(pid, name) => { void apiFetch("/knowledge/folders", { method: "POST", body: JSON.stringify({ name, parent_id: pid }) }).then(fetchAll); }}
-                  onMoveEntry={handleMoveEntry}
-                  onRenameEntry={handleRenameEntry}
-                  onDeleteEntry={handleDeleteEntry}
-                  draggingEntryId={draggingEntryId}
-                  onDragStart={setDraggingEntryId}
-                  depth={0}
-                />
-              ))}
-
-              {/* Root-level files (no folder) — also a drop target to "remove from folder" */}
+        {/* User tree body — lasso + folder tree */}
+        {treeMode === "user" && (
+          <div
+            ref={treeRef}
+            className="flex-1 overflow-y-auto relative"
+            onMouseDown={handleTreeMouseDown}
+            onMouseMove={handleTreeMouseMove}
+            onMouseUp={handleTreeMouseUp}
+            onMouseLeave={handleTreeMouseUp}
+          >
+            {/* Lasso rect */}
+            {lasso && (
               <div
-                className={`min-h-[4px] transition-colors ${rootDropTarget && draggingEntryId !== null ? "bg-[#CCF2FF]" : ""}`}
-                onDragOver={(e) => { if (draggingEntryId !== null) { e.preventDefault(); setRootDropTarget(true); } }}
-                onDragLeave={() => setRootDropTarget(false)}
-                onDrop={(e) => {
-                  e.preventDefault();
-                  setRootDropTarget(false);
-                  const id = parseInt(e.dataTransfer.getData("entryId"));
-                  if (!isNaN(id)) handleMoveEntry(id, null);
+                className="fixed border border-[#00D1FF] bg-[#00D1FF]/10 pointer-events-none z-50"
+                style={{
+                  left: Math.min(lasso.x1, lasso.x2),
+                  top: Math.min(lasso.y1, lasso.y2),
+                  width: Math.abs(lasso.x2 - lasso.x1),
+                  height: Math.abs(lasso.y2 - lasso.y1),
                 }}
-              >
-                {rootDropTarget && draggingEntryId !== null && (
-                  <div className="mx-2 my-1 border-2 border-dashed border-[#00D1FF] px-2 py-1 text-center text-[9px] font-bold text-[#00A3C4] uppercase tracking-widest">
-                    移出文件夹
+              />
+            )}
+            <div>
+            {loading ? (
+              <div className="text-[9px] text-gray-400 px-3 py-4">Loading...</div>
+            ) : (
+              <>
+                {/* Inline new-root-folder input */}
+                {newFolderParentId === null && (
+                  <div className="flex items-center gap-1 px-2 py-1 border-b border-[#CBD5E0]">
+                    <input
+                      ref={newFolderInputRef}
+                      value={newFolderName}
+                      onChange={(e) => setNewFolderName(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === "Enter") submitNewFolder(); if (e.key === "Escape") setNewFolderParentId(undefined); }}
+                      placeholder="文件夹名称"
+                      className="flex-1 text-[10px] border-2 border-[#00D1FF] px-1.5 py-0.5 focus:outline-none font-bold bg-white"
+                    />
+                    <button onClick={submitNewFolder} className="text-[9px] font-bold px-1.5 py-0.5 border-2 border-[#1A202C] bg-[#1A202C] text-white hover:bg-[#00A3C4] hover:border-[#00A3C4]">✓</button>
+                    <button onClick={() => setNewFolderParentId(undefined)} className="text-[9px] font-bold px-1.5 py-0.5 border-2 border-gray-300 text-gray-500 hover:border-red-400 hover:text-red-400">✕</button>
                   </div>
                 )}
-                {rootFiles.map((e) => (
-                  <FileRow key={e.id} entry={e} selected={selectedEntry?.id === e.id} multiSelected={selectedIds.has(e.id)} depth={0} onClick={() => handleSelectEntry(e)} onDragStart={setDraggingEntryId} isDragging={draggingEntryId === e.id} onRenameEntry={handleRenameEntry} onDeleteEntry={handleDeleteEntry} />
+
+                {/* Root-level folders */}
+                {(tree.get(null) ?? []).map((f) => (
+                  <FolderNode
+                    key={f.id}
+                    folder={f}
+                    tree={tree}
+                    entries={myEntries}
+                    selectedEntry={selectedEntry}
+                    selectedIds={selectedIds}
+                    onSelectEntry={handleSelectEntry}
+                    onRename={handleRename}
+                    onDelete={handleDelete}
+                    onNewSubfolder={(pid, name) => { void apiFetch("/knowledge/folders", { method: "POST", body: JSON.stringify({ name, parent_id: pid }) }).then(fetchAll); }}
+                    onMoveEntry={handleMoveEntry}
+                    onRenameEntry={handleRenameEntry}
+                    onDeleteEntry={handleDeleteEntry}
+                    draggingEntryId={draggingEntryId}
+                    onDragStart={setDraggingEntryId}
+                    depth={0}
+                  />
                 ))}
-              </div>
 
-              {/* Pending upload placeholders */}
-              {pendingFiles.map((name) => (
-                <div key={name} className="flex items-center gap-2 py-1 px-3 border-b border-gray-100 opacity-60 animate-pulse">
-                  <ThemedIcon pixelIcon={ICONS.files} LucideIcon={FileText} size={12} />
-                  <span className="flex-1 text-[10px] truncate">{name}</span>
-                  <span className="text-[7px] font-bold px-1 border border-[#00D1FF] text-[#00A3C4]">上传中</span>
+                {/* Root-level files (no folder) — also a drop target to "remove from folder" */}
+                <div
+                  className={`min-h-[4px] transition-colors ${rootDropTarget && draggingEntryId !== null ? "bg-[#CCF2FF]" : ""}`}
+                  onDragOver={(e) => { if (draggingEntryId !== null) { e.preventDefault(); setRootDropTarget(true); } }}
+                  onDragLeave={() => setRootDropTarget(false)}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    setRootDropTarget(false);
+                    const id = parseInt(e.dataTransfer.getData("entryId"));
+                    if (!isNaN(id)) handleMoveEntry(id, null);
+                  }}
+                >
+                  {rootDropTarget && draggingEntryId !== null && (
+                    <div className="mx-2 my-1 border-2 border-dashed border-[#00D1FF] px-2 py-1 text-center text-[9px] font-bold text-[#00A3C4] uppercase tracking-widest">
+                      移出文件夹
+                    </div>
+                  )}
+                  {rootFiles.map((e) => (
+                    <FileRow key={e.id} entry={e} selected={selectedEntry?.id === e.id} multiSelected={selectedIds.has(e.id)} depth={0} onClick={() => handleSelectEntry(e)} onDragStart={setDraggingEntryId} isDragging={draggingEntryId === e.id} onRenameEntry={handleRenameEntry} onDeleteEntry={handleDeleteEntry} />
+                  ))}
                 </div>
-              ))}
 
-              {/* Empty state */}
-              {(tree.get(null) ?? []).length === 0 && rootFiles.length === 0 && pendingFiles.length === 0 && (
-                <div className="flex flex-col items-center justify-center h-48 text-[9px] text-gray-400 uppercase tracking-widest">
-                  <div className="mb-3 opacity-40">
-                    <ThemedIcon pixelIcon={ICONS.uploadArrow} LucideIcon={Upload} size={28} />
+                {/* Pending upload placeholders */}
+                {pendingFiles.map((name) => (
+                  <div key={name} className="flex items-center gap-2 py-1 px-3 border-b border-gray-100 opacity-60 animate-pulse">
+                    <ThemedIcon pixelIcon={ICONS.files} LucideIcon={FileText} size={12} />
+                    <span className="flex-1 text-[10px] truncate">{name}</span>
+                    <span className="text-[7px] font-bold px-1 border border-[#00D1FF] text-[#00A3C4]">上传中</span>
                   </div>
-                  拖拽文件上传
-                </div>
-              )}
-            </>
-          )}
-          </div>{/* inner wrapper */}
-        </div>
+                ))}
+
+                {/* Empty state */}
+                {(tree.get(null) ?? []).length === 0 && rootFiles.length === 0 && myEntries.length === 0 && pendingFiles.length === 0 && (
+                  <div className="flex flex-col items-center justify-center h-48 text-[9px] text-gray-400 uppercase tracking-widest">
+                    <div className="mb-3 opacity-40">
+                      <ThemedIcon pixelIcon={ICONS.uploadArrow} LucideIcon={Upload} size={28} />
+                    </div>
+                    拖拽文件上传
+                  </div>
+                )}
+              </>
+            )}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Right: preview + edit */}
@@ -740,6 +1057,8 @@ function FileManagerTab() {
         onUpdateContent={handleUpdateContent}
         onDelete={handleDeleteEntry}
         onRename={handleRenameEntry}
+        folders={treeMode === "rag" && currentUser?.role === "super_admin" ? folders : undefined}
+        onMoveToFolder={treeMode === "rag" && currentUser?.role === "super_admin" ? handleMoveEntry : undefined}
       />
     </div>
   );

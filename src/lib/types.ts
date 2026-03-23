@@ -43,6 +43,7 @@ export interface Conversation {
   id: number;
   title: string | null;
   workspace_id: number | null;
+  project_id?: number | null;
   workspace?: {
     name: string;
     icon: string;
@@ -52,6 +53,8 @@ export interface Conversation {
   created_at: string;
   updated_at: string;
   last_message?: string | null;
+  owner_id?: number | null;
+  owner_name?: string | null;
 }
 
 export interface Skill {
@@ -159,6 +162,9 @@ export interface SkillDetail {
   auto_inject: boolean;
   current_version: number;
   versions?: SkillVersion[];
+  source_type?: "local" | "imported" | "forked";
+  system_prompt?: string;
+  source_files?: { filename: string; path: string; size: number }[];
 }
 
 export interface SkillVersion {
@@ -185,6 +191,9 @@ export interface KnowledgeDetail extends KnowledgeEntry {
   capture_mode: string;
   reviewed_by: number | null;
   review_note: string | null;
+  taxonomy_board: string | null;
+  taxonomy_code: string | null;
+  taxonomy_path: string[];
 }
 
 export interface ModelConfig {

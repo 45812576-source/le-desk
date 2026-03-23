@@ -502,6 +502,8 @@ export default function AdminSkillsPage() {
     by_user: { user_id: number; display_name: string; conv_count: number; msg_count: number }[];
   } | null>(null);
   const [usageLoading, setUsageLoading] = useState(false);
+  const [checkedIds, setCheckedIds] = useState<Set<number>>(new Set());
+  const [batchPublishing, setBatchPublishing] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const fetchSkills = useCallback(() => {
@@ -551,6 +553,32 @@ export default function AdminSkillsPage() {
       if (selected?.id === id) setSelected(null);
     } catch (e) {
       alert(`删除失败：${e instanceof Error ? e.message : "未知错误"}`);
+    }
+  }
+
+  function toggleCheck(id: number) {
+    setCheckedIds((prev) => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  }
+
+  async function handleBatchPublish() {
+    if (checkedIds.size === 0) return;
+    if (!confirm(`确认将选中的 ${checkedIds.size} 个 Skill 批量发布到公司市场？`)) return;
+    setBatchPublishing(true);
+    try {
+      await apiFetch("/skills/batch-publish", {
+        method: "POST",
+        body: JSON.stringify({ skill_ids: Array.from(checkedIds), scope: "company" }),
+      });
+      setCheckedIds(new Set());
+      fetchSkills();
+    } catch (e) {
+      alert(`批量发布失败：${e instanceof Error ? e.message : "未知错误"}`);
+    } finally {
+      setBatchPublishing(false);
     }
   }
 
@@ -632,8 +660,18 @@ export default function AdminSkillsPage() {
       icon={ICONS.skillsAdmin}
       actions={
         <div className="flex gap-2">
+          {checkedIds.size > 0 && (
+            <PixelButton
+              variant="primary"
+              size="sm"
+              disabled={batchPublishing}
+              onClick={handleBatchPublish}
+            >
+              {batchPublishing ? "发布中..." : `批量发布 (${checkedIds.size})`}
+            </PixelButton>
+          )}
           <PixelButton
-            variant="primary"
+            variant="secondary"
             size="sm"
             disabled={uploading}
             onClick={() => fileRef.current?.click()}
@@ -696,25 +734,39 @@ export default function AdminSkillsPage() {
               </div>
             ) : (
               skills.map((s) => (
-                <button
+                <div
                   key={s.id}
-                  onClick={() => loadDetail(s.id)}
-                  className={`w-full text-left border-2 p-3 transition-colors ${
+                  className={`flex items-start gap-2 border-2 p-3 transition-colors ${
                     selected?.id === s.id
                       ? "border-[#00D1FF] bg-[#CCF2FF]"
                       : "border-[#1A202C] bg-white hover:bg-gray-50"
                   }`}
                 >
-                  <div className="flex items-center justify-between mb-1">
-                    <span className="text-xs font-bold truncate">{s.name}</span>
-                    <PixelBadge color={STATUS_COLOR[s.status] || "gray"}>{s.status}</PixelBadge>
-                  </div>
-                  <p className="text-[10px] text-gray-500 truncate">{s.description || "无描述"}</p>
-                  <div className="flex items-center gap-2 mt-1">
-                    <span className="text-[8px] text-gray-400">v{s.current_version}</span>
-                    <span className="text-[8px] text-gray-400">{s.mode}</span>
-                  </div>
-                </button>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); toggleCheck(s.id); }}
+                    className={`mt-0.5 w-4 h-4 border-2 flex-shrink-0 flex items-center justify-center transition-colors ${
+                      checkedIds.has(s.id)
+                        ? "border-[#1A202C] bg-[#1A202C]"
+                        : "border-gray-300 hover:border-[#1A202C]"
+                    }`}
+                  >
+                    {checkedIds.has(s.id) && <span className="text-white text-[8px] font-bold">✓</span>}
+                  </button>
+                  <button
+                    className="flex-1 text-left min-w-0"
+                    onClick={() => loadDetail(s.id)}
+                  >
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-xs font-bold truncate">{s.name}</span>
+                      <PixelBadge color={STATUS_COLOR[s.status] || "gray"}>{s.status}</PixelBadge>
+                    </div>
+                    <p className="text-[10px] text-gray-500 truncate">{s.description || "无描述"}</p>
+                    <div className="flex items-center gap-2 mt-1">
+                      <span className="text-[8px] text-gray-400">v{s.current_version}</span>
+                      <span className="text-[8px] text-gray-400">{s.mode}</span>
+                    </div>
+                  </button>
+                </div>
               ))
             )}
           </div>

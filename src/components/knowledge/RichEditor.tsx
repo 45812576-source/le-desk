@@ -128,7 +128,7 @@ export function RichEditor({ content, onChange, editable = true }: RichEditorPro
   };
 
   return (
-    <div className="flex flex-col h-full border-2 border-[#00D1FF]">
+    <div className={`flex flex-col border-2 border-[#00D1FF] ${editable ? "h-full" : ""}`}>
       {editable && (
         <div className="flex items-center flex-wrap gap-0.5 px-2 py-1 border-b-2 border-[#1A202C] bg-[#F8FAFC] flex-shrink-0">
           {/* Text style */}
@@ -197,8 +197,8 @@ export function RichEditor({ content, onChange, editable = true }: RichEditorPro
         </div>
       )}
 
-      <div className="flex-1 overflow-y-auto">
-        <EditorContent editor={editor} className="h-full" />
+      <div className={editable ? "flex-1 overflow-y-auto" : ""}>
+        <EditorContent editor={editor} className={editable ? "h-full" : ""} />
       </div>
 
       <style>{`
