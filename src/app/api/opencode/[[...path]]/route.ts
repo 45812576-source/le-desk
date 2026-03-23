@@ -90,17 +90,45 @@ export async function GET(
     return _origFetch.call(this, input, init);
   };
 
-  // patch window.open：拦截新 tab，改为在当前页面内导航
+  // patch window.open：拦截一切新 tab/窗口，全部在 iframe 内导航
   var _origOpen = window.open;
   window.open = function(url, target, features) {
-    if (url && typeof url === "string" && (url.startsWith("/") || url.startsWith(location.origin))) {
-      // 同源链接：在当前 iframe 内导航，不开新 tab
-      location.href = url.startsWith("/") ? url : url.slice(location.origin.length);
-      return null;
+    if (url && typeof url === "string") {
+      var path = url;
+      if (url.startsWith(location.origin)) {
+        path = url.slice(location.origin.length) || "/";
+      } else if (/^https?:\/\/(?:127\.0\.0\.1|localhost)(:\d+)?/.test(url)) {
+        // OpenCode 直接用 localhost URL 开窗口，截取路径部分
+        path = url.replace(/^https?:\/\/(?:127\.0\.0\.1|localhost)(:\d+)?/, "") || "/";
+      }
+      if (path.startsWith("/")) {
+        location.href = path;
+        return null;
+      }
     }
-    // 外部链接：正常开新 tab
+    // 完全外部链接也留在当前窗口
+    if (url && typeof url === "string") { location.href = url; return null; }
     return _origOpen.call(this, url, target, features);
   };
+
+  // 拦截 target="_blank" 链接点击（OpenCode 内可能用 <a target="_blank"> 触发新窗口）
+  document.addEventListener("click", function(e) {
+    var el = e.target;
+    while (el && el !== document) {
+      if (el.tagName === "A" && el.target === "_blank") {
+        e.preventDefault();
+        e.stopPropagation();
+        var href = el.getAttribute("href");
+        if (href && !href.startsWith("http")) {
+          location.href = href;
+        } else if (href) {
+          location.href = href;
+        }
+        return;
+      }
+      el = el.parentElement;
+    }
+  }, true);
 
   // patch WebSocket：同源 ws/wss 连接重定向到 /api/opencode-rpc，并带端口参数
   var _origWS = window.WebSocket;

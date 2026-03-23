@@ -52,18 +52,23 @@ interface NavItemProps {
   collapsed: boolean;
   badge?: number;
   isLab: boolean;
+  theme: string;
 }
 
-function NavItem({ href, label, icon, collapsed, badge, isLab }: NavItemProps) {
+function NavItem({ href, label, icon, collapsed, badge, isLab, theme }: NavItemProps) {
   const pathname = usePathname();
   const isActive = pathname === href || pathname.startsWith(href + "/");
 
   const activeClass = isLab
     ? "bg-[#CCF2FF] border-2 border-[#1A202C] text-[#1A202C]"
-    : "bg-accent text-accent-foreground font-semibold";
+    : theme === "dark"
+      ? "bg-white/15 text-white border-l-2 border-[#6B7FFF] font-semibold"
+      : "bg-black/8 text-foreground border-l-2 border-foreground font-semibold";
   const inactiveClass = isLab
     ? "text-[#1A202C] opacity-60 hover:opacity-100 hover:bg-white/50"
-    : "text-muted-foreground hover:bg-accent/60 hover:text-foreground";
+    : theme === "dark"
+      ? "text-white/50 hover:bg-white/10 hover:text-white"
+      : "text-foreground/50 hover:bg-black/5 hover:text-foreground";
   const baseClass = isLab
     ? "text-xs font-bold uppercase tracking-wide"
     : "text-sm font-medium";
@@ -215,7 +220,7 @@ export function Sidebar({ user, taskPending = 0, onLogout }: SidebarProps) {
     ? "border-2 border-[#1A202C] bg-white hover:bg-[#CCF2FF]"
     : "border border-border bg-background hover:bg-accent rounded-md";
 
-  const navItemProps = { isLab, collapsed };
+  const navItemProps = { isLab, collapsed, theme };
 
   return (
     <aside
@@ -335,7 +340,7 @@ export function Sidebar({ user, taskPending = 0, onLogout }: SidebarProps) {
         <div className={`${collapsed ? "p-1" : "px-3 pb-3"} flex flex-col gap-1`}>
           {!collapsed && (
             <>
-              <NavItem href="/settings" label="设置" icon={ICONS.settings} collapsed={false} isLab={isLab} />
+              <NavItem href="/settings" label="设置" icon={ICONS.settings} collapsed={false} isLab={isLab} theme={theme} />
               <button
                 onClick={onLogout}
                 className={`w-full text-left px-2 py-1.5 transition-colors flex items-center gap-2 ${
@@ -350,7 +355,7 @@ export function Sidebar({ user, taskPending = 0, onLogout }: SidebarProps) {
             </>
           )}
           {collapsed && (
-            <NavItem href="/settings" label="设置" icon={ICONS.settings} collapsed={true} isLab={isLab} />
+            <NavItem href="/settings" label="设置" icon={ICONS.settings} collapsed={true} isLab={isLab} theme={theme} />
           )}
           <button
             onClick={toggleSidebar}

@@ -357,6 +357,7 @@ export interface OpenCodeMapping {
   opencode_workspace_name: string | null;
   user_id: number;
   display_name: string | null;
+  directory: string | null;
 }
 
 export interface McpToken {

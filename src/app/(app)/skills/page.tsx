@@ -130,6 +130,8 @@ function MySkillCard({ skill, onRefresh }: { skill: SkillDetail; onRefresh: () =
   const [prompt, setPrompt] = useState("");
   const [changeNote, setChangeNote] = useState("");
   const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   const [showPublishModal, setShowPublishModal] = useState(false);
   const [detail, setDetail] = useState<SkillDetail | null>(null);
 
@@ -149,10 +151,17 @@ function MySkillCard({ skill, onRefresh }: { skill: SkillDetail; onRefresh: () =
   }
 
   async function handleDelete() {
+    if (!confirm(`确认删除 Skill「${skill.name}」？`)) return;
+    setDeleting(true);
+    setDeleteError(null);
     try {
       await apiFetch(`/skills/${skill.id}`, { method: "DELETE" });
       onRefresh();
-    } catch { /* ignore */ }
+    } catch (err) {
+      setDeleteError(err instanceof Error ? err.message : "删除失败");
+    } finally {
+      setDeleting(false);
+    }
   }
 
   function handleExpand() {
@@ -234,7 +243,12 @@ function MySkillCard({ skill, onRefresh }: { skill: SkillDetail; onRefresh: () =
                 <PixelButton size="sm" variant="secondary" onClick={handleArchive}>归档</PixelButton>
               ) : null}
               {(skill.status === "draft" || skill.status === "reviewing" || skill.status === "archived") && (
-                <PixelButton size="sm" variant="secondary" onClick={handleDelete}>删除</PixelButton>
+                <PixelButton size="sm" variant="secondary" onClick={handleDelete} disabled={deleting}>
+                  {deleting ? "删除中..." : "删除"}
+                </PixelButton>
+              )}
+              {deleteError && (
+                <span className="text-[9px] font-bold text-red-500 border border-red-300 bg-red-50 px-2 py-1">✕ {deleteError}</span>
               )}
             </div>
             {editing ? (
@@ -600,7 +614,9 @@ export default function SkillsPage() {
     const form = new FormData();
     form.append("file", file);
     try {
-      await apiFetch("/skills/upload-md", { method: "POST", body: form });
+      const res = await apiFetch<{ action: string; name: string; version: number; status?: string }>("/skills/upload-md", { method: "POST", body: form });
+      const statusNote = res.status === "published" ? "已发布" : "已提交审批";
+      setUploadMdError(`✓ ${res.action === "created" ? "已创建" : "已更新"} [${res.name}] v${res.version}，${statusNote}`);
     } catch (err) {
       setUploadMdError(err instanceof Error ? err.message : "上传失败");
     } finally {
@@ -792,8 +808,8 @@ export default function SkillsPage() {
       ) : tab === "skill" ? (
         <>
           {uploadMdError && (
-            <div className="border-2 border-red-400 bg-red-50 px-4 py-2 mb-3 text-[9px] font-bold text-red-500">
-              上传失败：{uploadMdError}
+            <div className={`border-2 px-4 py-2 mb-3 text-[9px] font-bold ${uploadMdError.startsWith("✓") ? "border-[#00CC99] bg-[#F0FFF4] text-[#00CC99]" : "border-red-400 bg-red-50 text-red-500"}`}>
+              {uploadMdError.startsWith("✓") ? uploadMdError : `上传失败：${uploadMdError}`}
             </div>
           )}
           {uploadZipError && (

@@ -504,6 +504,7 @@ export default function AdminSkillsPage() {
   const [usageLoading, setUsageLoading] = useState(false);
   const [checkedIds, setCheckedIds] = useState<Set<number>>(new Set());
   const [batchPublishing, setBatchPublishing] = useState(false);
+  const [userMap, setUserMap] = useState<Map<number, string>>(new Map());
   const fileRef = useRef<HTMLInputElement>(null);
 
   const fetchSkills = useCallback(() => {
@@ -512,6 +513,12 @@ export default function AdminSkillsPage() {
       .then(setSkills)
       .catch(() => setSkills([]))
       .finally(() => setLoading(false));
+  }, []);
+
+  useEffect(() => {
+    apiFetch<{ id: number; display_name: string }[]>("/admin/users")
+      .then((users) => setUserMap(new Map(users.map((u) => [u.id, u.display_name]))))
+      .catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -542,6 +549,17 @@ export default function AdminSkillsPage() {
       }
     } catch {
       // ignore
+    }
+  }
+
+  async function handleScopeChange(id: number, scope: string) {
+    if (!selected) return;
+    try {
+      await apiFetch(`/skills/${id}/status?status=${selected.status}&scope=${scope}`, { method: "PATCH" });
+      setSelected((prev) => (prev ? { ...prev, scope: scope as SkillDetail["scope"] } : null));
+      fetchSkills();
+    } catch (e) {
+      alert(`修改失败：${e instanceof Error ? e.message : "未知错误"}`);
     }
   }
 
@@ -814,14 +832,35 @@ export default function AdminSkillsPage() {
                       </PixelButton>
                     </div>
                   </div>
-                  <p className="text-[10px] text-gray-600 mb-3">{selected.description}</p>
-                  <div className="flex flex-wrap gap-2">
+                  <p className="text-[10px] text-gray-600 mb-1">{selected.description}</p>
+                  {selected.created_by && (
+                    <p className="text-[9px] text-gray-400 mb-3">
+                      作者：<span className="font-bold text-[#1A202C]">{userMap.get(selected.created_by) ?? `#${selected.created_by}`}</span>
+                    </p>
+                  )}
+                  <div className="flex flex-wrap gap-2 items-center">
                     <PixelBadge color={STATUS_COLOR[selected.status] || "gray"}>
                       {selected.status}
                     </PixelBadge>
                     <PixelBadge color="cyan">{selected.mode}</PixelBadge>
                     <PixelBadge color="purple">v{selected.current_version}</PixelBadge>
                     {selected.auto_inject && <PixelBadge color="green">自动注入</PixelBadge>}
+                    <div className="flex items-center gap-1 ml-1">
+                      <span className="text-[8px] font-bold text-gray-400 uppercase tracking-widest">可见范围</span>
+                      {(["company", "department", "personal"] as const).map((s) => (
+                        <button
+                          key={s}
+                          onClick={() => handleScopeChange(selected.id, s)}
+                          className={`px-2 py-0.5 text-[8px] font-bold border-2 uppercase tracking-widest transition-colors ${
+                            (selected.scope ?? "personal") === s
+                              ? "border-[#1A202C] bg-[#1A202C] text-white"
+                              : "border-gray-300 text-gray-400 hover:border-[#00A3C4] hover:text-[#00A3C4]"
+                          }`}
+                        >
+                          {s === "company" ? "全公司" : s === "department" ? "部门" : "仅自己"}
+                        </button>
+                      ))}
+                    </div>
                   </div>
                   {selected.knowledge_tags && selected.knowledge_tags.length > 0 && (
                     <div className="mt-2 flex flex-wrap gap-1">
