@@ -115,6 +115,8 @@ export default function SkillMarketPage() {
   const [searchQ, setSearchQ] = useState("");
   const [saving, setSaving] = useState<number | null>(null);
   const [saved, setSaved] = useState<Set<number>>(new Set());
+  // 展开详情的 skill id → 已加载的 system_prompt
+  const [expanded, setExpanded] = useState<Record<number, string | null>>({});
 
   // 热榜
   const [companyRank, setCompanyRank] = useState<RankItem[]>([]);
@@ -175,6 +177,24 @@ export default function SkillMarketPage() {
       setSaved((prev) => new Set(prev).add(skillId));
     } finally {
       setSaving(null);
+    }
+  }
+
+  async function handleToggleExpand(skill: SkillDetail) {
+    // 折叠
+    if (skill.id in expanded) {
+      setExpanded((prev) => { const n = { ...prev }; delete n[skill.id]; return n; });
+      return;
+    }
+    // 非外部引入：不展开
+    if (skill.source_type === "local" || !skill.source_type) return;
+    // 先占位 null（loading 状态）
+    setExpanded((prev) => ({ ...prev, [skill.id]: null }));
+    try {
+      const detail = await apiFetch<SkillDetail>(`/skills/${skill.id}`);
+      setExpanded((prev) => ({ ...prev, [skill.id]: detail.system_prompt ?? "" }));
+    } catch {
+      setExpanded((prev) => ({ ...prev, [skill.id]: "" }));
     }
   }
 
@@ -278,53 +298,87 @@ export default function SkillMarketPage() {
             <div className="space-y-2">
               {filtered.map((skill) => {
                 const isSaved = saved.has(skill.id);
-                // 在热榜里找到排名标注
                 const inCompanyRank = companyRank.find((r) => r.skill_id === skill.id);
+                const isExternal = skill.source_type === "imported" || skill.source_type === "forked";
+                const isExpanded = skill.id in expanded;
+                const promptContent = expanded[skill.id];
+
                 return (
                   <div
                     key={skill.id}
-                    className="bg-white border-2 border-[#1A202C] p-4 flex items-start justify-between gap-3"
+                    className="bg-white border-2 border-[#1A202C]"
                   >
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 flex-wrap mb-1">
-                        <ThemedIcon size={12} />
-                        <span className="text-xs font-bold uppercase">{skill.name}</span>
-                        <PixelBadge color="green">公司</PixelBadge>
-                        {(skill.current_version ?? 0) > 0 && (
-                          <PixelBadge color="cyan">v{skill.current_version}</PixelBadge>
-                        )}
-                        {inCompanyRank && inCompanyRank.rank <= 3 && (
-                          <span className="text-[8px] font-bold px-1.5 py-0.5 bg-yellow-100 border border-yellow-400 text-yellow-700">
-                            通用榜 #{inCompanyRank.rank}
-                          </span>
-                        )}
+                    <div className="p-4 flex items-start justify-between gap-3">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap mb-1">
+                          <ThemedIcon size={12} />
+                          <span className="text-xs font-bold uppercase">{skill.name}</span>
+                          <PixelBadge color="green">公司</PixelBadge>
+                          {isExternal && (
+                            <PixelBadge color="purple">
+                              {skill.source_type === "forked" ? "Fork" : "外部引入"}
+                            </PixelBadge>
+                          )}
+                          {(skill.current_version ?? 0) > 0 && (
+                            <PixelBadge color="cyan">v{skill.current_version}</PixelBadge>
+                          )}
+                          {inCompanyRank && inCompanyRank.rank <= 3 && (
+                            <span className="text-[8px] font-bold px-1.5 py-0.5 bg-yellow-100 border border-yellow-400 text-yellow-700">
+                              通用榜 #{inCompanyRank.rank}
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-[9px] text-gray-500 line-clamp-2">{skill.description || "无描述"}</p>
+                        <div className="flex items-center gap-3 mt-1.5">
+                          {skill.knowledge_tags?.length > 0 && (
+                            <div className="flex flex-wrap gap-1">
+                              {skill.knowledge_tags.map((t) => (
+                                <span key={t} className="text-[8px] text-[#00A3C4] font-bold uppercase">
+                                  #{t}
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                          {inCompanyRank && (
+                            <span className="text-[8px] text-gray-400 ml-auto">
+                              近30天 {inCompanyRank.conv_count_recent} 次对话
+                            </span>
+                          )}
+                        </div>
                       </div>
-                      <p className="text-[9px] text-gray-500 line-clamp-2">{skill.description || "无描述"}</p>
-                      <div className="flex items-center gap-3 mt-1.5">
-                        {skill.knowledge_tags?.length > 0 && (
-                          <div className="flex flex-wrap gap-1">
-                            {skill.knowledge_tags.map((t) => (
-                              <span key={t} className="text-[8px] text-[#00A3C4] font-bold uppercase">
-                                #{t}
-                              </span>
-                            ))}
-                          </div>
-                        )}
-                        {inCompanyRank && (
-                          <span className="text-[8px] text-gray-400 ml-auto">
-                            近30天 {inCompanyRank.conv_count_recent} 次对话
-                          </span>
+                      <div className="flex flex-col items-end gap-1.5 flex-shrink-0">
+                        <PixelButton
+                          size="sm"
+                          variant={isSaved ? "secondary" : "primary"}
+                          onClick={() => handleSave(skill.id)}
+                          disabled={isSaved || saving === skill.id}
+                        >
+                          {isSaved ? "已保存" : saving === skill.id ? "保存中..." : "保存"}
+                        </PixelButton>
+                        {isExternal && (
+                          <button
+                            onClick={() => handleToggleExpand(skill)}
+                            className="text-[8px] font-bold text-[#00A3C4] hover:text-[#00D1FF] uppercase tracking-widest"
+                          >
+                            {isExpanded ? "▲ 收起" : "▼ 查看内容"}
+                          </button>
                         )}
                       </div>
                     </div>
-                    <PixelButton
-                      size="sm"
-                      variant={isSaved ? "secondary" : "primary"}
-                      onClick={() => handleSave(skill.id)}
-                      disabled={isSaved || saving === skill.id}
-                    >
-                      {isSaved ? "已保存" : saving === skill.id ? "保存中..." : "保存"}
-                    </PixelButton>
+
+                    {isExpanded && (
+                      <div className="border-t-2 border-[#1A202C] bg-[#F0F4F8] px-4 py-3">
+                        {promptContent === null ? (
+                          <div className="text-[9px] text-[#00A3C4] font-bold uppercase animate-pulse">加载中...</div>
+                        ) : promptContent === "" ? (
+                          <div className="text-[9px] text-gray-400">暂无内容</div>
+                        ) : (
+                          <pre className="text-[10px] text-[#1A202C] whitespace-pre-wrap leading-relaxed max-h-64 overflow-y-auto font-mono">
+                            {promptContent}
+                          </pre>
+                        )}
+                      </div>
+                    )}
                   </div>
                 );
               })}

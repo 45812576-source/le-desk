@@ -233,7 +233,7 @@ function MySkillCard({ skill, onRefresh }: { skill: SkillDetail; onRefresh: () =
               ) : skill.status === "published" ? (
                 <PixelButton size="sm" variant="secondary" onClick={handleArchive}>归档</PixelButton>
               ) : null}
-              {(skill.status === "draft" || skill.status === "archived") && (
+              {(skill.status === "draft" || skill.status === "reviewing" || skill.status === "archived") && (
                 <PixelButton size="sm" variant="secondary" onClick={handleDelete}>删除</PixelButton>
               )}
             </div>
@@ -258,16 +258,32 @@ function MySkillCard({ skill, onRefresh }: { skill: SkillDetail; onRefresh: () =
                 </PixelButton>
               </div>
             ) : (
-              latestVersion?.system_prompt && (
-                <div>
-                  <div className="text-[9px] font-bold uppercase tracking-widest text-[#00A3C4] mb-1">
-                    System Prompt (v{latestVersion.version})
+              <>
+                {latestVersion?.system_prompt && (
+                  <div>
+                    <div className="text-[9px] font-bold uppercase tracking-widest text-[#00A3C4] mb-1">
+                      System Prompt (v{latestVersion.version})
+                    </div>
+                    <pre className="text-[9px] text-gray-700 bg-[#F0F4F8] border border-gray-200 p-3 overflow-auto max-h-48 whitespace-pre-wrap font-mono">
+                      {latestVersion.system_prompt}
+                    </pre>
                   </div>
-                  <pre className="text-[9px] text-gray-700 bg-[#F0F4F8] border border-gray-200 p-3 overflow-auto max-h-48 whitespace-pre-wrap font-mono">
-                    {latestVersion.system_prompt}
-                  </pre>
-                </div>
-              )
+                )}
+                {(skill.source_files ?? (detail?.source_files ?? [])).length > 0 && (
+                  <div className="mt-3">
+                    <div className="text-[9px] font-bold uppercase tracking-widest text-[#00A3C4] mb-1">附属文件</div>
+                    <div className="space-y-1">
+                      {(skill.source_files ?? detail?.source_files ?? []).map((f) => (
+                        <div key={f.filename} className="flex items-center gap-2 text-[9px] font-mono text-gray-600 bg-[#F0F4F8] border border-gray-200 px-2 py-1">
+                          <span className="text-gray-400">📄</span>
+                          <span className="flex-1 truncate">{f.filename}</span>
+                          <span className="text-gray-400 flex-shrink-0">{(f.size / 1024).toFixed(1)}kb</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </>
             )}
           </div>
         )}
@@ -517,6 +533,9 @@ export default function SkillsPage() {
   const [showNewSkillForm, setShowNewSkillForm] = useState(false);
   const [uploadingMd, setUploadingMd] = useState(false);
   const [uploadMdError, setUploadMdError] = useState<string | null>(null);
+  const [uploadingZip, setUploadingZip] = useState(false);
+  const [uploadZipError, setUploadZipError] = useState<string | null>(null);
+  const skillZipInputRef = useRef<HTMLInputElement>(null);
 
   // Tool state
   const [myTools, setMyTools] = useState<ToolEntry[]>([]);
@@ -587,6 +606,29 @@ export default function SkillsPage() {
     } finally {
       setUploadingMd(false);
       e.target.value = "";
+      fetchSkills();
+    }
+  }
+
+  async function handleUploadZip(file: File) {
+    if (!file.name.toLowerCase().endsWith(".zip")) { setUploadZipError("只支持 .zip 文件"); return; }
+    setUploadingZip(true);
+    setUploadZipError(null);
+    const form = new FormData();
+    form.append("file", file);
+    try {
+      const res = await apiFetch<{ action: string; name: string; version: number; source_files: { filename: string }[] }>(
+        "/skills/upload-zip", { method: "POST", body: form }
+      );
+      const fileCount = res.source_files?.length ?? 0;
+      setUploadZipError(null);
+      // 显示成功提示（复用 error 状态显示绿色）
+      setUploadZipError(`✓ ${res.action === "created" ? "新建" : "更新"} [${res.name}] v${res.version}${fileCount > 0 ? `，附属文件 ${fileCount} 个` : ""}`);
+    } catch (err) {
+      setUploadZipError(err instanceof Error ? err.message : "上传失败");
+    } finally {
+      setUploadingZip(false);
+      if (skillZipInputRef.current) skillZipInputRef.current.value = "";
       fetchSkills();
     }
   }
@@ -685,6 +727,18 @@ export default function SkillsPage() {
           {uploadingMd ? "上传中..." : "上传 .md"}
         </span>
       </label>
+      <label className="cursor-pointer">
+        <input
+          ref={skillZipInputRef}
+          type="file"
+          accept=".zip"
+          className="hidden"
+          onChange={(e) => { const f = e.target.files?.[0]; if (f) handleUploadZip(f); }}
+        />
+        <span className="inline-flex items-center border-2 border-[#1A202C] px-3 py-1 text-[10px] font-bold uppercase tracking-widest bg-white hover:bg-[#F0F4F8] transition-colors cursor-pointer">
+          {uploadingZip ? "上传中..." : "上传 .zip"}
+        </span>
+      </label>
       <PixelButton variant="secondary" onClick={() => setShowNewSkillForm((v) => !v)}>
         {showNewSkillForm ? "取消" : "+ 手动新建"}
       </PixelButton>
@@ -740,6 +794,11 @@ export default function SkillsPage() {
           {uploadMdError && (
             <div className="border-2 border-red-400 bg-red-50 px-4 py-2 mb-3 text-[9px] font-bold text-red-500">
               上传失败：{uploadMdError}
+            </div>
+          )}
+          {uploadZipError && (
+            <div className={`border-2 px-4 py-2 mb-3 text-[9px] font-bold ${uploadZipError.startsWith("✓") ? "border-[#00CC99] bg-[#F0FFF4] text-[#00CC99]" : "border-red-400 bg-red-50 text-red-500"}`}>
+              {uploadZipError.startsWith("✓") ? uploadZipError : `上传失败：${uploadZipError}`}
             </div>
           )}
           {showNewSkillForm && (

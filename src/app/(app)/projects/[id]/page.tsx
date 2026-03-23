@@ -3,10 +3,12 @@
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
-import { PageShell } from "@/components/layout/PageShell";
+import { PageShell, ThemedPageIcon } from "@/components/layout/PageShell";
 import { ICONS } from "@/components/pixel";
+import { PixelUserPicker, type SuggestedUser } from "@/components/pixel/PixelUserPicker";
 import { apiFetch } from "@/lib/api";
 import type { Project, ProjectContext } from "@/lib/types";
+import { ProjectChat } from "@/components/project/ProjectChat";
 
 const STATUS_LABEL: Record<string, string> = {
   draft: "草稿",
@@ -166,6 +168,20 @@ export default function ProjectDetailPage() {
   const [completing, setCompleting] = useState(false);
   const [error, setError] = useState("");
 
+  // 编辑态
+  const [editing, setEditing] = useState(false);
+  const [editName, setEditName] = useState("");
+  const [editDesc, setEditDesc] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [editError, setEditError] = useState("");
+
+  // 新增成员
+  const [addingMember, setAddingMember] = useState(false);
+  const [newMemberUser, setNewMemberUser] = useState<SuggestedUser | null>(null);
+  const [newMemberRole, setNewMemberRole] = useState("");
+  const [memberSaving, setMemberSaving] = useState(false);
+  const [memberError, setMemberError] = useState("");
+
   function loadProject() {
     return apiFetch<Project>(`/projects/${id}`)
       .then(setProject)
@@ -202,6 +218,63 @@ export default function ProjectDetailPage() {
     }
   }
 
+  function startEdit() {
+    if (!project) return;
+    setEditName(project.name);
+    setEditDesc(project.description || "");
+    setEditError("");
+    setEditing(true);
+  }
+
+  async function handleSave() {
+    if (!editName.trim()) { setEditError("项目名称不能为空"); return; }
+    setSaving(true);
+    setEditError("");
+    try {
+      await apiFetch(`/projects/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ name: editName.trim(), description: editDesc.trim() }),
+      });
+      await loadProject();
+      setEditing(false);
+    } catch (err: unknown) {
+      setEditError(err instanceof Error ? err.message : "保存失败");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleAddMember() {
+    if (!newMemberUser) { setMemberError("请选择成员"); return; }
+    if (!newMemberRole.trim()) { setMemberError("请填写分工描述"); return; }
+    setMemberSaving(true);
+    setMemberError("");
+    try {
+      await apiFetch(`/projects/${id}/members`, {
+        method: "POST",
+        body: JSON.stringify({ user_id: newMemberUser.id, role_desc: newMemberRole.trim() }),
+      });
+      await loadProject();
+      setAddingMember(false);
+      setNewMemberUser(null);
+      setNewMemberRole("");
+    } catch (err: unknown) {
+      setMemberError(err instanceof Error ? err.message : "添加失败");
+    } finally {
+      setMemberSaving(false);
+    }
+  }
+
+  async function handleRemoveMember(memberId: number) {
+    if (!confirm("确认移除该成员？")) return;
+    try {
+      await apiFetch(`/projects/${id}/members/${memberId}`, { method: "DELETE" });
+      await loadProject();
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "移除失败");
+    }
+  }
+
   if (loading) {
     return (
       <PageShell title="项目详情" icon={ICONS.project}>
@@ -232,50 +305,69 @@ export default function ProjectDetailPage() {
     ? (project.members || []).find((m) => m.role_desc === "代码实施")
     : null;
 
-  return (
-    <PageShell
-      title={project.name}
-      icon={ICONS.project}
-      actions={
-        <div className="flex gap-2">
-          <Link
-            href={`/projects/${id}/reports`}
-            className="px-3 py-1.5 text-[10px] font-bold uppercase border-2 border-[#1A202C] bg-white text-[#1A202C] hover:bg-[#CCF2FF] transition-colors"
-          >
-            日/周报
-          </Link>
-          {project.status === "draft" && project.llm_generated_plan && (
-            <Link
-              href={`/projects/${id}/plan`}
-              className="px-3 py-1.5 text-[10px] font-bold uppercase border-2 border-[#805AD5] text-[#805AD5] hover:bg-[#E9D8FD] transition-colors"
+  const actions = (
+    <div className="flex gap-2">
+      <button
+        onClick={startEdit}
+        className="px-3 py-1.5 text-[10px] font-bold uppercase border-2 border-[#1A202C] bg-white text-[#1A202C] hover:bg-[#CCF2FF] transition-colors"
+      >
+        编辑信息
+      </button>
+      <Link
+        href={`/projects/${id}/reports`}
+        className="px-3 py-1.5 text-[10px] font-bold uppercase border-2 border-[#1A202C] bg-white text-[#1A202C] hover:bg-[#CCF2FF] transition-colors"
+      >
+        日/周报
+      </Link>
+      {project.status === "draft" && project.llm_generated_plan && (
+        <Link
+          href={`/projects/${id}/plan`}
+          className="px-3 py-1.5 text-[10px] font-bold uppercase border-2 border-[#805AD5] text-[#805AD5] hover:bg-[#E9D8FD] transition-colors"
+        >
+          查看规划
+        </Link>
+      )}
+      {isActive && (
+        <>
+          {!isDev && (
+            <button
+              onClick={handleSync}
+              disabled={syncing}
+              className="px-3 py-1.5 text-[10px] font-bold uppercase border-2 border-[#00A3C4] text-[#00A3C4] hover:bg-[#CCF2FF] disabled:opacity-50 transition-colors"
             >
-              查看规划
-            </Link>
+              {syncing ? "同步中..." : "同步进展"}
+            </button>
           )}
-          {isActive && (
-            <>
-              {!isDev && (
-                <button
-                  onClick={handleSync}
-                  disabled={syncing}
-                  className="px-3 py-1.5 text-[10px] font-bold uppercase border-2 border-[#00A3C4] text-[#00A3C4] hover:bg-[#CCF2FF] disabled:opacity-50 transition-colors"
-                >
-                  {syncing ? "同步中..." : "同步进展"}
-                </button>
-              )}
-              <button
-                onClick={handleComplete}
-                disabled={completing}
-                className="px-3 py-1.5 text-[10px] font-bold uppercase border-2 border-[#00CC99] bg-[#00CC99] text-white hover:bg-[#00A87A] disabled:opacity-50 transition-colors"
-              >
-                完结项目
-              </button>
-            </>
-          )}
+          <button
+            onClick={handleComplete}
+            disabled={completing}
+            className="px-3 py-1.5 text-[10px] font-bold uppercase border-2 border-[#00CC99] bg-[#00CC99] text-white hover:bg-[#00A87A] disabled:opacity-50 transition-colors"
+          >
+            完结项目
+          </button>
+        </>
+      )}
+    </div>
+  );
+
+  return (
+    <div className="h-full flex flex-col">
+      {/* Header — 复用 PageShell 风格 */}
+      <div className="border-b-2 border-[#1A202C] px-6 h-12 flex items-center justify-between flex-shrink-0 bg-[var(--card,white)]">
+        <div className="flex items-center gap-2">
+          <ThemedPageIcon icon={ICONS.project} size={16} />
+          <h1 className="text-xs font-bold uppercase tracking-widest text-[#1A202C]">
+            {project.name}
+          </h1>
         </div>
-      }
-    >
-      <div className="max-w-4xl mx-auto flex flex-col gap-5">
+        {actions}
+      </div>
+
+      {/* Body — 左侧内容 + 右侧 chat，各自独立滚动 */}
+      <div className="flex flex-1 min-h-0">
+        {/* 左侧：可滚动的项目内容 */}
+        <div className="flex-1 overflow-y-auto p-6">
+          <div className="flex flex-col gap-5 max-w-3xl">
         {error && (
           <div className="text-[10px] font-bold text-red-500 border border-red-300 px-3 py-2 bg-red-50">
             {error}
@@ -284,31 +376,76 @@ export default function ProjectDetailPage() {
 
         {/* 项目信息 */}
         <div className="border-2 border-[#1A202C] bg-white p-4">
-          <div className="flex items-start justify-between gap-3 mb-3">
-            <div>
-              <div className="flex items-center gap-2">
-                <h2 className="text-[13px] font-bold text-[#1A202C]">{project.name}</h2>
-                {isDev && (
-                  <span className="text-[8px] font-bold px-1.5 py-0.5 bg-[#6B46C1] text-white">
-                    DEV
-                  </span>
-                )}
-                <span
-                  className="text-[8px] font-bold px-1.5 py-0.5 border"
-                  style={{ color: STATUS_COLOR[project.status], borderColor: STATUS_COLOR[project.status] }}
-                >
-                  {STATUS_LABEL[project.status]}
-                </span>
+          {editing ? (
+            <div className="flex flex-col gap-3">
+              <div className="flex flex-col gap-1">
+                <label className="text-[9px] font-bold uppercase text-[#1A202C]">项目名称 *</label>
+                <input
+                  type="text"
+                  value={editName}
+                  onChange={(e) => setEditName(e.target.value)}
+                  className="border-2 border-[#1A202C] px-3 py-2 text-[11px] font-bold bg-white focus:outline-none focus:border-[#00A3C4]"
+                />
               </div>
-              <div className="text-[9px] text-gray-500 mt-0.5">
-                负责人：{project.owner_name} · 创建于 {project.created_at?.slice(0, 10)}
+              <div className="flex flex-col gap-1">
+                <label className="text-[9px] font-bold uppercase text-[#1A202C]">项目背景</label>
+                <textarea
+                  value={editDesc}
+                  onChange={(e) => setEditDesc(e.target.value)}
+                  rows={4}
+                  className="border-2 border-[#1A202C] px-3 py-2 text-[11px] bg-white focus:outline-none focus:border-[#00A3C4] resize-none leading-relaxed"
+                />
+              </div>
+              {editError && (
+                <div className="text-[9px] font-bold text-red-500 border border-red-200 px-3 py-1.5 bg-red-50">
+                  {editError}
+                </div>
+              )}
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setEditing(false)}
+                  className="px-4 py-1.5 text-[9px] font-bold uppercase border-2 border-gray-400 text-gray-500 hover:bg-gray-100 transition-colors"
+                >
+                  取消
+                </button>
+                <button
+                  onClick={handleSave}
+                  disabled={saving}
+                  className="px-4 py-1.5 text-[9px] font-bold uppercase border-2 border-[#1A202C] bg-[#1A202C] text-white hover:bg-[#00A3C4] hover:border-[#00A3C4] disabled:opacity-50 transition-colors"
+                >
+                  {saving ? "保存中..." : "保存"}
+                </button>
               </div>
             </div>
-          </div>
-          {project.description && (
-            <p className="text-[10px] text-gray-600 leading-relaxed border-t border-[#E2E8F0] pt-3">
-              {project.description}
-            </p>
+          ) : (
+            <>
+              <div className="flex items-start justify-between gap-3 mb-3">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h2 className="text-[13px] font-bold text-[#1A202C]">{project.name}</h2>
+                    {isDev && (
+                      <span className="text-[8px] font-bold px-1.5 py-0.5 bg-[#6B46C1] text-white">
+                        DEV
+                      </span>
+                    )}
+                    <span
+                      className="text-[8px] font-bold px-1.5 py-0.5 border"
+                      style={{ color: STATUS_COLOR[project.status], borderColor: STATUS_COLOR[project.status] }}
+                    >
+                      {STATUS_LABEL[project.status]}
+                    </span>
+                  </div>
+                  <div className="text-[9px] text-gray-500 mt-0.5">
+                    负责人：{project.owner_name} · 创建于 {project.created_at?.slice(0, 10)}
+                  </div>
+                </div>
+              </div>
+              {project.description && (
+                <p className="text-[10px] text-gray-600 leading-relaxed border-t border-[#E2E8F0] pt-3">
+                  {project.description}
+                </p>
+              )}
+            </>
           )}
         </div>
 
@@ -319,9 +456,60 @@ export default function ProjectDetailPage() {
 
         {/* 成员 Workspace 卡片 */}
         <div>
-          <div className="text-[9px] font-bold uppercase tracking-widest text-[#00A3C4] mb-3">
-            — 成员工作台
+          <div className="flex items-center justify-between mb-3">
+            <div className="text-[9px] font-bold uppercase tracking-widest text-[#00A3C4]">
+              — 成员工作台
+            </div>
+            {!isDev && (project.members || []).length < 5 && (
+              <button
+                onClick={() => { setAddingMember(true); setMemberError(""); setNewMemberUser(null); setNewMemberRole(""); }}
+                className="text-[9px] font-bold uppercase px-2 py-1 border border-[#00A3C4] text-[#00A3C4] hover:bg-[#CCF2FF] transition-colors"
+              >
+                + 添加成员
+              </button>
+            )}
           </div>
+
+          {/* 新增成员表单 */}
+          {addingMember && (
+            <div className="border border-[#E2E8F0] p-3 flex flex-col gap-2 bg-[#FAFBFC] mb-3">
+              <div className="text-[9px] font-bold uppercase text-gray-500">新增成员</div>
+              <PixelUserPicker
+                value={newMemberUser ? { user_id: newMemberUser.id, display_name: newMemberUser.display_name } : null}
+                onChange={(u) => setNewMemberUser(u)}
+                excludeIds={(project.members || []).map((m) => m.user_id)}
+                placeholder="选择成员"
+                accentColor="cyan"
+              />
+              <textarea
+                value={newMemberRole}
+                onChange={(e) => setNewMemberRole(e.target.value)}
+                placeholder="描述该成员的分工职责..."
+                rows={2}
+                className="border-2 border-[#1A202C] px-2 py-1.5 text-[10px] bg-white focus:outline-none focus:border-[#00A3C4] resize-none"
+              />
+              {memberError && (
+                <div className="text-[9px] font-bold text-red-500 border border-red-200 px-2 py-1 bg-red-50">
+                  {memberError}
+                </div>
+              )}
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setAddingMember(false)}
+                  className="px-3 py-1 text-[9px] font-bold uppercase border border-gray-400 text-gray-500 hover:bg-gray-100 transition-colors"
+                >
+                  取消
+                </button>
+                <button
+                  onClick={handleAddMember}
+                  disabled={memberSaving}
+                  className="px-3 py-1 text-[9px] font-bold uppercase border border-[#1A202C] bg-[#1A202C] text-white hover:bg-[#00A3C4] hover:border-[#00A3C4] disabled:opacity-50 transition-colors"
+                >
+                  {memberSaving ? "添加中..." : "确认添加"}
+                </button>
+              </div>
+            </div>
+          )}
           {(project.members || []).length === 0 ? (
             <div className="text-[10px] text-gray-400 text-center py-8 border-2 border-dashed border-gray-300">
               暂无成员
@@ -436,15 +624,24 @@ export default function ProjectDetailPage() {
                           {member.role_desc || "项目成员"}
                         </div>
                       </div>
-                      {member.task_order > 0 ? (
-                        <span className="text-[8px] font-bold px-1 py-0.5 bg-[#805AD5] text-white flex-shrink-0">
-                          顺序 {member.task_order}
-                        </span>
-                      ) : (
-                        <span className="text-[8px] font-bold px-1 py-0.5 bg-[#00CC99] text-white flex-shrink-0">
-                          并行
-                        </span>
-                      )}
+                      <div className="flex items-center gap-1.5 flex-shrink-0">
+                        {member.task_order > 0 ? (
+                          <span className="text-[8px] font-bold px-1 py-0.5 bg-[#805AD5] text-white">
+                            顺序 {member.task_order}
+                          </span>
+                        ) : (
+                          <span className="text-[8px] font-bold px-1 py-0.5 bg-[#00CC99] text-white">
+                            并行
+                          </span>
+                        )}
+                        <button
+                          onClick={() => handleRemoveMember(member.id)}
+                          className="text-[8px] font-bold text-red-400 hover:text-red-600 px-1"
+                          title="移除成员"
+                        >
+                          ✕
+                        </button>
+                      </div>
                     </div>
 
                     {ctx?.summary ? (
@@ -507,7 +704,12 @@ export default function ProjectDetailPage() {
             </div>
           </div>
         )}
-      </div>
-    </PageShell>
+        </div>{/* max-w-3xl */}
+        </div>{/* 左侧滚动区 */}
+
+        {/* 右侧：chat 面板，固定高度独立滚动 */}
+        <ProjectChat projectId={id} className="w-80 flex-shrink-0" />
+      </div>{/* body flex */}
+    </div>
   );
 }

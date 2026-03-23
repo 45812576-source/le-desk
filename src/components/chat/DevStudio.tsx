@@ -324,10 +324,12 @@ export function DevStudio({ convId: _convId, workspaceId }: { convId: number; wo
       setStatus("loading");
       setErrorMsg(null);
       try {
-        await apiFetch<{ url: string; port: number }>("/dev-studio/instance");
+        const info = await apiFetch<{ url: string; port: number }>("/dev-studio/instance");
         if (!cancelled) {
-          // 通过 Next.js proxy 访问 opencode，兼容内网穿透场景（HTML 路径重写）
-          setOpencodeUrl("/api/opencode");
+          // 把端口写入 cookie（备用），并直接编码进代理 URL（主用）
+          document.cookie = `oc_port=${info.port}; path=/; SameSite=Lax`;
+          // _oc_port 直接放进 URL，代理层优先读 query 参数，不依赖 cookie
+          setOpencodeUrl(`/api/opencode?_oc_port=${info.port}`);
           setInstanceKey(Date.now());
           setStatus("ready");
         }
@@ -350,8 +352,9 @@ export function DevStudio({ convId: _convId, workspaceId }: { convId: number; wo
     setStatus("loading");
     setErrorMsg(null);
     apiFetch<{ url: string; port: number }>("/dev-studio/instance")
-      .then(() => {
-        setOpencodeUrl("/api/opencode");
+      .then((info) => {
+        document.cookie = `oc_port=${info.port}; path=/; SameSite=Lax`;
+        setOpencodeUrl(`/api/opencode?_oc_port=${info.port}`);
         setInstanceKey(Date.now());
         setStatus("ready");
       })

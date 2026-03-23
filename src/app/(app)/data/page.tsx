@@ -65,6 +65,32 @@ interface Folder {
   sort_order: number;
 }
 
+// ─── Cell value formatter ─────────────────────────────────────────────────────
+function formatCellValue(value: unknown): string {
+  if (value === null || value === undefined) return "";
+  if (Array.isArray(value)) {
+    return value.map((item) => formatCellValue(item)).join("、");
+  }
+  if (typeof value === "object") {
+    const obj = value as Record<string, unknown>;
+    if (typeof obj.name === "string") return obj.name;
+    if (typeof obj.text === "string") return obj.text;
+    if (typeof obj.display_name === "string") return obj.display_name;
+    return JSON.stringify(value);
+  }
+  if (typeof value === "number") {
+    // 毫秒时间戳（13位）
+    if (value >= 1e12 && value <= 9.999e12) {
+      return new Date(value).toLocaleString("zh-CN", { timeZone: "Asia/Shanghai" });
+    }
+    // 秒时间戳（10位）
+    if (value >= 1e9 && value <= 9.999e9) {
+      return new Date(value * 1000).toLocaleString("zh-CN", { timeZone: "Asia/Shanghai" });
+    }
+  }
+  return String(value);
+}
+
 // ─── Tab ──────────────────────────────────────────────────────────────────────
 type Tab = "connect" | "manage";
 type ConnectMode = "db" | "bitable";
@@ -113,10 +139,10 @@ function PreviewTable({
               {rows.map((row, i) => (
                 <tr key={i} className={`border-t border-gray-100 ${i % 2 === 0 ? "bg-white" : "bg-[#F8FBFD]"}`}>
                   {columns.map((c) => (
-                    <td key={c.name} className="px-3 py-1.5 border-r border-gray-100 font-mono text-gray-700 max-w-[160px] truncate" title={String(row[c.name] ?? "")}>
+                    <td key={c.name} className="px-3 py-1.5 border-r border-gray-100 font-mono text-gray-700 max-w-[160px] truncate" title={formatCellValue(row[c.name])}>
                       {row[c.name] === null || row[c.name] === undefined
                         ? <span className="text-gray-300">NULL</span>
-                        : String(row[c.name])}
+                        : formatCellValue(row[c.name])}
                     </td>
                   ))}
                 </tr>
@@ -137,6 +163,11 @@ interface BitableProbeResult {
   preview_rows: Record<string, unknown>[];
 }
 
+interface WikiTable {
+  table_id: string;
+  name: string;
+}
+
 function BitablePanel({ onAdded }: { onAdded: () => void }) {
   const [appToken, setAppToken] = useState("");
   const [tableId, setTableId] = useState("");
@@ -146,9 +177,44 @@ function BitablePanel({ onAdded }: { onAdded: () => void }) {
   const [probeResult, setProbeResult] = useState<BitableProbeResult | null>(null);
   const [error, setError] = useState("");
   const [syncMsg, setSyncMsg] = useState("");
+  const [wikiTables, setWikiTables] = useState<WikiTable[] | null>(null);
+  const [resolvingWiki, setResolvingWiki] = useState(false);
 
   // Parse app_token + table_id from a pasted URL
-  function parseUrl(url: string) {
+  async function parseUrl(url: string) {
+    if (url.includes("/wiki/")) {
+      const m = url.match(/\/wiki\/([A-Za-z0-9]+)/);
+      if (!m) return;
+      const wikiToken = m[1];
+      const tableParam = url.match(/[?&]table=([A-Za-z0-9]+)/);
+      setError("");
+      setWikiTables(null);
+      setResolvingWiki(true);
+      try {
+        const res = await apiFetch<{ app_token: string; title: string; tables: WikiTable[] }>(
+          "/business-tables/resolve-wiki",
+          { method: "POST", body: JSON.stringify({ wiki_token: wikiToken }) }
+        );
+        setAppToken(res.app_token);
+        if (!displayName) setDisplayName(res.title);
+        if (res.tables.length === 1) {
+          setTableId(res.tables[0].table_id);
+        } else if (tableParam) {
+          const matched = res.tables.find((t) => t.table_id === tableParam[1]);
+          if (matched) setTableId(matched.table_id);
+          else setWikiTables(res.tables);
+        } else {
+          setWikiTables(res.tables);
+        }
+      } catch (e: unknown) {
+        setError(e instanceof Error ? e.message : "Wiki 解析失败");
+      } finally {
+        setResolvingWiki(false);
+      }
+      return;
+    }
+    setError("");
+    setWikiTables(null);
     const m = url.match(/\/base\/([A-Za-z0-9]+)/);
     if (m) setAppToken(m[1]);
     const t = url.match(/[?&]table=([A-Za-z0-9]+)/);
@@ -217,8 +283,12 @@ function BitablePanel({ onAdded }: { onAdded: () => void }) {
               粘贴多维表格链接（自动解析）
             </label>
             <input
-              placeholder="https://xxx.feishu.cn/base/Xxx123?table=tblXxx"
-              onChange={(e) => parseUrl(e.target.value)}
+              placeholder="支持 /base/ 或 /wiki/ 链接，粘贴后自动解析"
+              onPaste={(e) => {
+                const text = e.clipboardData.getData("text");
+                if (text) { e.preventDefault(); (e.target as HTMLInputElement).value = text; parseUrl(text); }
+              }}
+              onBlur={(e) => { if (e.target.value) parseUrl(e.target.value); }}
               className="w-full border-2 border-gray-300 px-3 py-2 text-[11px] font-mono focus:outline-none focus:border-[#00D1FF]"
             />
           </div>
@@ -252,8 +322,34 @@ function BitablePanel({ onAdded }: { onAdded: () => void }) {
             </div>
           </div>
 
+          {resolvingWiki && (
+            <p className="text-[10px] text-[#00A3C4] font-bold animate-pulse">正在解析 Wiki 节点...</p>
+          )}
           {error && <p className="text-[10px] text-red-500 font-bold">{error}</p>}
           {syncMsg && <p className="text-[10px] text-green-600 font-bold">{syncMsg}</p>}
+
+          {wikiTables && wikiTables.length > 0 && (
+            <div>
+              <p className="text-[9px] font-bold uppercase tracking-widest text-gray-500 mb-1.5">
+                该多维表格包含多个数据表，请选择：
+              </p>
+              <div className="flex flex-wrap gap-1.5">
+                {wikiTables.map((t) => (
+                  <button
+                    key={t.table_id}
+                    onClick={() => { setTableId(t.table_id); setWikiTables(null); }}
+                    className={`px-2.5 py-1 border-2 text-[9px] font-bold transition-colors ${
+                      tableId === t.table_id
+                        ? "border-[#00A3C4] bg-[#CCF2FF] text-[#1A202C]"
+                        : "border-[#1A202C] bg-white text-[#1A202C] hover:bg-[#F0F4F8]"
+                    }`}
+                  >
+                    {t.name}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
 
           <div className="flex items-center gap-2 pt-1">
             <PixelButton onClick={handleProbe} disabled={probing}>
@@ -560,6 +656,7 @@ function TablePreview({
   const [editingName, setEditingName] = useState(false);
   const [nameVal, setNameVal] = useState(table.display_name);
   const nameInputRef = useRef<HTMLInputElement>(null);
+  const [showSettings, setShowSettings] = useState(false);
 
   const hidden = table.validation_rules?.hidden_fields ?? [];
   const colScope: ScopeValue = table.validation_rules?.column_scope ?? "all";
@@ -572,7 +669,7 @@ function TablePreview({
   useEffect(() => {
     Promise.resolve().then(() => setLoadingRows(true));
     apiFetch<{ columns: string[]; rows: Record<string, unknown>[] }>(
-      `/data/${table.table_name}/rows?page=1&page_size=20`
+      `/data/${table.table_name}/rows?page=1&page_size=50`
     )
       .then((d) => { setCols(d.columns ?? []); setRows(d.rows ?? []); })
       .catch(() => { setCols([]); setRows([]); })
@@ -621,61 +718,64 @@ function TablePreview({
         {table.validation_rules?.bitable_app_token && (
           <BitableResyncButton table={table} onDone={() => onRename(table.id, table.display_name)} />
         )}
+        <button
+          onClick={() => setShowSettings((v) => !v)}
+          className="text-[9px] font-bold uppercase tracking-widest px-2 py-1 border-2 border-[#1A202C] bg-white hover:bg-[#F0F4F8] transition-colors flex-shrink-0"
+        >
+          {showSettings ? "▾ 收起设置" : "▸ 范围 / 字段"}
+        </button>
       </div>
 
-      {/* ── 访问范围配置 ── */}
-      <div className="px-5 py-3 border-b-2 border-[#1A202C] flex-shrink-0 bg-[#FAFCFD]">
-        <div className="text-[9px] font-bold uppercase tracking-widest text-[#00A3C4] mb-3">
-          — 访问范围
-        </div>
-        <div className="grid grid-cols-2 gap-x-8 gap-y-3">
-          {/* Column scope */}
-          <ScopeSelector
-            label="列数据可见范围"
-            scope={colScope}
-            deptIds={colDeptIds}
-            departments={departments}
-            onChange={(s, ids) => onScopeChange(table.id, { column_scope: s, column_department_ids: ids })}
-          />
-          {/* Row scope */}
-          <ScopeSelector
-            label="行数据可见范围"
-            scope={rowScope}
-            deptIds={rowDeptIds}
-            departments={departments}
-            onChange={(s, ids) => onScopeChange(table.id, { row_scope: s, row_department_ids: ids })}
-          />
-        </div>
-      </div>
-
-      {/* ── 字段管理 ── */}
-      <div className="px-5 py-3 border-b border-gray-200 flex-shrink-0">
-        <div className="text-[9px] font-bold uppercase tracking-widest text-gray-400 mb-2">
-          列字段管理
-          <span className="text-gray-300 ml-1 normal-case">（点击隐藏，不影响原始数据）</span>
-        </div>
-        <div className="flex flex-wrap gap-1.5">
-          {table.columns.map((c) => {
-            const isHidden = hidden.includes(c.name);
-            return (
-              <button
-                key={c.name}
-                onClick={() => onToggleField(table.id, c.name, !isHidden)}
-                title={isHidden ? "已隐藏，点击恢复" : "点击隐藏"}
-                className={`inline-flex items-center gap-1.5 border-2 px-2 py-0.5 text-[9px] font-bold transition-colors ${
-                  isHidden
-                    ? "border-gray-200 text-gray-300 bg-gray-50"
-                    : "border-[#1A202C] text-[#1A202C] bg-white hover:border-[#00A3C4] hover:text-[#00A3C4]"
-                }`}
-              >
-                <span>{isHidden ? "○" : "●"}</span>
-                {c.name}
-                <span className="text-[8px] font-mono opacity-60">{c.type}</span>
-              </button>
-            );
-          })}
-        </div>
-      </div>
+      {/* ── 访问范围 + 字段管理（可折叠）── */}
+      {showSettings && (
+        <>
+          <div className="px-5 py-3 border-b-2 border-[#1A202C] flex-shrink-0 bg-[#FAFCFD]">
+            <div className="text-[9px] font-bold uppercase tracking-widest text-[#00A3C4] mb-3">— 访问范围</div>
+            <div className="grid grid-cols-2 gap-x-8 gap-y-3">
+              <ScopeSelector
+                label="列数据可见范围"
+                scope={colScope}
+                deptIds={colDeptIds}
+                departments={departments}
+                onChange={(s, ids) => onScopeChange(table.id, { column_scope: s, column_department_ids: ids })}
+              />
+              <ScopeSelector
+                label="行数据可见范围"
+                scope={rowScope}
+                deptIds={rowDeptIds}
+                departments={departments}
+                onChange={(s, ids) => onScopeChange(table.id, { row_scope: s, row_department_ids: ids })}
+              />
+            </div>
+          </div>
+          <div className="px-5 py-3 border-b border-gray-200 flex-shrink-0">
+            <div className="text-[9px] font-bold uppercase tracking-widest text-gray-400 mb-2">
+              列字段管理<span className="text-gray-300 ml-1 normal-case">（点击隐藏）</span>
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {table.columns.map((c) => {
+                const isHidden = hidden.includes(c.name);
+                return (
+                  <button
+                    key={c.name}
+                    onClick={() => onToggleField(table.id, c.name, !isHidden)}
+                    title={isHidden ? "已隐藏，点击恢复" : "点击隐藏"}
+                    className={`inline-flex items-center gap-1.5 border-2 px-2 py-0.5 text-[9px] font-bold transition-colors ${
+                      isHidden
+                        ? "border-gray-200 text-gray-300 bg-gray-50"
+                        : "border-[#1A202C] text-[#1A202C] bg-white hover:border-[#00A3C4] hover:text-[#00A3C4]"
+                    }`}
+                  >
+                    <span>{isHidden ? "○" : "●"}</span>
+                    {c.name}
+                    <span className="text-[8px] font-mono opacity-60">{c.type}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </>
+      )}
 
       {/* ── 数据预览 ── */}
       <div className="flex-1 min-h-0 overflow-auto">
@@ -688,8 +788,8 @@ function TablePreview({
             暂无数据
           </div>
         ) : (
-          <table className="text-[9px] w-full">
-            <thead className="sticky top-0">
+          <table className="text-[9px]" style={{ minWidth: "100%" }}>
+            <thead className="sticky top-0 z-10">
               <tr className="bg-[#EBF4F7]">
                 {visibleCols.map((c) => (
                   <th
@@ -710,12 +810,12 @@ function TablePreview({
                   {visibleCols.map((c) => (
                     <td
                       key={c}
-                      className="px-3 py-1.5 border-r border-gray-100 font-mono text-gray-700 max-w-[180px] truncate"
-                      title={String(row[c] ?? "")}
+                      className="px-3 py-1.5 border-r border-gray-100 font-mono text-gray-700 whitespace-nowrap max-w-[240px] truncate"
+                      title={formatCellValue(row[c])}
                     >
-                      {row[c] === null
+                      {row[c] === null || row[c] === undefined
                         ? <span className="text-gray-300">NULL</span>
-                        : String(row[c])}
+                        : formatCellValue(row[c])}
                     </td>
                   ))}
                 </tr>

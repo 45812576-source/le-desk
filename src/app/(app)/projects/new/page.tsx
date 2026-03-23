@@ -106,11 +106,11 @@ export default function NewProjectPage() {
     }
   }
 
-  // 已选的 user_id 列表（用于 exclude），同时排除当前登录用户
+  // 已选的 user_id 列表（用于 exclude，避免重复选人）
   const currentUserId = user?.id ?? 0;
   const selectedCustomIds = members.map((m) => m.user_id).filter(Boolean);
-  const devExcludeForRequester = [developer?.id, currentUserId].filter(Boolean) as number[];
-  const devExcludeForDeveloper = [requester?.id, currentUserId].filter(Boolean) as number[];
+  const devExcludeForRequester = [developer?.id].filter(Boolean) as number[];
+  const devExcludeForDeveloper = [requester?.id].filter(Boolean) as number[];
 
   return (
     <PageShell title="新建项目" icon={ICONS.project}>
@@ -273,7 +273,7 @@ export default function NewProjectPage() {
                           : null
                       }
                       onChange={(u) => updateMemberUser(idx, u)}
-                      excludeIds={[...selectedCustomIds.filter((id) => id !== member.user_id), currentUserId].filter(Boolean) as number[]}
+                      excludeIds={selectedCustomIds.filter((id) => id !== member.user_id).filter(Boolean) as number[]}
                       placeholder="选择成员"
                       accentColor="cyan"
                     />
