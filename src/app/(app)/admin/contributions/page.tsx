@@ -402,6 +402,7 @@ function MappingPanel({ onSaved }: { onSaved: () => void }) {
             <tr className="border-b border-gray-200 bg-gray-50">
               <th className="text-left px-3 py-1.5 text-[10px] text-gray-500 uppercase">Workspace ID</th>
               <th className="text-left px-3 py-1.5 text-[10px] text-gray-500 uppercase">备注名</th>
+              <th className="text-left px-3 py-1.5 text-[10px] text-gray-500 uppercase">目录</th>
               <th className="text-left px-3 py-1.5 text-[10px] text-gray-500 uppercase">员工</th>
               <th className="px-3 py-1.5 w-12" />
             </tr>
@@ -413,6 +414,11 @@ function MappingPanel({ onSaved }: { onSaved: () => void }) {
                   {m.opencode_workspace_id.slice(0, 16)}…
                 </td>
                 <td className="px-3 py-1.5 text-gray-600">{m.opencode_workspace_name || <span className="text-gray-300">—</span>}</td>
+                <td className="px-3 py-1.5 font-mono text-[9px] max-w-[200px] truncate" title={m.directory || ""}>
+                  {m.directory
+                    ? <span className="text-green-600">{m.directory.split("/").slice(-2).join("/")}</span>
+                    : <span className="text-red-400 font-bold">未配置 ⚠</span>}
+                </td>
                 <td className="px-3 py-1.5 font-bold">{m.display_name}</td>
                 <td className="px-3 py-1.5 text-right">
                   <button

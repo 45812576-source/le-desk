@@ -147,8 +147,9 @@ export function MessageBubble({ message, onQuote, onQuickReply }: MessageBubbleP
       setSaveName("");
       setSaveDesc("");
       setTimeout(() => { setSaveOpen(false); setSaveMsg(null); }, 1500);
-    } catch {
-      setSaveMsg("保存失败，请重试");
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "";
+      setSaveMsg(msg || "保存失败，请重试");
     } finally {
       setSaving(false);
     }

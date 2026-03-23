@@ -1,5 +1,6 @@
 "use client";
 
+import { forwardRef } from "react";
 import { useTheme } from "@/lib/theme";
 
 interface PixelButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
@@ -31,13 +32,10 @@ const formalSize = {
   md: "px-4 py-2 text-sm",
 };
 
-export function PixelButton({
-  variant = "primary",
-  size = "md",
-  className = "",
-  children,
-  ...props
-}: PixelButtonProps) {
+export const PixelButton = forwardRef<HTMLButtonElement, PixelButtonProps>(function PixelButton(
+  { variant = "primary", size = "md", className = "", children, ...props },
+  ref
+) {
   const { theme } = useTheme();
   const isLab = theme === "lab";
 
@@ -49,10 +47,11 @@ export function PixelButton({
 
   return (
     <button
+      ref={ref}
       className={`${baseClass} ${variantClass} ${sizeClass} ${className}`}
       {...props}
     >
       {children}
     </button>
   );
-}
+});

@@ -437,7 +437,7 @@ function PreviewPanel({
       </div>
 
       {/* Rich text editor / viewer */}
-      <div className={editing ? "flex-1 min-h-0 overflow-hidden" : "min-h-0"}>
+      <div className={editing ? "flex-1 min-h-0 overflow-hidden" : "flex-shrink-0"}>
         <RichEditor
           key={entry.id}
           content={toHtml(contentVal)}

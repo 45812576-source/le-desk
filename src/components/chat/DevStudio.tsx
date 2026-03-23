@@ -452,6 +452,8 @@ export function DevStudio({ convId: _convId, workspaceId }: { convId: number; wo
               className="w-full h-full border-none"
               title="OpenCode Dev Studio"
               allow="clipboard-read; clipboard-write"
+              sandbox="allow-scripts allow-same-origin allow-forms allow-downloads allow-modals"
+              style={{ colorScheme: theme === "dark" ? "dark" : "light" }}
             />
             {/* 受限模型遮罩：无权用户看到提示，有权用户不显示 */}
             {RESTRICTED_MODELS.some((k) => !grantedModels.includes(k)) && (
