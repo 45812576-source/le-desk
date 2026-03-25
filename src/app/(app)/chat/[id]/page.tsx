@@ -10,6 +10,7 @@ import type { ContentBlock } from "@/lib/types";
 import { MessageBubble } from "@/components/chat/MessageBubble";
 import { ChatInput } from "@/components/chat/ChatInput";
 import { DevStudio } from "@/components/chat/DevStudio";
+import { SkillStudio } from "@/components/chat/SkillStudio";
 import { useTheme } from "@/lib/theme";
 
 // Module-level workspace cache — survives route navigation
@@ -195,6 +196,7 @@ export default function ChatDetailPage() {
   const [loading, setLoading] = useState(true);
   const [isOpencode, setIsOpencode] = useState(false);
   const [opencodeWorkspaceId, setOpencodeWorkspaceId] = useState<number | null>(null);
+  const [isSkillStudio, setIsSkillStudio] = useState(false);
   const [isDragOver, setIsDragOver] = useState(false);
   const [quote, setQuote] = useState<string | null>(null);
   const [prefill, setPrefill] = useState<string | null>(null);
@@ -231,6 +233,7 @@ export default function ChatDetailPage() {
     setSandboxSkills([]);
     setSandboxSkillId(null);
     setWorkspaceType(null);
+    setIsSkillStudio(false);
 
     // ── Workspace (concurrent, doesn't block messages) ────────────
     const loadWorkspace = async () => {
@@ -252,6 +255,10 @@ export default function ChatDetailPage() {
       if (ws.workspace_type === "opencode") {
         setIsOpencode(true);
         setOpencodeWorkspaceId(conv.workspace_id);
+        return;
+      }
+      if (ws.workspace_type === "skill_studio") {
+        setIsSkillStudio(true);
         return;
       }
       setWorkspaceType(ws.workspace_type ?? null);
@@ -352,6 +359,10 @@ export default function ChatDetailPage() {
 
   if (isOpencode) {
     return <DevStudio convId={convId} workspaceId={opencodeWorkspaceId ?? undefined} />;
+  }
+
+  if (isSkillStudio) {
+    return <SkillStudio />;
   }
 
   return (

@@ -102,7 +102,7 @@ export interface Workspace {
   visibility: string;
   welcome_message: string;
   sort_order: number;
-  workspace_type?: "chat" | "opencode" | "sandbox";
+  workspace_type?: "chat" | "opencode" | "sandbox" | "skill_studio";
 }
 
 export interface TaskItem {
