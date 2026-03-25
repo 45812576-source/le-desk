@@ -22,7 +22,7 @@ export default function SkillStudioEntryPage() {
           method: "POST",
           body: JSON.stringify({ workspace_id: studioWs.id }),
         });
-        router.replace(`/chat/${conv.id}`);
+        router.replace(`/chat/${conv.id}?ws=skill_studio`);
       } catch (e) {
         setError(e instanceof Error ? e.message : "启动失败");
       }

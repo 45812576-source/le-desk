@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useSearchParams } from "next/navigation";
 import { apiFetch } from "@/lib/api";
 import { useChatStore, subscribeConvStream, getConvStreamSnapshot } from "@/lib/chat-store";
 import { connectionManager } from "@/lib/connection";
@@ -171,8 +171,12 @@ function StreamingBubble({ text }: { text: string }) {
 
 export default function ChatDetailPage() {
   const params = useParams();
+  const searchParams = useSearchParams();
   const convId = Number(params.id);
   const { theme } = useTheme();
+
+  // If URL carries ws=skill_studio hint, render immediately without waiting for API
+  const wsHint = searchParams.get("ws");
 
   // Store state — messages via zustand, stream state via out-of-store subscription
   const messages = useChatStore((s) => s.messagesMap.get(convId)) ?? [];
@@ -196,7 +200,7 @@ export default function ChatDetailPage() {
   const [loading, setLoading] = useState(true);
   const [isOpencode, setIsOpencode] = useState(false);
   const [opencodeWorkspaceId, setOpencodeWorkspaceId] = useState<number | null>(null);
-  const [isSkillStudio, setIsSkillStudio] = useState(false);
+  const [isSkillStudio, setIsSkillStudio] = useState(wsHint === "skill_studio");
   const [isDragOver, setIsDragOver] = useState(false);
   const [quote, setQuote] = useState<string | null>(null);
   const [prefill, setPrefill] = useState<string | null>(null);
