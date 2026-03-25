@@ -134,8 +134,9 @@ const ConversationTab = memo(function ConversationTab({
 function WsCard({ ws, onSelect }: { ws: Workspace; onSelect: (id: number) => void }) {
   const isOpencode = ws.workspace_type === "opencode";
   const isSandbox = ws.workspace_type === "sandbox";
-  const accentColor = isOpencode ? "#6B46C1" : isSandbox ? "#00CC99" : ws.color || "#00A3C4";
-  const badge = isOpencode ? "DEV" : isSandbox ? "TEST" : null;
+  const isSkillStudio = ws.workspace_type === "skill_studio";
+  const accentColor = isOpencode ? "#6B46C1" : isSandbox ? "#00CC99" : isSkillStudio ? "#00D1FF" : ws.color || "#00A3C4";
+  const badge = isOpencode ? "DEV" : isSandbox ? "TEST" : isSkillStudio ? "SKILL" : null;
 
   return (
     <button
@@ -175,13 +176,13 @@ function WorkspacePicker({
   onSelect: (wsId: number | null) => void;
   onClose: () => void;
 }) {
-  // 系统内置：仅 opencode / sandbox 类型
+  // 系统内置：仅 opencode / sandbox / skill_studio 类型
   const systemWs = workspaces.filter(
-    (w) => w.workspace_type === "opencode" || w.workspace_type === "sandbox"
+    (w) => w.workspace_type === "opencode" || w.workspace_type === "sandbox" || w.workspace_type === "skill_studio"
   );
   // 其余按 category 分组
   const others = workspaces.filter(
-    (w) => w.workspace_type !== "opencode" && w.workspace_type !== "sandbox"
+    (w) => w.workspace_type !== "opencode" && w.workspace_type !== "sandbox" && w.workspace_type !== "skill_studio"
   );
   const categoryMap = new Map<string, Workspace[]>();
   for (const ws of others) {
