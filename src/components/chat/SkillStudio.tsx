@@ -121,6 +121,7 @@ function PromptEditor({
   skill,
   isNew,
   prompt,
+  externalName,
   onPromptChange,
   onSaved,
   onAiOptimize,
@@ -129,6 +130,7 @@ function PromptEditor({
   skill: SkillDetail | null;
   isNew: boolean;
   prompt: string;
+  externalName?: string | null;
   onPromptChange: (p: string) => void;
   onSaved: (skill: SkillDetail) => void;
   onAiOptimize: () => void;
@@ -166,6 +168,11 @@ function PromptEditor({
     if (isNew) { setName(""); setDescription(""); setVersions([]); onPromptChange(""); }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isNew]);
+
+  // Sync name from AI suggestion
+  useEffect(() => {
+    if (externalName) setName(externalName);
+  }, [externalName]);
 
   async function handleSave() {
     if (!name.trim() || !prompt.trim()) { setSaveMsg("名称和 Prompt 不能为空"); return; }
@@ -214,7 +221,7 @@ function PromptEditor({
   }
 
   return (
-    <div className="flex-1 flex flex-col bg-white overflow-hidden min-w-0">
+    <div className="flex-1 flex flex-col bg-white overflow-hidden min-w-0 w-0 flex-[1]">
       {isReadOnly && (
         <div className="px-4 py-2 bg-amber-50 border-b-2 border-amber-300 flex items-center gap-3 flex-shrink-0">
           <span className="text-[9px] font-bold uppercase tracking-widest text-amber-600">已发布（只读）</span>
@@ -295,15 +302,19 @@ function PromptEditor({
 function RightPanel({
   skillId,
   skillName,
+  isNew,
   triggerAiMode,
   onAdoptPrompt,
   onAdoptVersion,
+  onAutoCreated,
 }: {
   skillId: number | null;
   skillName: string;
-  triggerAiMode: number;   // increment to switch to AI mode
-  onAdoptPrompt: (newPrompt: string) => void;
+  isNew: boolean;
+  triggerAiMode: number;
+  onAdoptPrompt: (newPrompt: string, name?: string) => void;
   onAdoptVersion: () => void;
+  onAutoCreated: (skill: SkillDetail) => void;
 }) {
   const [mode, setMode] = useState<RightMode>("test");
 
@@ -320,6 +331,12 @@ function RightPanel({
   const [aiInput, setAiInput] = useState("");
   const [aiRunning, setAiRunning] = useState(false);
   const [pendingPrompt, setPendingPrompt] = useState<string | null>(null);
+  const [pendingName, setPendingName] = useState<string | null>(null);
+
+  // Switch to AI mode on mount if new, or when triggered externally
+  useEffect(() => {
+    if (isNew) setMode("ai");
+  }, [isNew]);
 
   // Switch to AI mode when triggered externally
   useEffect(() => {
@@ -393,35 +410,69 @@ function RightPanel({
   }
 
   async function handleAiOptimize() {
-    if (!aiInput.trim() || aiRunning || !skillId) return;
+    if (!aiInput.trim() || aiRunning) return;
     const instruction = aiInput.trim();
     setAiInput("");
     setAiMessages((prev) => [...prev, { role: "user", text: instruction }]);
     setAiRunning(true); setPendingPrompt(null);
+
     try {
-      const result = await apiFetch<{ proposed: { system_prompt?: string; change_note?: string }; diff_summary?: string }>(
-        `/skills/${skillId}/edit-with-ai`, { method: "POST", body: JSON.stringify({ instruction }) }
+      // 新建模式：先用描述创建一个草稿 skill，再 AI 优化
+      let targetId = skillId;
+      if (!targetId) {
+        setAiMessages((prev) => [...prev, { role: "assistant", text: "正在创建草稿 Skill...", loading: true }]);
+        const created = await apiFetch<SkillDetail>("/skills", {
+          method: "POST",
+          body: JSON.stringify({
+            name: "草稿",
+            description: instruction.slice(0, 100),
+            system_prompt: instruction,
+            mode: "hybrid",
+            variables: [],
+            auto_inject: true,
+          }),
+        });
+        targetId = created.id;
+        onAutoCreated(created);
+        setAiMessages((prev) => prev.map((m, i) =>
+          i === prev.length - 1 ? { ...m, text: "草稿已创建，AI 正在生成 Prompt...", loading: true } : m
+        ));
+      }
+
+      const result = await apiFetch<{ proposed: { system_prompt?: string; name?: string; change_note?: string }; diff_summary?: string }>(
+        `/skills/${targetId}/edit-with-ai`, { method: "POST", body: JSON.stringify({ instruction }) }
       );
       const newPrompt = result.proposed?.system_prompt ?? "";
-      const note = result.proposed?.change_note ?? result.diff_summary ?? "AI 优化";
-      setAiMessages((prev) => [...prev, { role: "assistant", text: `**修改说明：** ${note}\n\n**新 Prompt 预览：**\n\n${newPrompt}` }]);
+      const suggestedName = result.proposed?.name;
+      const note = result.proposed?.change_note ?? result.diff_summary ?? "AI 生成";
+
+      setAiMessages((prev) => {
+        // 替换掉 loading 的临时消息
+        const filtered = prev.filter((m) => !m.loading);
+        return [...filtered, { role: "assistant", text: `**${note}**\n\n${newPrompt}` }];
+      });
       setPendingPrompt(newPrompt);
+      setPendingName(suggestedName ?? null);
     } catch (err) {
-      setAiMessages((prev) => [...prev, { role: "assistant", text: `优化失败：${err instanceof Error ? err.message : "未知错误"}` }]);
+      setAiMessages((prev) => {
+        const filtered = prev.filter((m) => !m.loading);
+        return [...filtered, { role: "assistant", text: `生成失败：${err instanceof Error ? err.message : "未知错误"}` }];
+      });
     } finally { setAiRunning(false); }
   }
 
   function handleAdoptAiEdit() {
     if (!pendingPrompt) return;
-    onAdoptPrompt(pendingPrompt);
+    onAdoptPrompt(pendingPrompt, pendingName ?? undefined);
     setPendingPrompt(null);
+    setPendingName(null);
     setAiMessages((prev) => [...prev, { role: "assistant", text: "✓ 修改已采纳到编辑器" }]);
   }
 
   const msgs = mode === "test" ? testMessages : aiMessages;
 
   return (
-    <div className="flex flex-col w-80 flex-shrink-0 border-l-2 border-[#1A202C] bg-white">
+    <div className="flex flex-col flex-[1] min-w-0 border-l-2 border-[#1A202C] bg-white">
       {/* Mode tabs */}
       <div className="flex border-b-2 border-[#1A202C] flex-shrink-0">
         {(["test", "ai"] as RightMode[]).map((m) => (
@@ -454,7 +505,7 @@ function RightPanel({
             <p className="text-[9px] text-gray-400 font-bold uppercase text-center">
               {mode === "test"
                 ? (skillId ? "输入消息测试当前 Skill" : "请先选择或保存一个 Skill")
-                : (skillId ? "告诉 AI 你想如何修改 Prompt" : "请先选择一个 Skill")}
+                : "描述你想要什么样的 Skill，AI 帮你生成"}
             </p>
           </div>
         )}
@@ -486,9 +537,9 @@ function RightPanel({
             placeholder={
               mode === "test"
                 ? (skillId ? "输入测试消息..." : "请先选择 Skill")
-                : (skillId ? "例：把语气改得更简洁" : "请先选择 Skill")
+                : "描述你想要的 Skill，或告诉 AI 如何修改..."
             }
-            disabled={!skillId || (mode === "test" ? testing : aiRunning)}
+            disabled={mode === "test" ? (!skillId || testing) : aiRunning}
             className="flex-1 border-2 border-[#1A202C] px-2 py-1.5 text-[9px] font-mono focus:outline-none focus:border-[#00D1FF] disabled:opacity-50"
             onKeyDown={(e) => {
               if (e.key === "Enter") {
@@ -499,7 +550,7 @@ function RightPanel({
           />
           <PixelButton size="sm"
             onClick={mode === "test" ? handleTest : handleAiOptimize}
-            disabled={!skillId || (mode === "test" ? (testing || !testInput.trim()) : (aiRunning || !aiInput.trim()))}>
+            disabled={mode === "test" ? (!skillId || testing || !testInput.trim()) : (aiRunning || !aiInput.trim())}>
             {(mode === "test" ? testing : aiRunning) ? "..." : "发送"}
           </PixelButton>
         </div>
@@ -521,6 +572,7 @@ export function SkillStudio() {
 
   // Shared prompt state: lifted to page so both editor and right panel can read/write
   const [prompt, setPrompt] = useState("");
+  const [externalName, setExternalName] = useState<string | null>(null);
 
   // Trigger AI mode in right panel by incrementing this counter
   const [triggerAiMode, setTriggerAiMode] = useState(0);
@@ -606,6 +658,7 @@ export function SkillStudio() {
           skill={selectedSkill}
           isNew={isNew}
           prompt={prompt}
+          externalName={externalName}
           onPromptChange={setPrompt}
           onSaved={handleSaved}
           onAiOptimize={() => setTriggerAiMode((n) => n + 1)}
@@ -615,9 +668,18 @@ export function SkillStudio() {
         <RightPanel
           skillId={selectedSkill?.id ?? null}
           skillName={selectedSkill?.name ?? ""}
+          isNew={isNew}
           triggerAiMode={triggerAiMode}
-          onAdoptPrompt={(newPrompt) => setPrompt(newPrompt)}
+          onAdoptPrompt={(newPrompt, name) => {
+            setPrompt(newPrompt);
+            if (name) setExternalName(name);
+          }}
           onAdoptVersion={handleAdoptVersion}
+          onAutoCreated={(skill) => {
+            setSelectedSkill(skill);
+            setIsNew(false);
+            fetchSkills();
+          }}
         />
       </div>
     </div>
