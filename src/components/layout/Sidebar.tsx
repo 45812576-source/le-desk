@@ -23,6 +23,7 @@ const LUCIDE_ICONS: Record<string, React.ElementType> = {
   "/dev-studio":              Code2,
   "/knowledge":               BookOpen,
   "/skills":                  Zap,
+  "/skill-studio":            Zap,
   "/data":                    Table2,
   "/intel":                   Rss,
   "/admin/knowledge":         ClipboardCheck,
@@ -275,6 +276,7 @@ export function Sidebar({ user, taskPending = 0, onLogout }: SidebarProps) {
           <NavGroup label="知识管理" storageKey="nav_group_knowledge" collapsed={collapsed} isLab={isLab}>
             <NavItem href="/knowledge" label="我的知识" icon={ICONS.knowledgeMy} {...navItemProps} />
             <NavItem href="/skills" label="Skills & Tools" icon={ICONS.skills} {...navItemProps} />
+            <NavItem href="/skill-studio" label="Skill Studio" icon={ICONS.skills} {...navItemProps} />
             <NavItem href="/app-market" label="应用市场" icon={ICONS.skills} {...navItemProps} />
             <NavItem href="/data" label="数据表" icon={ICONS.data} {...navItemProps} />
             <NavItem href="/intel" label="行业情报" icon={ICONS.intel} {...navItemProps} />
