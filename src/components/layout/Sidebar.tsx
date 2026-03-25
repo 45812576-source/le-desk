@@ -9,7 +9,7 @@ import {
   MessageSquare, FolderKanban, CheckSquare, Code2,
   BookOpen, Zap, Table2, Rss,
   ClipboardCheck, ShieldCheck, LayoutDashboard,
-  Bot, Wrench, Store, Key, Globe2,
+  Bot, Wrench, Store, Key, Globe2, AppWindow,
   ShieldAlert, Lock, EyeOff, FileJson,
   BarChart2, ScrollText, Users,
   Settings, LogOut, ChevronDown, ChevronRight,
@@ -33,6 +33,7 @@ const LUCIDE_ICONS: Record<string, React.ElementType> = {
   "/admin/model-grants":      Lock,
   "/admin/tools":             Wrench,
   "/admin/skill-market":      Store,
+  "/app-market":              AppWindow,
   "/admin/mcp-tokens":        Key,
   "/admin/intel":             Globe2,
   "/admin/approvals":         ShieldCheck,
@@ -274,6 +275,7 @@ export function Sidebar({ user, taskPending = 0, onLogout }: SidebarProps) {
           <NavGroup label="知识管理" storageKey="nav_group_knowledge" collapsed={collapsed} isLab={isLab}>
             <NavItem href="/knowledge" label="我的知识" icon={ICONS.knowledgeMy} {...navItemProps} />
             <NavItem href="/skills" label="Skills & Tools" icon={ICONS.skills} {...navItemProps} />
+            <NavItem href="/app-market" label="应用市场" icon={ICONS.skills} {...navItemProps} />
             <NavItem href="/data" label="数据表" icon={ICONS.data} {...navItemProps} />
             <NavItem href="/intel" label="行业情报" icon={ICONS.intel} {...navItemProps} />
           </NavGroup>

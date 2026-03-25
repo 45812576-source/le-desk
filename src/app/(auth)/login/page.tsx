@@ -27,6 +27,7 @@ export default function LoginPage() {
       }
       const data = await res.json();
       localStorage.setItem("token", data.access_token);
+      if (data.user) localStorage.setItem("cached_user", JSON.stringify(data.user));
       router.replace("/chat");
     } catch {
       setError("网络错误，请重试");

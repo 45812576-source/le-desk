@@ -1,7 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import Link from "next/link";
 import { useRouter, usePathname } from "next/navigation";
 import { apiFetch } from "@/lib/api";
 import { useChatStore } from "@/lib/chat-store";
@@ -28,19 +29,17 @@ function getTabColor(index: number) {
 
 // ─── Editable tab ─────────────────────────────────────────────────────────
 
-function ConversationTab({
+const ConversationTab = memo(function ConversationTab({
   conv,
   index,
   isActive,
-  onNavigate,
   onDelete,
   onRename,
 }: {
   conv: Conversation;
   index: number;
   isActive: boolean;
-  onNavigate: () => void;
-  onDelete: (e: React.MouseEvent) => void;
+  onDelete: (id: number, e: React.MouseEvent) => void;
   onRename: (id: number, title: string) => void;
 }) {
   const [editing, setEditing] = useState(false);
@@ -78,11 +77,11 @@ function ConversationTab({
   }
 
   return (
-    <div
+    <Link
+      href={`/chat/${conv.id}`}
       data-conv-id={conv.id}
-      onClick={onNavigate}
       onDoubleClick={(e) => {
-        e.stopPropagation();
+        e.preventDefault();
         if (!isOpencode) startEditing();
       }}
       className="group relative flex items-center gap-1.5 px-3 py-1.5 text-[10px] font-bold tracking-wide transition-all flex-shrink-0 max-w-[200px] cursor-pointer"
@@ -119,18 +118,53 @@ function ConversationTab({
       )}
       {!editing && !isOpencode && (
         <span
-          onClick={onDelete}
+          onClick={(e) => { e.preventDefault(); onDelete(conv.id, e); }}
           className="ml-1 opacity-0 group-hover:opacity-100 text-[8px] hover:text-red-500 transition-opacity flex-shrink-0 cursor-pointer"
           title="删除"
         >
           x
         </span>
       )}
-    </div>
+    </Link>
   );
-}
+});
 
 // ─── Workspace picker modal ────────────────────────────────────────────────
+
+function WsCard({ ws, onSelect }: { ws: Workspace; onSelect: (id: number) => void }) {
+  const isOpencode = ws.workspace_type === "opencode";
+  const isSandbox = ws.workspace_type === "sandbox";
+  const accentColor = isOpencode ? "#6B46C1" : isSandbox ? "#00CC99" : ws.color || "#00A3C4";
+  const badge = isOpencode ? "DEV" : isSandbox ? "TEST" : null;
+
+  return (
+    <button
+      onClick={() => onSelect(ws.id)}
+      className="w-full text-left px-3 py-2.5 border-2 hover:bg-[#CCF2FF] transition-colors flex items-center gap-2.5 min-w-0"
+      style={{ borderColor: accentColor }}
+    >
+      <div
+        className="w-6 h-6 flex-shrink-0 flex items-center justify-center text-[9px] font-bold text-white"
+        style={{ backgroundColor: accentColor }}
+      >
+        {ws.name[0]}
+      </div>
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-1.5">
+          <span className="text-[10px] font-bold uppercase tracking-wide truncate">{ws.name}</span>
+          {badge && (
+            <span className="text-[7px] font-bold px-1 border flex-shrink-0" style={{ borderColor: accentColor, color: accentColor }}>
+              {badge}
+            </span>
+          )}
+        </div>
+        {ws.description && (
+          <div className="text-[8px] text-gray-400 truncate">{ws.description}</div>
+        )}
+      </div>
+    </button>
+  );
+}
 
 function WorkspacePicker({
   workspaces,
@@ -141,89 +175,66 @@ function WorkspacePicker({
   onSelect: (wsId: number | null) => void;
   onClose: () => void;
 }) {
+  // 系统内置：仅 opencode / sandbox 类型
+  const systemWs = workspaces.filter(
+    (w) => w.workspace_type === "opencode" || w.workspace_type === "sandbox"
+  );
+  // 其余按 category 分组
+  const others = workspaces.filter(
+    (w) => w.workspace_type !== "opencode" && w.workspace_type !== "sandbox"
+  );
+  const categoryMap = new Map<string, Workspace[]>();
+  for (const ws of others) {
+    const cat = ws.category || "其他";
+    if (!categoryMap.has(cat)) categoryMap.set(cat, []);
+    categoryMap.get(cat)!.push(ws);
+  }
+
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/30"
       onClick={onClose}
     >
       <div
-        className="bg-white pixel-border p-5 w-[400px] max-h-[70vh] flex flex-col"
+        className="bg-white border-2 border-[#1A202C] p-5 w-[680px] max-h-[78vh] flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-[10px] font-bold uppercase tracking-widest text-[#1A202C]">
-            选择工作台
-          </h2>
-          <button
-            onClick={onClose}
-            className="text-[10px] font-bold text-gray-400 hover:text-[#1A202C]"
-          >
-            x
-          </button>
+          <h2 className="text-[10px] font-bold uppercase tracking-widest text-[#1A202C]">选择工作台</h2>
+          <button onClick={onClose} className="text-[10px] font-bold text-gray-400 hover:text-[#1A202C]">✕</button>
         </div>
 
-        <div className="flex-1 overflow-y-auto space-y-2">
-          {/* Default: no workspace */}
-          <button
-            onClick={() => onSelect(null)}
-            className="w-full text-left px-3 py-2.5 border-2 border-[#1A202C] hover:bg-[#CCF2FF] transition-colors flex items-center gap-3"
-          >
-            <div
-              className="w-7 h-7 flex-shrink-0 border-2 border-[#1A202C] flex items-center justify-center"
-              style={{ backgroundColor: "#F0F4F8" }}
-            >
-              <span className="text-[10px] font-bold">?</span>
-            </div>
-            <div>
-              <div className="text-[10px] font-bold uppercase tracking-wide">
-                自由对话
-              </div>
-              <div className="text-[9px] text-gray-400">
-                不绑定工作台，通用对话
-              </div>
-            </div>
-          </button>
-
-          {workspaces.map((ws) => {
-            const isOpencode = ws.workspace_type === "opencode";
-            return (
+        <div className="flex-1 overflow-y-auto space-y-4">
+          {/* 系统内置 */}
+          <div>
+            <div className="text-[8px] font-bold uppercase tracking-widest text-gray-400 mb-1.5 px-0.5">系统内置</div>
+            <div className="grid grid-cols-2 gap-2">
+              {/* 自由对话始终第一 */}
               <button
-                key={ws.id}
-                onClick={() => onSelect(ws.id)}
-                className={`w-full text-left px-3 py-2.5 border-2 transition-colors flex items-center gap-3 ${
-                  isOpencode
-                    ? "border-[#6B46C1] hover:bg-[#6B46C1]/10"
-                    : "border-[#1A202C] hover:bg-[#CCF2FF]"
-                }`}
+                onClick={() => onSelect(null)}
+                className="text-left px-3 py-2.5 border-2 border-[#1A202C] hover:bg-[#CCF2FF] transition-colors flex items-center gap-2.5"
               >
-                <div
-                  className="w-7 h-7 flex-shrink-0 border-2 border-[#1A202C] flex items-center justify-center"
-                  style={{ backgroundColor: ws.color }}
-                >
-                  <span className="text-[10px] font-bold text-white">
-                    {ws.icon?.slice(0, 2).toUpperCase() || ws.name[0]}
-                  </span>
+                <div className="w-6 h-6 flex-shrink-0 flex items-center justify-center text-[9px] font-bold bg-[#E2E8F0] border border-[#1A202C]">
+                  ∞
                 </div>
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2">
-                    <div className="text-[10px] font-bold uppercase tracking-wide truncate">
-                      {ws.name}
-                    </div>
-                    {isOpencode && (
-                      <span className="text-[8px] font-bold px-1 border border-[#6B46C1] text-[#6B46C1] flex-shrink-0">
-                        DEV
-                      </span>
-                    )}
-                  </div>
-                  {ws.description && (
-                    <div className="text-[9px] text-gray-400 truncate">
-                      {ws.description}
-                    </div>
-                  )}
+                <div>
+                  <div className="text-[10px] font-bold uppercase tracking-wide">自由对话</div>
+                  <div className="text-[8px] text-gray-400">不绑定工作台</div>
                 </div>
               </button>
-            );
-          })}
+              {systemWs.map((ws) => <WsCard key={ws.id} ws={ws} onSelect={onSelect} />)}
+            </div>
+          </div>
+
+          {/* 按 category 分组 */}
+          {Array.from(categoryMap.entries()).map(([cat, list]) => (
+            <div key={cat}>
+              <div className="text-[8px] font-bold uppercase tracking-widest text-gray-400 mb-1.5 px-0.5">{cat}</div>
+              <div className="grid grid-cols-2 gap-2">
+                {list.map((ws) => <WsCard key={ws.id} ws={ws} onSelect={onSelect} />)}
+              </div>
+            </div>
+          ))}
 
           {workspaces.length === 0 && (
             <div className="py-6 text-center text-[9px] text-gray-400 font-bold uppercase tracking-widest">
@@ -243,8 +254,9 @@ export default function ChatLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const [conversations, setConversations] = useState<Conversation[]>([]);
-  const [loading, setLoading] = useState(true);
+  // Read from store (pre-populated by AppShell prefetch)
+  const storeConversations = useChatStore((s) => s.conversations);
+  const [conversations, setConversations] = useState<Conversation[]>(storeConversations);
   const [showPicker, setShowPicker] = useState(false);
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [creating, setCreating] = useState(false);
@@ -256,20 +268,20 @@ export default function ChatLayout({
 
   const activeId = pathname.match(/^\/chat\/(\d+)/)?.[1];
 
+  // Keep local state in sync with store
+  useEffect(() => {
+    setConversations(storeConversations);
+  }, [storeConversations]);
+
   const fetchConversations = useCallback(async () => {
     try {
       const data = await apiFetch<Conversation[]>("/conversations");
       setConversations(data);
+      useChatStore.setState({ conversations: data });
     } catch {
       // ignore
-    } finally {
-      setLoading(false);
     }
   }, []);
-
-  useEffect(() => {
-    fetchConversations();
-  }, [fetchConversations]);
 
   // Scroll active tab into view
   useEffect(() => {
@@ -313,7 +325,7 @@ export default function ChatLayout({
     }
   }
 
-  async function handleDelete(id: number, e: React.MouseEvent) {
+  const handleDelete = useCallback(async (id: number, e: React.MouseEvent) => {
     e.stopPropagation();
     try {
       await apiFetch(`/conversations/${id}`, { method: "DELETE" });
@@ -324,15 +336,14 @@ export default function ChatLayout({
     } catch {
       // ignore
     }
-  }
+  }, [activeId, router]);
 
-  function handleUpdateTitle(id: number, title: string) {
+  const handleUpdateTitle = useCallback((id: number, title: string) => {
     setConversations((prev) =>
       prev.map((c) => (c.id === id ? { ...c, title } : c))
     );
-    // Also update store + persist to backend
     useChatStore.getState().updateConvTitle(id, title);
-  }
+  }, []);
 
   return (
     <div className="h-full flex flex-col">
@@ -366,8 +377,7 @@ export default function ChatLayout({
                 conv={conv}
                 index={i}
                 isActive={activeId === String(conv.id)}
-                onNavigate={() => router.push(`/chat/${conv.id}`)}
-                onDelete={(e) => handleDelete(conv.id, e)}
+                onDelete={handleDelete}
                 onRename={handleUpdateTitle}
               />
             ))}

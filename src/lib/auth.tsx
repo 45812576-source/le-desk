@@ -23,21 +23,31 @@ interface AuthContextValue extends AuthState {
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
-export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [state, setState] = useState<AuthState>({
-    user: null,
-    token: null,
-    loading: true,
-  });
+function getCachedUser(): User | null {
+  try {
+    const s = localStorage.getItem("cached_user");
+    return s ? (JSON.parse(s) as User) : null;
+  } catch { return null; }
+}
 
-  // On mount: check localStorage for existing token, validate via /auth/me
+export function AuthProvider({ children }: { children: React.ReactNode }) {
+  // Always start with loading:true to match SSR — avoids hydration mismatch
+  const [state, setState] = useState<AuthState>({ user: null, token: null, loading: true });
+
   useEffect(() => {
     const saved = localStorage.getItem("token");
     if (!saved) {
-      Promise.resolve().then(() => setState({ user: null, token: null, loading: false }));
+      setState({ user: null, token: null, loading: false });
       return;
     }
 
+    // Apply cached user immediately so UI renders without waiting for network
+    const cached = getCachedUser();
+    if (cached) {
+      setState({ user: cached, token: saved, loading: true });
+    }
+
+    // Validate token in background
     fetch("/api/proxy/auth/me", {
       headers: { Authorization: `Bearer ${saved}` },
     })
@@ -46,10 +56,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         return res.json();
       })
       .then((user: User) => {
+        localStorage.setItem("cached_user", JSON.stringify(user));
         setState({ user, token: saved, loading: false });
       })
       .catch(() => {
         localStorage.removeItem("token");
+        localStorage.removeItem("cached_user");
         setState({ user: null, token: null, loading: false });
       });
   }, []);
@@ -68,6 +80,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     const data = await res.json();
     localStorage.setItem("token", data.access_token);
+    localStorage.setItem("cached_user", JSON.stringify(data.user));
     setState({ user: data.user, token: data.access_token, loading: false });
   }, []);
 

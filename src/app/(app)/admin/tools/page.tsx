@@ -18,54 +18,7 @@ import { PixelButton } from "@/components/pixel/PixelButton";
 import { PixelBadge } from "@/components/pixel/PixelBadge";
 import { apiFetch } from "@/lib/api";
 import type { ToolDeployInfo, ToolEntry, ToolManifest, ToolManifestDataSource } from "@/lib/types";
-import { ToolGifPreview } from "@/components/pixel/ToolGifPreview";
-
-// ─── Auto-generate test param values from JSON Schema ─────────────────────────
-type SchemaProp = { type?: string; description?: string; enum?: string[]; items?: unknown; properties?: Record<string, SchemaProp> };
-
-function inferTestValue(key: string, prop: SchemaProp): string {
-  // enum → pick first valid value
-  if (prop.enum && prop.enum.length > 0) return String(prop.enum[0]);
-
-  const desc = (prop.description ?? "").toLowerCase();
-  const k = key.toLowerCase();
-
-  if (prop.type === "integer" || prop.type === "number") {
-    if (k.includes("price") || k.includes("金额") || k.includes("price")) return "299";
-    if (k.includes("rate") || k.includes("比例") || k.includes("折扣")) return "0.85";
-    if (k.includes("count") || k.includes("数量") || k.includes("num")) return "5";
-    if (k.includes("id")) return "1";
-    return "10";
-  }
-  if (prop.type === "boolean") return "true";
-  if (prop.type === "array") return "[]";
-  if (prop.type === "object") return "{}";
-
-  // string heuristics
-  if (k.includes("title") || k.includes("标题") || k.includes("name")) return "测试标题-自动生成";
-  if (k.includes("content") || k.includes("内容") || k.includes("body") || k.includes("text")) return "这是一段自动生成的测试内容，用于验证工具是否正常运行。";
-  if (k.includes("query") || k.includes("查询") || k.includes("keyword") || k.includes("关键词")) return "员工绩效管理";
-  if (k.includes("topic") || k.includes("主题")) return "如何提升团队协作效率";
-  if (k.includes("date") || k.includes("time") || k.includes("日期")) return "2026-06-30T10:00:00";
-  if (k.includes("email") || k.includes("邮件")) return "test@example.com";
-  if (k.includes("url") || k.includes("链接")) return "https://example.com";
-  if (k.includes("scope") || k.includes("范围")) return desc.includes("required") ? "all" : "";
-  if (k.includes("purpose") || k.includes("用途") || k.includes("goal")) return "自动化测试验证工具基本功能";
-  if (k.includes("description") || k.includes("描述") || k.includes("说明") || k.includes("summary")) return "自动测试生成的描述信息";
-  if (k.includes("context") || k.includes("上下文")) return "用户询问关于公司政策的问题";
-
-  // fallback
-  return "测试值";
-}
-
-function generateTestParams(schema: { properties?: Record<string, SchemaProp>; required?: string[] } | null): Record<string, string> {
-  if (!schema?.properties) return {};
-  const result: Record<string, string> = {};
-  for (const [key, prop] of Object.entries(schema.properties)) {
-    result[key] = inferTestValue(key, prop);
-  }
-  return result;
-}
+import { SandboxTestModal } from "@/components/skill/SandboxTestModal";
 
 const SCOPE_OPTIONS = [
   { value: "personal", label: "个人" },
@@ -216,7 +169,7 @@ export default function AdminToolsPage() {
         method: "PATCH",
         body: JSON.stringify({ status: "published", scope: "company" }),
       });
-      setMcpSubmitSuccess(`「${mcpGenerated.display_name ?? mcpZipResult.name}」已提交审批`);
+      setMcpSubmitSuccess(`「${mcpGenerated.display_name ?? mcpZipResult.name}」已提交发布审批`);
       fetchTools();
     } catch (err) {
       setMcpSubmitError(err instanceof Error ? err.message : String(err));
@@ -532,13 +485,6 @@ export default function AdminToolsPage() {
 // ─── Tool Card ────────────────────────────────────────────────────────────────
 interface SkillOption { id: number; name: string; }
 
-interface TestRun {
-  ok: boolean;
-  result?: unknown;
-  error?: string;
-  duration_ms?: number;
-  phases?: string[];
-}
 
 function ToolCard({
   tool: t,
@@ -550,13 +496,8 @@ function ToolCard({
   onDelete: (id: number) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
-  const [gifOpen, setGifOpen] = useState(false);
-  const [testParams, setTestParams] = useState<Record<string, string>>({});
-  const [testing, setTesting] = useState(false);
-  const [testRun, setTestRun] = useState<TestRun | null>(null);
-  const [popoverPos, setPopoverPos] = useState<{ top: number; left: number } | null>(null);
-  const testBtnRef = useRef<HTMLButtonElement>(null);
   const [filesOpen, setFilesOpen] = useState(false);
+  const [showSandbox, setShowSandbox] = useState(false);
   const [bindOpen, setBindOpen] = useState(false);
   const [boundSkills, setBoundSkills] = useState<SkillOption[]>([]);
   const [allSkills, setAllSkills] = useState<SkillOption[]>([]);
@@ -571,52 +512,11 @@ function ToolCard({
       purpose: "",
       env_requirements: "",
       permissions: manifest?.permissions ?? [],
-      tested: false,
-      test_note: "",
+
       extra_note: manifest?.preconditions?.join("\n") ?? "",
     };
   });
   const typeColor = TYPE_COLOR[t.tool_type ?? ""] ?? "gray";
-
-  // Close test popover on outside click — kept for GIF popover (handled inside ToolGifPreview)
-
-  function openGifPreview() {
-    if (gifOpen) { setGifOpen(false); return; }
-
-    // Position popover below/above the button
-    if (testBtnRef.current) {
-      const rect = testBtnRef.current.getBoundingClientRect();
-      const spaceBelow = window.innerHeight - rect.bottom;
-      const popoverH = 300;
-      const top = spaceBelow > popoverH
-        ? rect.bottom + 6
-        : rect.top - popoverH - 6;
-      const left = Math.min(rect.left, window.innerWidth - 352);
-      setPopoverPos({ top: top + window.scrollY, left });
-    }
-
-    setGifOpen(true);
-
-    // Run test in background if not done yet
-    if (testRun !== null || testing) return;
-
-    const params = generateTestParams(schema);
-    setTestParams(params);
-    setTesting(true);
-    const coerced: Record<string, unknown> = {};
-    for (const [k, v] of Object.entries(params)) {
-      const propType = schemaProps[k]?.type;
-      if (v === "") continue;
-      if (propType === "integer" || propType === "number") coerced[k] = Number(v);
-      else if (propType === "boolean") coerced[k] = v === "true";
-      else if (propType === "array" || propType === "object") { try { coerced[k] = JSON.parse(v); } catch { coerced[k] = v; } }
-      else coerced[k] = v;
-    }
-    apiFetch<TestRun>(`/tools/${t.id}/test`, { method: "POST", body: JSON.stringify({ params: coerced }) })
-      .then(r => setTestRun(r))
-      .catch(err => setTestRun({ ok: false, error: err instanceof Error ? err.message : String(err) }))
-      .finally(() => setTesting(false));
-  }
 
   async function openBindPanel() {
     if (bindOpen) { setBindOpen(false); return; }
@@ -673,12 +573,6 @@ function ToolCard({
   }
 
   const unboundSkills = allSkills.filter((s) => !boundSkills.some((b) => b.id === s.id));
-
-  // ── test ──
-  const schema = t.input_schema as { properties?: Record<string, { type?: string; description?: string }>; required?: string[] } | null;
-  const schemaProps = schema?.properties ?? {};
-  const schemaRequired = schema?.required ?? [];
-
 
   // Count input params
   const paramCount = t.input_schema
@@ -751,14 +645,8 @@ function ToolCard({
 
       {/* Card actions */}
       <div className="px-4 py-2.5 border-t border-gray-100 flex items-center gap-1.5 bg-[#FAFCFD] relative">
-        <PixelButton ref={testBtnRef} size="sm" variant={gifOpen ? "primary" : "secondary"} onClick={openGifPreview}>
-          {testing && !gifOpen ? "运行中..." : "预览效果"}
-        </PixelButton>
         {(t.config?.manifest?.data_sources?.length ?? 0) > 0 && (
-          <PixelButton size="sm" variant={filesOpen ? "primary" : "secondary"} onClick={() => {
-            setFilesOpen(v => !v);
-            setGifOpen(false);
-          }}>
+          <PixelButton size="sm" variant={filesOpen ? "primary" : "secondary"} onClick={() => setFilesOpen(v => !v)}>
             前置文件
           </PixelButton>
         )}
@@ -771,8 +659,8 @@ function ToolCard({
         {(t.status === "draft" || !t.status) && (
           <PixelButton
             size="sm"
-            variant={publishOpen ? "primary" : "secondary"}
-            onClick={() => setPublishOpen((v) => !v)}
+            variant="secondary"
+            onClick={() => setShowSandbox(true)}
           >
             申请发布
           </PixelButton>
@@ -791,17 +679,15 @@ function ToolCard({
         </button>
       </div>
 
-      {/* GIF Preview popover */}
-      {gifOpen && popoverPos && (
-        <ToolGifPreview
-          toolId={t.id}
-          toolName={t.display_name}
-          toolType={t.tool_type}
-          inputSchema={t.input_schema as Record<string, unknown> | null}
-          testParams={testParams}
-          testResult={testRun}
-          onClose={() => setGifOpen(false)}
-          anchorPos={popoverPos}
+      {/* Sandbox test modal */}
+      {showSandbox && (
+        <SandboxTestModal
+          type="tool"
+          id={t.id}
+          name={t.display_name}
+          onPassed={() => { setShowSandbox(false); setPublishOpen(true); }}
+          onCancel={() => setShowSandbox(false)}
+          passedLabel="✓ 通过，继续发布"
         />
       )}
 
@@ -994,29 +880,6 @@ function ToolCard({
               className="w-full border-2 border-[#1A202C] px-2 py-1.5 text-[9px] focus:outline-none focus:border-[#00CC99]"
             />
           </div>
-
-          {/* 测试确认 */}
-          <div className="flex items-start gap-2">
-            <input
-              type="checkbox"
-              id={`tested-${t.id}`}
-              checked={deployInfo.tested ?? false}
-              onChange={(e) => setDeployInfo((d) => ({ ...d, tested: e.target.checked }))}
-              className="mt-0.5 w-3.5 h-3.5 border-2 border-[#1A202C] accent-[#00CC99]"
-            />
-            <label htmlFor={`tested-${t.id}`} className="text-[8px] font-bold text-gray-600 cursor-pointer">
-              已在本地测试通过，工具输出符合预期
-            </label>
-          </div>
-          {deployInfo.tested && (
-            <input
-              type="text"
-              value={deployInfo.test_note ?? ""}
-              onChange={(e) => setDeployInfo((d) => ({ ...d, test_note: e.target.value }))}
-              placeholder="测试备注（可选）：测试了哪些 case，结果如何"
-              className="w-full border-2 border-gray-300 px-2 py-1.5 text-[9px] focus:outline-none focus:border-[#00CC99]"
-            />
-          )}
 
           {/* 其他说明 */}
           <div>

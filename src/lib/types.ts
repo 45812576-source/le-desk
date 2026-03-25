@@ -102,7 +102,7 @@ export interface Workspace {
   visibility: string;
   welcome_message: string;
   sort_order: number;
-  workspace_type?: "chat" | "opencode";
+  workspace_type?: "chat" | "opencode" | "sandbox";
 }
 
 export interface TaskItem {
@@ -165,6 +165,7 @@ export interface SkillDetail {
   source_type?: "local" | "imported" | "forked";
   system_prompt?: string;
   source_files?: { filename: string; path: string; size: number }[];
+  rejection_comment?: string | null;
 }
 
 export interface SkillVersion {

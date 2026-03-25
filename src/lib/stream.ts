@@ -38,6 +38,7 @@ export interface StreamChatOptions {
   activeSkillIds?: number[];
   toolId?: number;
   multiFiles?: Record<string, File>;
+  forceSkillId?: number;
 }
 
 const API_BASE = "/api/proxy";
@@ -53,6 +54,7 @@ export async function* streamChat(
   const body: Record<string, unknown> = { content };
   if (options?.activeSkillIds) body.active_skill_ids = options.activeSkillIds;
   if (options?.toolId) body.tool_id = options.toolId;
+  if (options?.forceSkillId) body.force_skill_id = options.forceSkillId;
 
   const resp = await fetch(
     `${API_BASE}/conversations/${convId}/messages/stream`,

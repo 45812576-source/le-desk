@@ -1,13 +1,27 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { AuthProvider, useAuth } from "@/lib/auth";
+import { useChatStore } from "@/lib/chat-store";
+import { apiFetch } from "@/lib/api";
 
 function AppShell({ children }: { children: React.ReactNode }) {
   const { user, loading, logout } = useAuth();
   const router = useRouter();
+  const prefetchedRef = useRef(false);
+
+  // Prefetch conversations immediately on mount — don't wait for auth to settle
+  useEffect(() => {
+    if (prefetchedRef.current) return;
+    prefetchedRef.current = true;
+    const token = localStorage.getItem("token");
+    if (!token) return;
+    apiFetch("/conversations").then((data) => {
+      useChatStore.setState({ conversations: data as never });
+    }).catch(() => {});
+  }, []);
 
   useEffect(() => {
     if (!loading && !user) {
@@ -15,7 +29,8 @@ function AppShell({ children }: { children: React.ReactNode }) {
     }
   }, [loading, user, router]);
 
-  if (loading) {
+  // No user at all (no cache, no token) → show loading briefly
+  if (loading && !user) {
     return (
       <div className="flex h-screen items-center justify-center bg-background">
         <div className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground animate-pulse">
