@@ -1006,8 +1006,8 @@ export default function SkillsPage() {
       <PixelButton variant="secondary" onClick={() => setShowNewSkillForm((v) => !v)}>
         {showNewSkillForm ? "取消" : "+ 手动新建"}
       </PixelButton>
-      <PixelButton onClick={() => { window.location.href = "/dev-studio"; }}>
-        + 工作台新建
+      <PixelButton onClick={() => { window.location.href = "/skill-studio"; }}>
+        + Skill Studio
       </PixelButton>
     </div>
   );
