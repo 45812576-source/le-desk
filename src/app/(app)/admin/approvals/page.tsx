@@ -9,6 +9,7 @@ import { PixelBadge } from "@/components/pixel/PixelBadge";
 import { PixelSelect } from "@/components/pixel/PixelSelect";
 import { apiFetch } from "@/lib/api";
 import type { ToolApprovalDetail } from "@/lib/types";
+import { SandboxTestModal } from "@/components/skill/SandboxTestModal";
 
 interface ApprovalAction {
   id: number;
@@ -28,12 +29,19 @@ interface SkillDetail {
   change_note: string;
 }
 
+interface WebAppApprovalDetail {
+  name: string;
+  description: string;
+  is_public: boolean;
+  preview_url: string;
+}
+
 interface ApprovalItem {
   id: number;
   request_type: string;
   target_id: number | null;
   target_type: string | null;
-  target_detail: SkillDetail | ToolApprovalDetail | Record<string, never>;
+  target_detail: SkillDetail | ToolApprovalDetail | WebAppApprovalDetail | Record<string, never>;
   requester_id: number;
   requester_name: string | null;
   status: string;
@@ -65,10 +73,24 @@ const STATUS_LABEL: Record<string, string> = {
 const TYPE_LABEL: Record<string, string> = {
   skill_publish: "Skill发布",
   tool_publish: "工具发布",
+  webapp_publish: "WebApp发布",
   scope_change: "权限变更",
   mask_override: "脱敏覆盖",
   schema_approval: "Schema审批",
 };
+
+function stageLabel(stage: string | null): string | null {
+  if (!stage) return null;
+  if (stage === "super_pending") return "待超管终审";
+  if (stage === "dept_pending") return "待首轮审批";
+  return stage;
+}
+
+function stageClass(stage: string | null): string {
+  return stage === "super_pending"
+    ? "border-[#6B46C1] text-[#6B46C1]"
+    : "border-[#B7791F] text-[#B7791F]";
+}
 
 export default function AdminApprovalsPage() {
   const [data, setData] = useState<ApprovalResponse>({ total: 0, page: 1, page_size: 20, items: [] });
@@ -80,6 +102,7 @@ export default function AdminApprovalsPage() {
   const [acting, setActing] = useState<number | null>(null);
   const [comment, setComment] = useState("");
   const [conditions, setConditions] = useState("");
+  const [sandboxItem, setSandboxItem] = useState<{ id: number; name: string } | null>(null);
 
   const fetchData = useCallback(() => {
     Promise.resolve().then(() => setLoading(true));
@@ -114,6 +137,16 @@ export default function AdminApprovalsPage() {
 
   return (
     <PageShell title="审批管理" icon={ICONS.approvals}>
+      {sandboxItem && (
+        <SandboxTestModal
+          type="skill"
+          id={sandboxItem.id}
+          name={sandboxItem.name}
+          onPassed={() => setSandboxItem(null)}
+          onCancel={() => setSandboxItem(null)}
+          passedLabel="✓ 测试通过，关闭"
+        />
+      )}
       {/* Filters */}
       <div className="flex items-center gap-3 mb-4 flex-wrap">
         <div className="flex gap-1">
@@ -207,10 +240,18 @@ export default function AdminApprovalsPage() {
                             <div className="mb-4 border-2 border-[#6B46C1] bg-card p-3 space-y-2">
                               <div className="flex items-center gap-2">
                                 <span className="text-[9px] font-bold uppercase tracking-widest text-[#6B46C1]">Skill 详情</span>
-                                {item.stage && (
-                                  <span className={`text-[8px] font-bold px-1.5 py-0.5 border ${item.stage === "super_pending" ? "border-[#6B46C1] text-[#6B46C1]" : "border-[#B7791F] text-[#B7791F]"}`}>
-                                    {item.stage === "super_pending" ? "等待超管审批" : "等待部门审批"}
+                                {stageLabel(item.stage) && (
+                                  <span className={`text-[8px] font-bold px-1.5 py-0.5 border ${stageClass(item.stage)}`}>
+                                    {stageLabel(item.stage)}
                                   </span>
+                                )}
+                                {item.status === "pending" && item.target_id && (
+                                  <button
+                                    onClick={(e) => { e.stopPropagation(); setSandboxItem({ id: item.target_id!, name: d.name }); }}
+                                    className="ml-auto text-[8px] font-bold uppercase tracking-widest border border-[#6B46C1] text-[#6B46C1] px-2 py-0.5 hover:bg-purple-50 transition-colors"
+                                  >
+                                    ▶ 沙盒测试
+                                  </button>
                                 )}
                               </div>
                               <div className="grid grid-cols-2 gap-2 text-xs">
@@ -246,9 +287,9 @@ export default function AdminApprovalsPage() {
                                 <span className="text-[9px] font-bold uppercase tracking-widest text-[#00CC99]">工具详情</span>
                                 <span className="text-[8px] font-mono text-gray-500">{d.tool_name}</span>
                                 {d.tool_type && <span className="text-[7px] border border-[#00CC99] text-[#00CC99] px-1.5 py-0.5 font-bold uppercase">{TYPE_LABEL_MAP[d.tool_type] ?? d.tool_type}</span>}
-                                {item.stage && (
-                                  <span className={`text-[8px] font-bold px-1.5 py-0.5 border ml-auto ${item.stage === "super_pending" ? "border-[#6B46C1] text-[#6B46C1]" : "border-[#B7791F] text-[#B7791F]"}`}>
-                                    {item.stage === "super_pending" ? "等待超管审批" : "等待部门审批"}
+                                {stageLabel(item.stage) && (
+                                  <span className={`text-[8px] font-bold px-1.5 py-0.5 border ml-auto ${stageClass(item.stage)}`}>
+                                    {stageLabel(item.stage)}
                                   </span>
                                 )}
                               </div>
@@ -315,6 +356,36 @@ export default function AdminApprovalsPage() {
                                   <div className="text-[8px] text-gray-400">开发者未填写部署说明</div>
                                 )}
                               </div>
+                            </div>
+                          );
+                        })()}
+
+                        {/* WebApp 详情 */}
+                        {item.target_type === "webapp" && item.target_detail && "preview_url" in item.target_detail && (() => {
+                          const d = item.target_detail as WebAppApprovalDetail;
+                          return (
+                            <div className="mb-4 border-2 border-[#6B46C1] bg-card p-3 space-y-2">
+                              <div className="flex items-center gap-2">
+                                <span className="text-[9px] font-bold uppercase tracking-widest text-[#6B46C1]">Web App 详情</span>
+                                {stageLabel(item.stage) && (
+                                  <span className={`text-[8px] font-bold px-1.5 py-0.5 border ${stageClass(item.stage)}`}>
+                                    {stageLabel(item.stage)}
+                                  </span>
+                                )}
+                              </div>
+                              <div className="grid grid-cols-2 gap-2 text-xs">
+                                <div><span className="text-muted-foreground">名称：</span><span className="font-bold">{d.name}</span></div>
+                                <div><span className="text-muted-foreground">可见性：</span><span className="font-bold">{d.is_public ? "公开" : "私有"}</span></div>
+                                {d.description && <div className="col-span-2"><span className="text-muted-foreground">描述：</span><span>{d.description}</span></div>}
+                              </div>
+                              <a
+                                href={d.preview_url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline-block text-[8px] font-bold uppercase tracking-widest border border-[#6B46C1] text-[#6B46C1] px-2 py-0.5 hover:bg-purple-50 transition-colors"
+                              >
+                                预览 Web App ↗
+                              </a>
                             </div>
                           );
                         })()}

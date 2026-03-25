@@ -7,11 +7,11 @@ import { ICONS, PixelIcon } from "@/components/pixel";
 import { PixelButton } from "@/components/pixel/PixelButton";
 import { PixelBadge } from "@/components/pixel/PixelBadge";
 import { useTheme } from "@/lib/theme";
-import { useAuth } from "@/lib/auth";
 import { apiFetch } from "@/lib/api";
-import type { SkillDetail, SavedSkill, ToolEntry } from "@/lib/types";
+import type { SkillDetail, ToolEntry, Department } from "@/lib/types";
+import { SandboxTestModal } from "@/components/skill/SandboxTestModal";
 
-type MainTab = "skill" | "tool";
+type MainTab = "skill" | "tool" | "webapp";
 type ScopeOption = "company" | "department" | "personal";
 
 function SkillIcon({ size }: { size: number }) {
@@ -50,6 +50,260 @@ const TOOL_TYPE_LABEL: Record<string, string> = { builtin: "内置", mcp: "MCP",
 const TOOL_TYPE_COLOR: Record<string, "cyan" | "green" | "purple" | "gray"> = {
   mcp: "cyan", builtin: "green", http: "purple",
 };
+
+// ─── Web App Card ─────────────────────────────────────────────────────────────
+interface WebAppEntry {
+  id: number;
+  name: string;
+  description: string | null;
+  share_token: string;
+  is_public: boolean;
+  created_at: string | null;
+  preview_url: string;
+  share_url: string | null;
+  status: string;
+  publish_scope?: string;
+  publish_department_ids?: number[];
+  publish_user_ids?: number[];
+}
+
+const WEBAPP_STATUS_BADGE: Record<string, { color: "cyan" | "green" | "yellow" | "gray" | "red"; label: string }> = {
+  draft: { color: "gray", label: "草稿" },
+  reviewing: { color: "yellow", label: "审核中" },
+  published: { color: "green", label: "已发布" },
+};
+
+function WebAppPublishModal({
+  appId,
+  appName,
+  onSubmitted,
+  onCancel,
+}: {
+  appId: number;
+  appName: string;
+  onSubmitted: () => void;
+  onCancel: () => void;
+}) {
+  const [scope, setScope] = useState<"company" | "dept" | "personal">("company");
+  const [departments, setDepartments] = useState<Department[]>([]);
+  const [selectedDeptIds, setSelectedDeptIds] = useState<Set<number>>(new Set());
+  const [userInput, setUserInput] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    apiFetch<Department[]>("/admin/departments").then(setDepartments).catch(() => {});
+  }, []);
+
+  function toggleDept(id: number) {
+    setSelectedDeptIds((prev) => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  }
+
+  async function handleSubmit() {
+    const userIds = userInput.split(/[,，\s]+/).map(Number).filter((n) => !isNaN(n) && n > 0);
+    setSubmitting(true);
+    setError(null);
+    try {
+      await apiFetch(`/web-apps/${appId}/status`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          status: "reviewing",
+          publish_scope: scope,
+          publish_department_ids: scope === "dept" ? Array.from(selectedDeptIds) : [],
+          publish_user_ids: scope === "personal" ? userIds : [],
+        }),
+      });
+      onSubmitted();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "提交失败");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  const scopeOptions = [
+    { value: "company" as const, label: "全公司", desc: "所有员工审批通过后可见" },
+    { value: "dept" as const, label: "指定部门", desc: "仅选中部门的成员可见" },
+    { value: "personal" as const, label: "指定个人", desc: "填写用户 ID，仅这些人可见" },
+  ];
+
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+      <div className="bg-white border-2 border-[#1A202C] w-[400px] max-h-[80vh] flex flex-col">
+        <div className="flex items-center gap-2 px-4 py-3 border-b-2 border-[#1A202C] bg-[#EBF4F7]">
+          <span className="text-[9px] font-bold uppercase tracking-widest text-[#00A3C4]">申请发布 Web App</span>
+          <span className="text-xs font-bold text-[#1A202C] ml-1">— {appName}</span>
+        </div>
+        <div className="flex-1 overflow-y-auto p-4 space-y-3">
+          <div className="text-[9px] font-bold uppercase tracking-widest text-gray-400 mb-2">发布范围</div>
+          <div className="space-y-2">
+            {scopeOptions.map((o) => (
+              <label
+                key={o.value}
+                className={`flex items-start gap-3 border-2 p-3 cursor-pointer ${
+                  scope === o.value ? "border-[#00D1FF] bg-[#CCF2FF]" : "border-gray-200 hover:border-gray-400"
+                }`}
+              >
+                <input
+                  type="radio"
+                  name="webapp_scope"
+                  value={o.value}
+                  checked={scope === o.value}
+                  onChange={() => setScope(o.value)}
+                  className="mt-0.5"
+                />
+                <div>
+                  <div className="text-xs font-bold">{o.label}</div>
+                  <div className="text-[9px] text-gray-500">{o.desc}</div>
+                </div>
+              </label>
+            ))}
+          </div>
+
+          {scope === "dept" && (
+            <div>
+              <div className="text-[9px] font-bold uppercase tracking-widest text-gray-400 mb-2">选择部门（可多选）</div>
+              <div className="border-2 border-gray-200 max-h-40 overflow-y-auto">
+                {departments.map((d) => (
+                  <label
+                    key={d.id}
+                    className={`flex items-center gap-2 px-3 py-2 cursor-pointer border-b border-gray-100 last:border-0 ${
+                      selectedDeptIds.has(d.id) ? "bg-[#CCF2FF]" : "hover:bg-[#F0F4F8]"
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={selectedDeptIds.has(d.id)}
+                      onChange={() => toggleDept(d.id)}
+                    />
+                    <span className="text-[10px] font-bold">{d.name}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {scope === "personal" && (
+            <div>
+              <div className="text-[9px] font-bold uppercase tracking-widest text-gray-400 mb-1">用户 ID（逗号/空格分隔）</div>
+              <input
+                value={userInput}
+                onChange={(e) => setUserInput(e.target.value)}
+                placeholder="例：101, 205, 310"
+                className="w-full border-2 border-[#1A202C] px-3 py-1.5 text-xs font-mono focus:outline-none focus:border-[#00D1FF]"
+              />
+            </div>
+          )}
+
+          {error && (
+            <div className="border-2 border-red-400 bg-red-50 px-3 py-2 text-[9px] font-bold text-red-500">✕ {error}</div>
+          )}
+        </div>
+        <div className="flex items-center gap-2 px-4 py-3 border-t-2 border-[#1A202C]">
+          <PixelButton onClick={handleSubmit} disabled={submitting}>
+            {submitting ? "提交中..." : "提交审批"}
+          </PixelButton>
+          <PixelButton variant="secondary" onClick={onCancel}>取消</PixelButton>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function WebAppCard({ app, onDelete, onRefresh }: { app: WebAppEntry; onDelete: () => void; onRefresh: () => void }) {
+  const [deleting, setDeleting] = useState(false);
+  const [showPublishModal, setShowPublishModal] = useState(false);
+
+  async function handleDelete() {
+    if (!confirm(`确认删除「${app.name}」？`)) return;
+    setDeleting(true);
+    try {
+      await apiFetch(`/web-apps/${app.id}`, { method: "DELETE" });
+      onDelete();
+    } catch { /* ignore */ }
+    finally { setDeleting(false); }
+  }
+
+  const badge = WEBAPP_STATUS_BADGE[app.status] ?? WEBAPP_STATUS_BADGE.draft;
+
+  const scopeLabel = app.publish_scope === "company" ? "全公司"
+    : app.publish_scope === "dept" ? "指定部门"
+    : app.publish_scope === "personal" ? "指定个人"
+    : null;
+
+  return (
+    <>
+      {showPublishModal && (
+        <WebAppPublishModal
+          appId={app.id}
+          appName={app.name}
+          onSubmitted={() => { setShowPublishModal(false); onRefresh(); }}
+          onCancel={() => setShowPublishModal(false)}
+        />
+      )}
+      <div className="bg-white border-2 border-[#1A202C] p-4">
+        <div className="flex items-start justify-between gap-2">
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 flex-wrap mb-1">
+              <span className="text-xs font-bold uppercase truncate">{app.name}</span>
+              <PixelBadge color={badge.color}>{badge.label}</PixelBadge>
+              {app.status === "published" && scopeLabel && (
+                <PixelBadge color="cyan">{scopeLabel}</PixelBadge>
+              )}
+            </div>
+            {app.description && (
+              <p className="text-[9px] text-gray-500 line-clamp-2 mb-2">{app.description}</p>
+            )}
+            <div className="flex items-center gap-2 flex-wrap">
+              <a
+                href={app.preview_url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-[8px] font-bold uppercase tracking-widest border border-[#00A3C4] text-[#00A3C4] px-2 py-0.5 hover:bg-[#CCF2FF] transition-colors"
+              >
+                预览
+              </a>
+              {app.status === "published" && app.share_url && (
+                <a
+                  href={app.share_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-[8px] font-bold uppercase tracking-widest border border-[#6B46C1] text-[#6B46C1] px-2 py-0.5 hover:bg-purple-50 transition-colors"
+                >
+                  ↗ 分享链接
+                </a>
+              )}
+              {app.status === "draft" && (
+                <PixelButton size="sm" variant="secondary" onClick={() => setShowPublishModal(true)}>
+                  申请发布
+                </PixelButton>
+              )}
+              {app.status === "reviewing" && (
+                <span className="text-[9px] font-bold text-yellow-600 border border-yellow-400 bg-yellow-50 px-2 py-1">审批中</span>
+              )}
+              {app.created_at && (
+                <span className="text-[8px] text-gray-400 font-mono">{new Date(app.created_at).toLocaleDateString("zh-CN")}</span>
+              )}
+            </div>
+          </div>
+          {(app.status === "draft" || app.status === "reviewing") && (
+            <button
+              onClick={handleDelete}
+              disabled={deleting}
+              className="shrink-0 text-[9px] font-bold text-red-400 hover:text-red-600 border border-red-200 px-2 py-0.5 hover:border-red-400 transition-colors disabled:opacity-40"
+            >
+              {deleting ? "..." : "删除"}
+            </button>
+          )}
+        </div>
+      </div>
+    </>
+  );
+}
 
 // ─── Publish Scope Modal ──────────────────────────────────────────────────────
 function PublishScopeModal({
@@ -132,6 +386,7 @@ function MySkillCard({ skill, onRefresh }: { skill: SkillDetail; onRefresh: () =
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [showSandbox, setShowSandbox] = useState(false);
   const [showPublishModal, setShowPublishModal] = useState(false);
   const [detail, setDetail] = useState<SkillDetail | null>(null);
 
@@ -207,6 +462,15 @@ function MySkillCard({ skill, onRefresh }: { skill: SkillDetail; onRefresh: () =
 
   return (
     <>
+      {showSandbox && (
+        <SandboxTestModal
+          type="skill"
+          id={skill.id}
+          name={skill.name}
+          onPassed={() => { setShowSandbox(false); setShowPublishModal(true); }}
+          onCancel={() => setShowSandbox(false)}
+        />
+      )}
       {showPublishModal && (
         <PublishScopeModal
           onConfirm={handlePublish}
@@ -236,7 +500,7 @@ function MySkillCard({ skill, onRefresh }: { skill: SkillDetail; onRefresh: () =
                 {editing ? "取消编辑" : "编辑"}
               </PixelButton>
               {(skill.status === "draft" || skill.status === "archived") ? (
-                <PixelButton size="sm" variant="secondary" onClick={() => setShowPublishModal(true)}>发布</PixelButton>
+                <PixelButton size="sm" variant="secondary" onClick={() => setShowSandbox(true)}>发布</PixelButton>
               ) : skill.status === "reviewing" ? (
                 <span className="text-[9px] font-bold text-yellow-600 border border-yellow-400 bg-yellow-50 px-2 py-1">审批中</span>
               ) : skill.status === "published" ? (
@@ -251,6 +515,12 @@ function MySkillCard({ skill, onRefresh }: { skill: SkillDetail; onRefresh: () =
                 <span className="text-[9px] font-bold text-red-500 border border-red-300 bg-red-50 px-2 py-1">✕ {deleteError}</span>
               )}
             </div>
+            {detail?.rejection_comment && skill.status === "draft" && (
+              <div className="mb-3 border-2 border-red-300 bg-red-50 px-3 py-2">
+                <div className="text-[8px] font-bold uppercase tracking-widest text-red-400 mb-0.5">审批驳回意见</div>
+                <div className="text-[10px] text-red-600">{detail.rejection_comment}</div>
+              </div>
+            )}
             {editing ? (
               <div>
                 <div className="text-[9px] font-bold uppercase tracking-widest text-[#00A3C4] mb-1">System Prompt</div>
@@ -306,41 +576,10 @@ function MySkillCard({ skill, onRefresh }: { skill: SkillDetail; onRefresh: () =
   );
 }
 
-function SavedSkillCard({ skill, onUnsave }: { skill: SavedSkill; onUnsave: (id: number) => void }) {
-  const [removing, setRemoving] = useState(false);
-  const badge = SKILL_STATUS_BADGE[skill.status] || SKILL_STATUS_BADGE.draft;
-
-  async function handleUnsave() {
-    setRemoving(true);
-    try {
-      await apiFetch(`/skills/save-from-market/${skill.id}`, { method: "DELETE" });
-      onUnsave(skill.id);
-    } catch { /* ignore */ }
-    finally { setRemoving(false); }
-  }
-
-  return (
-    <div className="bg-white border-2 border-[#1A202C] p-4 flex items-start justify-between gap-3">
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2 flex-wrap mb-1">
-          <SkillIcon size={12} />
-          <span className="text-xs font-bold uppercase">{skill.name}</span>
-          <PixelBadge color={badge.color}>{badge.label}</PixelBadge>
-          {skill.current_version > 0 && <PixelBadge color="cyan">v{skill.current_version}</PixelBadge>}
-          {skill.has_update && <PixelBadge color="yellow">UPDATE</PixelBadge>}
-        </div>
-        <p className="text-[9px] text-gray-500 line-clamp-2">{skill.description || "无描述"}</p>
-      </div>
-      <PixelButton size="sm" variant="secondary" onClick={handleUnsave} disabled={removing}>
-        {removing ? "移除中..." : "移除"}
-      </PixelButton>
-    </div>
-  );
-}
-
 // ─── Tool Card ────────────────────────────────────────────────────────────────
 function MyToolCard({ tool, onRefresh }: { tool: ToolEntry; onRefresh: () => void }) {
   const [deleting, setDeleting] = useState(false);
+  const [showSandbox, setShowSandbox] = useState(false);
   const [showPublishModal, setShowPublishModal] = useState(false);
   const [publishing, setPublishing] = useState(false);
 
@@ -382,6 +621,15 @@ function MyToolCard({ tool, onRefresh }: { tool: ToolEntry; onRefresh: () => voi
 
   return (
     <>
+      {showSandbox && (
+        <SandboxTestModal
+          type="tool"
+          id={tool.id}
+          name={tool.display_name || tool.name}
+          onPassed={() => { setShowSandbox(false); setShowPublishModal(true); }}
+          onCancel={() => setShowSandbox(false)}
+        />
+      )}
       {showPublishModal && (
         <PublishScopeModal
           onConfirm={handlePublish}
@@ -401,7 +649,7 @@ function MyToolCard({ tool, onRefresh }: { tool: ToolEntry; onRefresh: () => voi
         </div>
         <div className="flex items-center gap-1.5 flex-shrink-0">
           {(tool.status === "draft" || tool.status === "archived") && (
-            <PixelButton size="sm" variant="secondary" onClick={() => setShowPublishModal(true)} disabled={publishing}>
+            <PixelButton size="sm" variant="secondary" onClick={() => setShowSandbox(true)} disabled={publishing}>
               发布
             </PixelButton>
           )}
@@ -536,13 +784,10 @@ function NewSkillForm({ onCreated }: { onCreated: () => void }) {
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
 export default function SkillsPage() {
-  const { user } = useAuth();
   const [tab, setTab] = useState<MainTab>("skill");
 
   // Skill state
   const [mySkills, setMySkills] = useState<SkillDetail[]>([]);
-  const [deptSkills, setDeptSkills] = useState<SkillDetail[]>([]);
-  const [savedSkills, setSavedSkills] = useState<SavedSkill[]>([]);
   const [skillLoading, setSkillLoading] = useState(false);
   const [showNewSkillForm, setShowNewSkillForm] = useState(false);
   const [uploadingMd, setUploadingMd] = useState(false);
@@ -553,8 +798,6 @@ export default function SkillsPage() {
 
   // Tool state
   const [myTools, setMyTools] = useState<ToolEntry[]>([]);
-  const [deptTools, setDeptTools] = useState<ToolEntry[]>([]);
-  const [savedTools, setSavedTools] = useState<(ToolEntry & { saved_at?: string })[]>([]);
   const [toolLoading, setToolLoading] = useState(false);
   const [showMcpUpload, setShowMcpUpload] = useState(false);
   const [uploadTab, setUploadTab] = useState<"py" | "mcp">("py");
@@ -572,38 +815,43 @@ export default function SkillsPage() {
   const [mcpSubmitting, setMcpSubmitting] = useState(false);
   const [mcpSubmitMsg, setMcpSubmitMsg] = useState<string | null>(null);
 
+  // Web App state
+  const [webApps, setWebApps] = useState<WebAppEntry[]>([]);
+  const [webAppLoading, setWebAppLoading] = useState(false);
+
   // ─── Skill fetchers ───────────────────────────────────────────────────────
   const fetchSkills = useCallback(() => {
     setSkillLoading(true);
-    Promise.all([
-      apiFetch<SkillDetail[]>("/skills?mine=true").catch(() => [] as SkillDetail[]),
-      apiFetch<SkillDetail[]>("/skills?scope=department").catch(() => [] as SkillDetail[]),
-      apiFetch<SavedSkill[]>("/skills/my-saved").catch(() => [] as SavedSkill[]),
-    ]).then(([mine, dept, saved]) => {
-      setMySkills(mine);
-      setDeptSkills(dept);
-      setSavedSkills(saved);
-    }).finally(() => setSkillLoading(false));
+    apiFetch<SkillDetail[]>("/skills?mine=true").catch(() => [] as SkillDetail[])
+      .then((mine) => {
+        // 只展示未发布的（草稿/审核中），已发布通过 # 调用，不需要在这里管理
+        setMySkills(mine.filter(s => s.status === "draft" || s.status === "reviewing"));
+      }).finally(() => setSkillLoading(false));
   }, []);
 
   // ─── Tool fetchers ────────────────────────────────────────────────────────
   const fetchTools = useCallback(() => {
     setToolLoading(true);
-    Promise.all([
-      apiFetch<ToolEntry[]>("/tools?mine=true").catch(() => [] as ToolEntry[]),
-      apiFetch<ToolEntry[]>("/tools?scope=department").catch(() => [] as ToolEntry[]),
-      apiFetch<(ToolEntry & { saved_at?: string })[]>("/tools/my-saved").catch(() => [] as ToolEntry[]),
-    ]).then(([mine, dept, saved]) => {
-      setMyTools(mine);
-      setDeptTools(dept);
-      setSavedTools(saved);
-    }).finally(() => setToolLoading(false));
+    apiFetch<ToolEntry[]>("/tools?mine=true").catch(() => [] as ToolEntry[])
+      .then((mine) => {
+        // 只展示未发布的（草稿/审核中）
+        setMyTools(mine.filter(t => t.status === "draft" || t.status === "reviewing"));
+      }).finally(() => setToolLoading(false));
+  }, []);
+
+  // ─── Web App fetchers ─────────────────────────────────────────────────────
+  const fetchWebApps = useCallback(() => {
+    setWebAppLoading(true);
+    apiFetch<WebAppEntry[]>("/web-apps").catch(() => [] as WebAppEntry[])
+      .then(setWebApps)
+      .finally(() => setWebAppLoading(false));
   }, []);
 
   useEffect(() => {
     if (tab === "skill") fetchSkills();
-    else fetchTools();
-  }, [tab, fetchSkills, fetchTools]);
+    else if (tab === "tool") fetchTools();
+    else fetchWebApps();
+  }, [tab, fetchSkills, fetchTools, fetchWebApps]);
 
   // ─── Skill uploads ────────────────────────────────────────────────────────
   async function handleUploadMd(e: React.ChangeEvent<HTMLInputElement>) {
@@ -615,7 +863,7 @@ export default function SkillsPage() {
     form.append("file", file);
     try {
       const res = await apiFetch<{ action: string; name: string; version: number; status?: string }>("/skills/upload-md", { method: "POST", body: form });
-      const statusNote = res.status === "published" ? "已发布" : "已提交审批";
+      const statusNote = res.status === "published" ? "已发布" : "已存为草稿，可在列表中编辑后提交发布";
       setUploadMdError(`✓ ${res.action === "created" ? "已创建" : "已更新"} [${res.name}] v${res.version}，${statusNote}`);
     } catch (err) {
       setUploadMdError(err instanceof Error ? err.message : "上传失败");
@@ -775,13 +1023,21 @@ export default function SkillsPage() {
     </div>
   );
 
-  const isLoading = tab === "skill" ? skillLoading : toolLoading;
+  const WebAppActions = (
+    <div className="flex items-center gap-2">
+      <PixelButton onClick={() => { window.location.href = "/dev-studio"; }}>
+        + 工作台新建
+      </PixelButton>
+    </div>
+  );
+
+  const isLoading = tab === "skill" ? skillLoading : tab === "tool" ? toolLoading : webAppLoading;
 
   return (
     <PageShell
       title="Skills & Tools"
       icon={ICONS.skills}
-      actions={tab === "skill" ? SkillActions : ToolActions}
+      actions={tab === "skill" ? SkillActions : tab === "tool" ? ToolActions : WebAppActions}
     >
       {/* 主 Tab */}
       <div className="flex gap-1 mb-6">
@@ -798,6 +1054,13 @@ export default function SkillsPage() {
           onClick={() => setTab("tool")}
         >
           工具
+        </PixelButton>
+        <PixelButton
+          variant={tab === "webapp" ? "primary" : "secondary"}
+          size="sm"
+          onClick={() => setTab("webapp")}
+        >
+          Web App
         </PixelButton>
       </div>
 
@@ -821,68 +1084,25 @@ export default function SkillsPage() {
             <NewSkillForm onCreated={() => { setShowNewSkillForm(false); fetchSkills(); }} />
           )}
 
-          {/* 我的 Skill */}
+          {/* 我的未发布 Skill（草稿 + 审核中） */}
           {mySkills.length > 0 && (
-            <SectionGroup label={SCOPE_LABEL.personal} count={mySkills.length}>
+            <SectionGroup label="待发布" count={mySkills.length}>
               {mySkills.map((s) => <MySkillCard key={s.id} skill={s} onRefresh={fetchSkills} />)}
             </SectionGroup>
           )}
 
-          {/* 部门 Skill */}
-          {deptSkills.length > 0 && (
-            <SectionGroup label={SCOPE_LABEL.department} count={deptSkills.length}>
-              {deptSkills.map((s) => {
-                const badge = SKILL_STATUS_BADGE[s.status] || SKILL_STATUS_BADGE.draft;
-                return (
-                  <div key={s.id} className="bg-white border-2 border-[#1A202C] p-4">
-                    <div className="flex items-center gap-2 flex-wrap mb-1">
-                      <SkillIcon size={12} />
-                      <span className="text-xs font-bold uppercase">{s.name}</span>
-                      <PixelBadge color={badge.color}>{badge.label}</PixelBadge>
-                      {(s.current_version ?? 0) > 0 && <PixelBadge color="cyan">v{s.current_version}</PixelBadge>}
-                    </div>
-                    <p className="text-[9px] text-gray-500 line-clamp-2">{s.description || "无描述"}</p>
-                  </div>
-                );
-              })}
-            </SectionGroup>
-          )}
-
-          {/* 公司 Skill（已保存） */}
-          <SectionGroup label={SCOPE_LABEL.company} count={savedSkills.length}>
-            {savedSkills.length === 0 ? (
-              <div className="flex flex-col items-center py-8">
-                <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400 mb-3">
-                  尚未保存任何公司 Skill
-                </p>
-                <PixelButton size="sm" onClick={() => { window.location.href = "/skills/market"; }}>
-                  浏览市场
-                </PixelButton>
-              </div>
-            ) : (
-              <>
-                {savedSkills.map((s) => <SavedSkillCard key={s.id} skill={s} onUnsave={(id) => setSavedSkills((prev) => prev.filter((x) => x.id !== id))} />)}
-                <div className="pt-1">
-                  <PixelButton size="sm" variant="secondary" onClick={() => { window.location.href = "/skills/market"; }}>
-                    + 浏览市场
-                  </PixelButton>
-                </div>
-              </>
-            )}
-          </SectionGroup>
-
-          {mySkills.length === 0 && deptSkills.length === 0 && savedSkills.length === 0 && (
+          {mySkills.length === 0 && (
             <div className="flex flex-col items-center justify-center py-20">
               <div className="w-10 h-10 bg-[#CCF2FF] border-2 border-[#00A3C4] flex items-center justify-center mb-4">
                 <SkillIcon size={16} />
               </div>
               <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400">
-                暂无 Skill，点击新建或上传 .md
+                暂无待发布 Skill，点击新建或上传 .md
               </p>
             </div>
           )}
         </>
-      ) : (
+      ) : tab === "tool" ? (
         <>
           {/* 工具上传面板 */}
           {showMcpUpload && (
@@ -991,53 +1211,14 @@ export default function SkillsPage() {
             </div>
           )}
 
-          {/* 我的工具 */}
+          {/* 我的未发布工具（草稿 + 审核中） */}
           {myTools.length > 0 && (
-            <SectionGroup label={SCOPE_LABEL.personal} count={myTools.length}>
+            <SectionGroup label="待发布" count={myTools.length}>
               {myTools.map((t) => <MyToolCard key={t.id} tool={t} onRefresh={fetchTools} />)}
             </SectionGroup>
           )}
 
-          {/* 部门工具 */}
-          {deptTools.length > 0 && (
-            <SectionGroup label={SCOPE_LABEL.department} count={deptTools.length}>
-              {deptTools.map((t) => {
-                const typeColor = TOOL_TYPE_COLOR[t.tool_type ?? ""] ?? "gray";
-                const typeLabel = TOOL_TYPE_LABEL[t.tool_type ?? ""] ?? t.tool_type ?? "未知";
-                return (
-                  <div key={t.id} className="bg-white border-2 border-[#1A202C] p-4">
-                    <div className="flex items-center gap-2 flex-wrap mb-1">
-                      <ToolIcon size={12} />
-                      <span className="text-xs font-bold uppercase">{t.display_name}</span>
-                      <PixelBadge color={typeColor}>{typeLabel}</PixelBadge>
-                    </div>
-                    <p className="text-[9px] text-gray-500 line-clamp-2">{t.description || "无描述"}</p>
-                  </div>
-                );
-              })}
-            </SectionGroup>
-          )}
-
-          {/* 公司工具（已保存） */}
-          <SectionGroup label={SCOPE_LABEL.company} count={savedTools.length}>
-            {savedTools.length === 0 ? (
-              <div className="flex flex-col items-center py-8">
-                <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400">
-                  尚未保存任何公司工具
-                </p>
-              </div>
-            ) : (
-              savedTools.map((t) => (
-                <SavedToolCard
-                  key={t.id}
-                  tool={t}
-                  onUnsave={(id) => setSavedTools((prev) => prev.filter((x) => x.id !== id))}
-                />
-              ))
-            )}
-          </SectionGroup>
-
-          {myTools.length === 0 && deptTools.length === 0 && savedTools.length === 0 && (
+          {myTools.length === 0 && (
             <div className="flex flex-col items-center justify-center py-20">
               <div className="w-10 h-10 bg-[#CCF2FF] border-2 border-[#00A3C4] flex items-center justify-center mb-4">
                 <ToolIcon size={16} />
@@ -1045,6 +1226,29 @@ export default function SkillsPage() {
               <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400">
                 暂无工具，上传 .py 文件创建工具
               </p>
+            </div>
+          )}
+        </>
+      ) : (
+        /* ── Web App Tab ── */
+        <>
+          {webApps.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-20">
+              <div className="w-10 h-10 bg-purple-100 border-2 border-purple-400 flex items-center justify-center mb-4">
+                <span className="text-purple-500 text-lg">🖥</span>
+              </div>
+              <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400 mb-3">
+                尚无 Web App，前往工作台新建
+              </p>
+              <PixelButton size="sm" onClick={() => { window.location.href = "/dev-studio"; }}>
+                + 工作台新建
+              </PixelButton>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {webApps.map((app) => (
+                <WebAppCard key={app.id} app={app} onDelete={fetchWebApps} onRefresh={fetchWebApps} />
+              ))}
             </div>
           )}
         </>

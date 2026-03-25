@@ -1,15 +1,20 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 import { apiFetch } from "@/lib/api";
-import { useChatStore } from "@/lib/chat-store";
+import { useChatStore, subscribeConvStream, getConvStreamSnapshot } from "@/lib/chat-store";
 import { connectionManager } from "@/lib/connection";
 import type { ConnectionState } from "@/lib/connection";
 import type { ContentBlock } from "@/lib/types";
 import { MessageBubble } from "@/components/chat/MessageBubble";
 import { ChatInput } from "@/components/chat/ChatInput";
 import { DevStudio } from "@/components/chat/DevStudio";
+import { useTheme } from "@/lib/theme";
+
+// Module-level workspace cache — survives route navigation
+type WorkspaceData = { workspace_type?: string; welcome_message?: string; skills: { id: number; name: string; description?: string }[]; tools: { id: number; name: string; display_name: string; description?: string; tool_type?: string }[] };
+const _wsCache = new Map<number, WorkspaceData>();
 
 const STAGE_LABELS: Record<string, string> = {
   preparing: "匹配 Skill & 组装上下文...",
@@ -166,18 +171,25 @@ function StreamingBubble({ text }: { text: string }) {
 export default function ChatDetailPage() {
   const params = useParams();
   const convId = Number(params.id);
+  const { theme } = useTheme();
 
-  // Store state
+  // Store state — messages via zustand, stream state via out-of-store subscription
   const messages = useChatStore((s) => s.messagesMap.get(convId)) ?? [];
-  const streamingText = useChatStore((s) => s.streamingText);
-  const streamBlocks = useChatStore((s) => s.streamingBlocks);
-  const streamStage = useChatStore((s) => s.streamStage);
-  const isSending = useChatStore((s) => s.isSending);
-  const isFileUpload = useChatStore((s) => s.isFileUpload);
-  const currentRound = useChatStore((s) => s.currentRound);
-  const maxRounds = useChatStore((s) => s.maxRounds);
-  const streamError = useChatStore((s) => s.streamError);
-  const tokenUsage = useChatStore((s) => s.tokenUsage);
+  const [convStream, setConvStream] = useState(() => getConvStreamSnapshot(convId));
+  useEffect(() => {
+    setConvStream(getConvStreamSnapshot(convId));
+    return subscribeConvStream(convId, () => setConvStream({ ...getConvStreamSnapshot(convId) }));
+  }, [convId]);
+
+  const streamingText = convStream.streamingText;
+  const streamBlocks = convStream.streamingBlocks;
+  const streamStage = convStream.streamStage;
+  const isSending = convStream.isSending;
+  const isFileUpload = convStream.isFileUpload;
+  const currentRound = convStream.currentRound;
+  const maxRounds = convStream.maxRounds;
+  const streamError = convStream.streamError;
+  const tokenUsage = convStream.tokenUsage;
 
   // UI-only state
   const [loading, setLoading] = useState(true);
@@ -191,6 +203,11 @@ export default function ChatDetailPage() {
   const [activeSkill, setActiveSkill] = useState<{ id: number; name: string } | null>(null);
   const [enabledSkillIds, setEnabledSkillIds] = useState<Set<number> | null>(null);
   const [skillPanelOpen, setSkillPanelOpen] = useState(false);
+  const [welcomeMessage, setWelcomeMessage] = useState<string | null>(null);
+  const [workspaceType, setWorkspaceType] = useState<string | null | undefined>(undefined);
+  const [sandboxSkills, setSandboxSkills] = useState<{ id: number; name: string; status: string }[]>([]);
+  const [sandboxSkillId, setSandboxSkillId] = useState<number | null>(null);
+  const [sandboxLoaded, setSandboxLoaded] = useState(false);
 
   // Connection state
   const [connState, setConnState] = useState<ConnectionState>(connectionManager.getState());
@@ -198,32 +215,63 @@ export default function ChatDetailPage() {
 
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  // 拉 conv → workspace → skills
+  // Load messages + workspace concurrently
   useEffect(() => {
-    apiFetch<{ id: number; workspace_id: number | null; skill_id: number | null }[]>("/conversations")
-      .then(async (convs) => {
-        const conv = convs.find((c) => c.id === convId);
-        if (!conv?.workspace_id) return;
-        const ws = await apiFetch<{ workspace_type?: string; skills: { id: number; name: string; description?: string }[]; tools: { id: number; name: string; display_name: string; description?: string; tool_type?: string }[] }>(`/workspaces/${conv.workspace_id}`);
-        if (ws.workspace_type === "opencode") {
-          setIsOpencode(true);
-          setOpencodeWorkspaceId(conv.workspace_id);
-          return;
-        }
+    // ── Messages ──────────────────────────────────────────────────
+    const cached = useChatStore.getState().messagesMap.get(convId);
+    if (cached) {
+      setLoading(false);
+    } else {
+      setLoading(true);
+      useChatStore.getState().loadMessages(convId).finally(() => setLoading(false));
+    }
+
+    // Reset sandbox state on conv change
+    setSandboxLoaded(false);
+    setSandboxSkills([]);
+    setSandboxSkillId(null);
+    setWorkspaceType(null);
+
+    // ── Workspace (concurrent, doesn't block messages) ────────────
+    const loadWorkspace = async () => {
+      let convs = useChatStore.getState().conversations;
+      if (convs.length === 0) {
+        try { convs = await apiFetch<typeof convs>("/conversations"); } catch { return; }
+      }
+      const conv = convs.find((c) => c.id === convId) as { id: number; workspace_id?: number | null; skill_id?: number | null } | undefined;
+      if (!conv?.workspace_id) { setWorkspaceType(null); return; }
+
+      let ws = _wsCache.get(conv.workspace_id);
+      if (!ws) {
+        try {
+          ws = await apiFetch<WorkspaceData>(`/workspaces/${conv.workspace_id}`);
+          _wsCache.set(conv.workspace_id, ws);
+        } catch { return; }
+      }
+
+      if (ws.workspace_type === "opencode") {
+        setIsOpencode(true);
+        setOpencodeWorkspaceId(conv.workspace_id);
+        return;
+      }
+      setWorkspaceType(ws.workspace_type ?? null);
+      setWelcomeMessage(ws.welcome_message ?? null);
+      if (ws.workspace_type === "sandbox") {
+        apiFetch<{ id: number; name: string; status: string }[]>("/skills?mine=true").then((skills) => {
+          const unpublished = skills.filter(s => s.status === "draft" || s.status === "reviewing");
+          setSandboxSkills(unpublished);
+          if (unpublished.length > 0) setSandboxSkillId(unpublished[0].id);
+        }).catch(() => {}).finally(() => setSandboxLoaded(true));
+      } else {
         setWorkspaceSkills(ws.skills ?? []);
         setWorkspaceTools(ws.tools ?? []);
-        if (conv.skill_id) {
-          const sk = ws.skills?.find((s) => s.id === conv.skill_id);
-          if (sk) setActiveSkill({ id: sk.id, name: sk.name });
-        }
-      })
-      .catch(() => {});
-  }, [convId]);
-
-  // Load messages via store (cache preserved across navigation)
-  useEffect(() => {
-    Promise.resolve().then(() => setLoading(true));
-    useChatStore.getState().loadMessages(convId).finally(() => setLoading(false));
+      }
+      if ((conv as { skill_id?: number | null }).skill_id) {
+        const sk = ws.skills?.find((s) => s.id === (conv as { skill_id?: number | null }).skill_id);
+        if (sk) setActiveSkill({ id: sk.id, name: sk.name });
+      }
+    };
+    loadWorkspace();
   }, [convId]);
 
   // Auto-scroll
@@ -252,7 +300,7 @@ export default function ChatDetailPage() {
   }
 
   function handleStop() {
-    useChatStore.getState().stopGeneration();
+    useChatStore.getState().stopGeneration(convId);
   }
 
   /* ── Send message via store ── */
@@ -263,12 +311,16 @@ export default function ChatDetailPage() {
       toolId,
       file,
       multiFiles,
+      forceSkillId: workspaceType === "sandbox" && sandboxSkillId ? sandboxSkillId : undefined,
     });
   }
 
+  const handleQuote = useCallback((text: string) => setQuote(text), []);
+  const handleQuickReply = useCallback((text: string) => setPrefill(text), []);
+
   /* ── Retry on error ── */
   function handleRetry() {
-    useChatStore.getState().clearStreamError();
+    useChatStore.getState().clearStreamError(convId);
     // Find the last user message and resend
     const lastUserMsg = [...messages].reverse().find((m) => m.role === "user");
     if (lastUserMsg) {
@@ -341,21 +393,50 @@ export default function ChatDetailPage() {
 
       {/* Messages area */}
       <div ref={scrollRef} className="flex-1 overflow-y-auto p-4">
-        {messages.length === 0 && !isSending && (
-          <div className="h-full flex flex-col items-center justify-center">
-            <div className="w-8 h-8 bg-[#CCF2FF] border-2 border-[#00A3C4] flex items-center justify-center mb-3">
-              <span className="text-[#00A3C4] text-xs font-bold">?</span>
-            </div>
-            <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest">
-              开始你的对话
-            </p>
-            <p className="text-[9px] text-gray-300 mt-1">
-              拖放文件到此处，或点击 📎 上传
-            </p>
+        {messages.length === 0 && !isSending && workspaceType !== undefined && (
+          <div className="h-full flex flex-col items-center justify-center px-8">
+            {workspaceType === "sandbox" ? (
+              <div className={`max-w-md w-full border-2 border-[#00CC99] p-5 ${theme === "dark" ? "bg-[#0D2B22]" : "bg-[#F0FFF9]"}`}>
+                <div className="text-[9px] font-bold uppercase tracking-widest text-[#00CC99] mb-3">
+                  🧪 Skill / Tool 沙盒测试
+                </div>
+                {!sandboxLoaded ? (
+                  <div className="text-[11px] text-gray-400 leading-relaxed">加载中...</div>
+                ) : sandboxSkills.length > 0 ? (
+                  <div className="text-[11px] text-[#1A202C] leading-relaxed">
+                    在下方选择要测试的 Skill，然后直接发送任意消息触发测试。
+                  </div>
+                ) : (
+                  <div className="text-[11px] text-gray-500 leading-relaxed">
+                    你还没有待测试的 Skill。去「Skills &amp; Tools」页面点击「▶ 沙盒测试」来发起测试。
+                  </div>
+                )}
+              </div>
+            ) : welcomeMessage ? (
+              <div className="max-w-lg w-full border-2 border-[#00A3C4] bg-[#F0FAFF] p-5">
+                <div className="text-[8px] font-bold uppercase tracking-widest text-[#00A3C4] mb-2">欢迎</div>
+                <div className="text-[11px] text-[#1A202C] leading-relaxed whitespace-pre-wrap">
+                  {welcomeMessage}
+                </div>
+              </div>
+            ) : (
+              <>
+                <div className="w-8 h-8 bg-[#CCF2FF] border-2 border-[#00A3C4] flex items-center justify-center mb-3">
+                  <span className="text-[#00A3C4] text-xs font-bold">?</span>
+                </div>
+                <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest">
+                  开始你的对话
+                </p>
+                <p className="text-[9px] text-gray-300 mt-1">
+                  拖放文件到此处，或点击 📎 上传
+                </p>
+              </>
+            )}
           </div>
         )}
+        {/* 不显示消息时的沙盒 skill 选择提示 — 已在 welcome 卡片展示 */}
         {messages.map((msg) => (
-          <MessageBubble key={msg.id} message={msg} onQuote={(text) => { setQuote(text); }} onQuickReply={(text) => { setPrefill(text); }} />
+          <MessageBubble key={msg.id} message={msg} onQuote={handleQuote} onQuickReply={handleQuickReply} />
         ))}
 
         {/* Agent Loop progress */}
@@ -406,6 +487,36 @@ export default function ChatDetailPage() {
             <span className="w-2 h-2 bg-[#1A202C]" />
             停止生成
           </button>
+        </div>
+      )}
+
+      {/* Sandbox skill selector */}
+      {workspaceType === "sandbox" && sandboxSkills.length > 0 && (
+        <div className={`border-t-2 border-[#00CC99] px-4 py-2 space-y-1.5 ${theme === "dark" ? "bg-[#0D2B22]" : "bg-[#F0FFF9]"}`}>
+          <div className="flex items-center gap-2">
+            <span className="text-[8px] font-bold uppercase tracking-widest text-[#00CC99]">选择测试对象</span>
+            {sandboxSkillId && (
+              <span className="text-[8px] text-[#00CC99]/60">— 选好后发消息即可触发测试</span>
+            )}
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            {sandboxSkills.map((sk) => (
+              <button
+                key={sk.id}
+                onClick={() => setSandboxSkillId(sk.id)}
+                className={`px-2 py-0.5 text-[9px] font-bold border-2 transition-colors ${
+                  sandboxSkillId === sk.id
+                    ? "border-[#00CC99] bg-[#00CC99] text-white"
+                    : "border-[#00CC99] text-[#00CC99] bg-transparent hover:bg-[#00CC99]/20"
+                }`}
+              >
+                {sk.name}
+                {sk.status === "draft" && (
+                  <span className="ml-1 text-[7px] opacity-60">草稿</span>
+                )}
+              </button>
+            ))}
+          </div>
         </div>
       )}
 

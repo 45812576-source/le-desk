@@ -248,25 +248,22 @@ function BitablePanel({ onAdded }: { onAdded: () => void }) {
     setSyncing(true);
     setError("");
     setSyncMsg("");
-    try {
-      const res = await apiFetch<{ ok: boolean; table_name: string; inserted: number; total_fields: number }>(
-        "/business-tables/sync-bitable",
-        {
-          method: "POST",
-          body: JSON.stringify({
-            app_token: probeResult.app_token,
-            table_id: probeResult.table_id,
-            display_name: displayName.trim(),
-          }),
-        }
-      );
-      setSyncMsg(`✓ 同步完成：${res.inserted} 条记录，${res.total_fields} 个字段 → ${res.table_name}`);
-      onAdded();
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "同步失败");
-    } finally {
-      setSyncing(false);
-    }
+    // 发出请求后不等响应，后端在后台完成同步
+    fetch(`/api/proxy/business-tables/sync-bitable`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(localStorage.getItem("token") ? { Authorization: `Bearer ${localStorage.getItem("token")}` } : {}),
+      },
+      body: JSON.stringify({
+        app_token: probeResult.app_token,
+        table_id: probeResult.table_id,
+        display_name: displayName.trim(),
+      }),
+    });
+    setSyncMsg("✓ 同步已提交，数据正在后台写入");
+    setSyncing(false);
+    onAdded();
   }
 
   return (
@@ -653,26 +650,40 @@ function TablePreview({
   const [rows, setRows] = useState<Record<string, unknown>[]>([]);
   const [cols, setCols] = useState<string[]>([]);
   const [loadingRows, setLoadingRows] = useState(false);
+  const [rowsError, setRowsError] = useState("");
   const [editingName, setEditingName] = useState(false);
   const [nameVal, setNameVal] = useState(table.display_name);
   const nameInputRef = useRef<HTMLInputElement>(null);
   const [showSettings, setShowSettings] = useState(false);
 
   const hidden = table.validation_rules?.hidden_fields ?? [];
-  const colScope: ScopeValue = table.validation_rules?.column_scope ?? "all";
+  const colScope: ScopeValue = table.validation_rules?.column_scope ?? "private";
   const colDeptIds = table.validation_rules?.column_department_ids ?? [];
-  const rowScope: ScopeValue = table.validation_rules?.row_scope ?? "all";
+  const rowScope: ScopeValue = table.validation_rules?.row_scope ?? "private";
   const rowDeptIds = table.validation_rules?.row_department_ids ?? [];
 
   useEffect(() => { Promise.resolve().then(() => setNameVal(table.display_name)); }, [table.id, table.display_name]);
 
   useEffect(() => {
-    Promise.resolve().then(() => setLoadingRows(true));
+    setLoadingRows(true);
+    setRowsError("");
     apiFetch<{ columns: string[]; rows: Record<string, unknown>[] }>(
       `/data/${table.table_name}/rows?page=1&page_size=50`
     )
-      .then((d) => { setCols(d.columns ?? []); setRows(d.rows ?? []); })
-      .catch(() => { setCols([]); setRows([]); })
+      .then((d) => {
+        console.log("[DataPage] rows response:", d);
+        setCols(d.columns ?? []);
+        setRows(d.rows ?? []);
+        if (!d.columns?.length && !d.rows?.length) {
+          setRowsError(`后端返回空数据（total=${(d as Record<string, unknown>).total ?? "?"}）`);
+        }
+      })
+      .catch((e: unknown) => {
+        console.error("[DataPage] rows error:", e);
+        setCols([]);
+        setRows([]);
+        setRowsError(e instanceof Error ? e.message : String(e));
+      })
       .finally(() => setLoadingRows(false));
   }, [table.table_name]);
 
@@ -782,6 +793,10 @@ function TablePreview({
         {loadingRows ? (
           <div className="flex items-center justify-center h-32 text-[10px] font-bold uppercase tracking-widest text-[#00A3C4] animate-pulse">
             Loading...
+          </div>
+        ) : rowsError ? (
+          <div className="flex items-center justify-center h-32 text-[10px] font-bold text-red-500">
+            {rowsError}
           </div>
         ) : rows.length === 0 ? (
           <div className="flex items-center justify-center h-32 text-[10px] font-bold uppercase tracking-widest text-gray-300">
@@ -1340,6 +1355,7 @@ export default function DataPage() {
           <ConnectTab
             onAdded={() => {
               setManageKey((k) => k + 1);
+              setTab("manage");
             }}
           />
         </div>

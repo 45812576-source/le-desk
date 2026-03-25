@@ -1,31 +1,31 @@
+/**
+ * Dynamic proxy for user webapp backends.
+ * Route: /api/webapp-proxy/{port}/[...path]
+ * Forwards to http://localhost:{port}/[...path]
+ */
 import { NextRequest, NextResponse } from "next/server";
-
-const BACKEND_URL = process.env.BACKEND_URL || "http://localhost:8000";
 
 export async function handler(
   request: NextRequest,
-  { params }: { params: Promise<{ path: string[] }> }
+  { params }: { params: Promise<{ port: string; path: string[] }> }
 ) {
-  const { path } = await params;
-  const targetPath = "/" + path.join("/");
+  const { port, path } = await params;
+  const targetPath = "/" + (path?.join("/") || "");
   const url = new URL(request.url);
-  const targetUrl = `${BACKEND_URL}/api${targetPath}${url.search}`;
+  const targetUrl = `http://localhost:${port}${targetPath}${url.search}`;
 
   const contentType = request.headers.get("Content-Type") || "";
   const isMultipart = contentType.includes("multipart/form-data");
 
   const headers: Record<string, string> = {};
   const auth = request.headers.get("Authorization");
-  if (auth) {
-    headers["Authorization"] = auth;
-  }
+  if (auth) headers["Authorization"] = auth;
 
   let body: BodyInit | undefined;
 
   if (request.method === "GET" || request.method === "HEAD") {
     body = undefined;
   } else if (isMultipart) {
-    // Pass through the raw body + content-type (with boundary) for file uploads
     headers["Content-Type"] = contentType;
     body = await request.arrayBuffer();
   } else {
@@ -33,15 +33,23 @@ export async function handler(
     body = await request.text();
   }
 
-  const resp = await fetch(targetUrl, {
-    method: request.method,
-    headers,
-    body,
-    signal: AbortSignal.timeout(110_000), // 110s，留余量给 maxDuration
-  });
+  let resp: Response;
+  try {
+    resp = await fetch(targetUrl, {
+      method: request.method,
+      headers,
+      body,
+    });
+  } catch (e) {
+    return new NextResponse(
+      JSON.stringify({ error: "Backend not reachable", port }),
+      { status: 502, headers: { "Content-Type": "application/json" } }
+    );
+  }
 
-  // SSE streaming: pass through the ReadableStream directly
   const respContentType = resp.headers.get("Content-Type") || "";
+
+  // SSE streaming
   if (respContentType.includes("text/event-stream")) {
     return new Response(resp.body, {
       status: resp.status,
@@ -54,13 +62,13 @@ export async function handler(
     });
   }
 
-  // Binary responses (images, files) must be passed through as ArrayBuffer,
-  // not text(), which would corrupt the bytes.
-  const isBinary = respContentType.startsWith("image/")
-    || respContentType.startsWith("video/")
-    || respContentType.startsWith("audio/")
-    || respContentType.includes("octet-stream")
-    || respContentType.includes("pdf");
+  // Binary responses
+  const isBinary =
+    respContentType.startsWith("image/") ||
+    respContentType.startsWith("video/") ||
+    respContentType.startsWith("audio/") ||
+    respContentType.includes("octet-stream") ||
+    respContentType.includes("pdf");
 
   if (isBinary) {
     const respBody = await resp.arrayBuffer();
@@ -73,9 +81,7 @@ export async function handler(
   const respBody = await resp.text();
   return new NextResponse(respBody, {
     status: resp.status,
-    headers: {
-      "Content-Type": respContentType || "application/json",
-    },
+    headers: { "Content-Type": respContentType || "application/json" },
   });
 }
 

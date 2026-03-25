@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { memo, useRef, useState, useMemo } from "react";
 import { apiFetch } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import type { ContentBlock, Message, SkillDetail } from "@/lib/types";
@@ -56,7 +56,27 @@ function renderContentBlocks(blocks: ContentBlock[]) {
   });
 }
 
-export function MessageBubble({ message, onQuote, onQuickReply }: MessageBubbleProps) {
+function QuickReplies({ content, onQuickReply }: { content: string; onQuickReply: (text: string) => void }) {
+  const options = useMemo(() => parseQuickReplies(content), [content]);
+  if (!options.length) return null;
+  return (
+    <div className="flex flex-wrap gap-1.5 mt-1.5">
+      {options.map((opt, i) => (
+        <button
+          key={i}
+          type="button"
+          onClick={() => onQuickReply(opt)}
+          className="text-[9px] font-bold border-2 border-[#1A202C] bg-white px-2.5 py-1 hover:bg-[#CCF2FF] hover:border-[#00A3C4] transition-colors text-left leading-snug max-w-[280px] truncate"
+          title={opt}
+        >
+          {opt}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+export const MessageBubble = memo(function MessageBubble({ message, onQuote, onQuickReply }: MessageBubbleProps) {
   const isUser = message.role === "user";
   const [hovered, setHovered] = useState(false);
   const skillName = message.metadata?.skill_name as string | null | undefined;
@@ -295,25 +315,7 @@ export function MessageBubble({ message, onQuote, onQuickReply }: MessageBubbleP
         </div>
 
         {/* 快捷回复 chips */}
-        {!isUser && onQuickReply && (() => {
-          const options = parseQuickReplies(message.content);
-          if (!options.length) return null;
-          return (
-            <div className="flex flex-wrap gap-1.5 mt-1.5">
-              {options.map((opt, i) => (
-                <button
-                  key={i}
-                  type="button"
-                  onClick={() => onQuickReply(opt)}
-                  className="text-[9px] font-bold border-2 border-[#1A202C] bg-white px-2.5 py-1 hover:bg-[#CCF2FF] hover:border-[#00A3C4] transition-colors text-left leading-snug max-w-[280px] truncate"
-                  title={opt}
-                >
-                  {opt}
-                </button>
-              ))}
-            </div>
-          );
-        })()}
+        {!isUser && onQuickReply && <QuickReplies content={message.content} onQuickReply={onQuickReply} />}
 
         {/* 更新 Skill 状态提示 */}
         {updateMsg && (
@@ -401,4 +403,4 @@ export function MessageBubble({ message, onQuote, onQuickReply }: MessageBubbleP
       </div>
     </div>
   );
-}
+});
