@@ -248,22 +248,22 @@ function BitablePanel({ onAdded }: { onAdded: () => void }) {
     setSyncing(true);
     setError("");
     setSyncMsg("");
-    // 发出请求后不等响应，后端在后台完成同步
-    fetch(`/api/proxy/business-tables/sync-bitable`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        ...(localStorage.getItem("token") ? { Authorization: `Bearer ${localStorage.getItem("token")}` } : {}),
-      },
-      body: JSON.stringify({
-        app_token: probeResult.app_token,
-        table_id: probeResult.table_id,
-        display_name: displayName.trim(),
-      }),
-    });
-    setSyncMsg("✓ 同步已提交，数据正在后台写入");
-    setSyncing(false);
-    onAdded();
+    try {
+      await apiFetch("/business-tables/sync-bitable", {
+        method: "POST",
+        body: JSON.stringify({
+          app_token: probeResult.app_token,
+          table_id: probeResult.table_id,
+          display_name: displayName.trim(),
+        }),
+      });
+      setSyncMsg("✓ 同步完成");
+      onAdded();
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "同步失败");
+    } finally {
+      setSyncing(false);
+    }
   }
 
   return (

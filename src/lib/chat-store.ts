@@ -255,14 +255,29 @@ export const useChatStore = create<ChatStore>((set, get) => ({
             content: finalContent || accumulated, content_blocks: finalBlocks,
             created_at: new Date().toISOString(), metadata: finalMetadata,
           });
+        } else if (accumulated) {
+          // 流中断（无 done 事件）但已有部分内容 — 保留而非丢弃
+          get().appendOptimisticMessage(convId, {
+            id: Date.now(), role: "assistant",
+            content: accumulated + "\n\n[连接中断，以上为已接收内容]",
+            created_at: new Date().toISOString(),
+          });
         }
       } catch (err: unknown) {
         if (!(err instanceof DOMException && err.name === "AbortError")) {
-          set((s) => {
-            const next = new Map(s.messagesMap);
-            next.set(convId, (next.get(convId) ?? []).filter((m) => m.id !== tempId));
-            return { messagesMap: next };
-          });
+          if (accumulated) {
+            get().appendOptimisticMessage(convId, {
+              id: Date.now(), role: "assistant",
+              content: accumulated + "\n\n[连接中断，以上为已接收内容]",
+              created_at: new Date().toISOString(),
+            });
+          } else {
+            set((s) => {
+              const next = new Map(s.messagesMap);
+              next.set(convId, (next.get(convId) ?? []).filter((m) => m.id !== tempId));
+              return { messagesMap: next };
+            });
+          }
         }
       } finally {
         patchStreamState(convId, {
@@ -345,6 +360,12 @@ export const useChatStore = create<ChatStore>((set, get) => ({
           if (msgs.filter((m) => m.role === "user").length <= 1) {
             get().updateConvTitle(convId, `[文件] ${file.name}`.slice(0, 60));
           }
+        } else if (accumulated) {
+          get().appendOptimisticMessage(convId, {
+            id: Date.now(), role: "assistant",
+            content: accumulated + "\n\n[连接中断，以上为已接收内容]",
+            created_at: new Date().toISOString(),
+          });
         }
       } catch (err: unknown) {
         if (err instanceof DOMException && err.name === "AbortError") {
@@ -355,11 +376,19 @@ export const useChatStore = create<ChatStore>((set, get) => ({
             });
           }
         } else {
-          set((s) => {
-            const next = new Map(s.messagesMap);
-            next.set(convId, (next.get(convId) ?? []).filter((m) => m.id !== tempId));
-            return { messagesMap: next };
-          });
+          if (accumulated) {
+            get().appendOptimisticMessage(convId, {
+              id: Date.now(), role: "assistant",
+              content: accumulated + "\n\n[连接中断，以上为已接收内容]",
+              created_at: new Date().toISOString(),
+            });
+          } else {
+            set((s) => {
+              const next = new Map(s.messagesMap);
+              next.set(convId, (next.get(convId) ?? []).filter((m) => m.id !== tempId));
+              return { messagesMap: next };
+            });
+          }
         }
       } finally {
         patchStreamState(convId, {
@@ -484,6 +513,13 @@ export const useChatStore = create<ChatStore>((set, get) => ({
         if (msgs.filter((m) => m.role === "user").length <= 1) {
           get().updateConvTitle(convId, displayContent.slice(0, 60));
         }
+      } else if (accumulated) {
+        // 流中断（proxy 超时/网络抖动）且没收到 done — 保留已接收内容而不是丢弃
+        get().appendOptimisticMessage(convId, {
+          id: Date.now(), role: "assistant",
+          content: accumulated + "\n\n[连接中断，以上为已接收内容]",
+          created_at: new Date().toISOString(),
+        });
       }
     } catch (err: unknown) {
       if (err instanceof DOMException && err.name === "AbortError") {
@@ -494,11 +530,19 @@ export const useChatStore = create<ChatStore>((set, get) => ({
           });
         }
       } else {
-        set((s) => {
-          const next = new Map(s.messagesMap);
-          next.set(convId, (next.get(convId) ?? []).filter((m) => m.id !== tempId));
-          return { messagesMap: next };
-        });
+        if (accumulated) {
+          get().appendOptimisticMessage(convId, {
+            id: Date.now(), role: "assistant",
+            content: accumulated + "\n\n[连接中断，以上为已接收内容]",
+            created_at: new Date().toISOString(),
+          });
+        } else {
+          set((s) => {
+            const next = new Map(s.messagesMap);
+            next.set(convId, (next.get(convId) ?? []).filter((m) => m.id !== tempId));
+            return { messagesMap: next };
+          });
+        }
         connectionManager.handleStreamError();
       }
     } finally {
