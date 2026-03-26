@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { apiFetch } from "@/lib/api";
 import { PixelIcon, ICONS } from "@/components/pixel";
 import { useTheme } from "@/lib/theme";
 import {
@@ -192,8 +193,7 @@ export function Sidebar({ user, taskPending = 0, onLogout }: SidebarProps) {
   useEffect(() => {
     if (!isAdmin) return;
     function fetchCount() {
-      fetch("/api/proxy/approvals/pending-count", { credentials: "include" })
-        .then((r) => r.json())
+      apiFetch<{ count: number }>("/approvals/pending-count")
         .then((d) => setApprovalPending(d.count ?? 0))
         .catch(() => {});
     }
@@ -300,6 +300,9 @@ export function Sidebar({ user, taskPending = 0, onLogout }: SidebarProps) {
 
               <NavGroup label="权限安全" storageKey="nav_group_admin_perm" collapsed={collapsed} isLab={isLab}>
                 <NavItem href="/admin/approvals" label="审批管理" icon={ICONS.approvals} badge={approvalPending || undefined} {...navItemProps} />
+                {isSuperAdmin && (
+                  <NavItem href="/admin/user-permissions" label="用户权限" icon={ICONS.users} {...navItemProps} />
+                )}
                 <NavItem href="/admin/skill-policies" label="Skill策略" icon={ICONS.skillPolicy} {...navItemProps} />
                 <NavItem href="/admin/mask-config" label="脱敏配置" icon={ICONS.maskConfig} {...navItemProps} />
                 <NavItem href="/admin/output-schemas" label="输出Schema" icon={ICONS.outputSchema} {...navItemProps} />

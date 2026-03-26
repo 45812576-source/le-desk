@@ -314,6 +314,19 @@ export default function ChatDetailPage() {
     useChatStore.getState().stopGeneration(convId);
   }
 
+  // Esc to stop generation
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape" && isSending) {
+        e.preventDefault();
+        handleStop();
+      }
+    }
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isSending]);
+
   /* ── Send message via store ── */
 
   async function handleSend(content: string, file?: File, toolId?: number, multiFiles?: Record<string, File>) {
@@ -366,7 +379,7 @@ export default function ChatDetailPage() {
   }
 
   if (isSkillStudio) {
-    return <SkillStudio />;
+    return <SkillStudio convId={convId} />;
   }
 
   return (

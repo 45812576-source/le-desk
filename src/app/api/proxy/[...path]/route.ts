@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
+export const maxDuration = 120;
+
 const BACKEND_URL = process.env.BACKEND_URL || "http://localhost:8000";
 
 export async function handler(
@@ -37,7 +39,7 @@ export async function handler(
     method: request.method,
     headers,
     body,
-    signal: AbortSignal.timeout(110_000), // 110s，留余量给 maxDuration
+    signal: AbortSignal.timeout(115_000),
   });
 
   // SSE streaming: pass through the ReadableStream directly
