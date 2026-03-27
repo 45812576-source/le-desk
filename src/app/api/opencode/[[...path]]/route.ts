@@ -130,6 +130,22 @@ export async function GET(
     }
   }, true);
 
+  // patch EventSource：把 /event 等 SSE 连接重写到 /api/opencode-rpc，绕过 Next.js 30s 超时
+  var _origES = window.EventSource;
+  window.EventSource = function(url, init) {
+    var esUrl = String(url);
+    if (esUrl.startsWith("/") && !esUrl.startsWith("/api/")) {
+      esUrl = _addPort("/api/opencode-rpc" + esUrl);
+    } else if (esUrl.startsWith(location.origin + "/") && !esUrl.startsWith(location.origin + "/api/")) {
+      esUrl = _addPort("/api/opencode-rpc" + esUrl.slice(location.origin.length));
+    }
+    return new _origES(esUrl, init);
+  };
+  window.EventSource.prototype = _origES.prototype;
+  window.EventSource.CONNECTING = _origES.CONNECTING;
+  window.EventSource.OPEN = _origES.OPEN;
+  window.EventSource.CLOSED = _origES.CLOSED;
+
   // patch WebSocket：同源 ws/wss 连接重定向到 /api/opencode-rpc，并带端口参数
   var _origWS = window.WebSocket;
   window.WebSocket = function(url, protocols) {
