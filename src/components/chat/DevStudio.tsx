@@ -599,6 +599,7 @@ function TreeNodeRow({
   depth,
   onRename,
   onDelete,
+  onDownload,
   dragSrc,
   onDragStart,
   onDropFolder,
@@ -607,6 +608,7 @@ function TreeNodeRow({
   depth: number;
   onRename: (node: TreeNode) => void;
   onDelete: (node: TreeNode) => void;
+  onDownload: (node: TreeNode) => void;
   dragSrc: string | null;
   onDragStart: (path: string) => void;
   onDropFolder: (targetFolderPath: string) => void;
@@ -650,13 +652,16 @@ function TreeNodeRow({
           <span className="text-[8px] text-gray-300 mr-1">{formatSize(node.size)}</span>
         )}
         <div className="hidden group-hover:flex items-center gap-1">
+          {node.type === "file" && (
+            <button onClick={() => onDownload(node)} className="text-[8px] text-gray-400 hover:text-[#00CC99] px-1" title="下载到本地">下</button>
+          )}
           <button onClick={() => onRename(node)} className="text-[8px] text-gray-400 hover:text-[#00A3C4] px-1" title="重命名/移动">改</button>
           <button onClick={() => onDelete(node)} className="text-[8px] text-gray-400 hover:text-red-400 px-1" title="删除">删</button>
         </div>
       </div>
       {node.type === "dir" && open && node.children?.map((child) => (
         <TreeNodeRow key={child.path} node={child} depth={depth + 1}
-          onRename={onRename} onDelete={onDelete}
+          onRename={onRename} onDelete={onDelete} onDownload={onDownload}
           dragSrc={dragSrc} onDragStart={onDragStart} onDropFolder={onDropFolder}
         />
       ))}
@@ -720,6 +725,31 @@ function WorkdirPanel({ onClose }: { onClose: () => void }) {
     finally { setDeleteBusy(false); }
   }
 
+  function handleDownload(node: TreeNode) {
+    const token = document.cookie.match(/(?:^|;\s*)auth_token=([^;]*)/)?.[1]
+      ?? localStorage.getItem("auth_token")
+      ?? "";
+    const url = `/api/proxy/dev-studio/workdir/download?path=${encodeURIComponent(node.path)}`;
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = node.name;
+    // 通过 fetch + blob 携带认证 header，触发浏览器下载
+    fetch(url, { headers: token ? { Authorization: `Bearer ${token}` } : {} })
+      .then((res) => {
+        if (!res.ok) throw new Error("下载失败");
+        return res.blob();
+      })
+      .then((blob) => {
+        const blobUrl = URL.createObjectURL(blob);
+        a.href = blobUrl;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(blobUrl);
+      })
+      .catch(() => setError(`下载失败：${node.name}`));
+  }
+
   async function handleDropToFolder(targetFolderPath: string) {
     if (!dragSrc) return;
     const filename = dragSrc.split("/").pop()!;
@@ -749,6 +779,7 @@ function WorkdirPanel({ onClose }: { onClose: () => void }) {
               <TreeNodeRow key={node.path} node={node} depth={0}
                 onRename={(n) => { setRenameTarget(n); setRenameDst(n.path); }}
                 onDelete={(n) => setDeleteTarget(n)}
+                onDownload={handleDownload}
                 dragSrc={dragSrc}
                 onDragStart={setDragSrc}
                 onDropFolder={handleDropToFolder}

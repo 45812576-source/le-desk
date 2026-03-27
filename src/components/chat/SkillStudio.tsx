@@ -794,6 +794,7 @@ function StudioChat({
   allSkills,
   onApplyDraft,
   onNewSession,
+  clearRef,
 }: {
   convId: number;
   skillId: number | null;
@@ -802,6 +803,7 @@ function StudioChat({
   allSkills: SkillDetail[];
   onApplyDraft: (draft: StudioDraft) => void;
   onNewSession: () => void;
+  clearRef?: { current: (() => void) | null };
 }) {
   // 消息按 conv+skill 分 key 持久化到 sessionStorage，页面刷新后恢复
   const _storageKey = `studio_msgs_${convId}_${skillId ?? "free"}`;
@@ -821,6 +823,21 @@ function StudioChat({
   const scrollRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+
+  // 注册清空聊天的回调给父组件
+  useEffect(() => {
+    if (clearRef) {
+      clearRef.current = () => {
+        abortRef.current?.abort();
+        setMessages([]);
+        setStreaming(false);
+        setPendingDraft(null);
+        try { sessionStorage.removeItem(_storageKey); } catch { /* ignore */ }
+      };
+    }
+    return () => { if (clearRef) clearRef.current = null; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [clearRef, _storageKey]);
 
   // skillId 切换时从 sessionStorage 加载对应历史
   useEffect(() => {
@@ -1099,6 +1116,7 @@ export function SkillStudio({ convId }: { convId: number }) {
   const [externalName, setExternalName] = useState<string | null>(null);
   const [pendingDiffBase, setPendingDiffBase] = useState<string | null>(null);
   const editorSaveRef = useRef<(() => void) | null>(null);
+  const clearChatRef = useRef<(() => void) | null>(null);
 
   const editorIsDirty = prompt !== savedPrompt && prompt.trim().length > 0;
 
@@ -1173,12 +1191,8 @@ export function SkillStudio({ convId }: { convId: number }) {
   }
 
   function handleNewSession() {
-    // 仅清空本地聊天记录，不刷新页面、不创建新对话
-    abortRef.current?.abort();
-    setMessages([]);
-    setStreaming(false);
-    setPendingDraft(null);
-    try { sessionStorage.removeItem(_storageKey); } catch { /* ignore */ }
+    // 通过 ref 调用 StudioChat 内部的清空逻辑
+    clearChatRef.current?.();
   }
 
   const showAssetEditor = selectedFile?.fileType === "asset" && selectedSkill !== null;
@@ -1246,6 +1260,7 @@ export function SkillStudio({ convId }: { convId: number }) {
           allSkills={allPublishedSkills}
           onApplyDraft={handleApplyDraft}
           onNewSession={handleNewSession}
+          clearRef={clearChatRef}
         />
       </div>
     </div>
