@@ -790,20 +790,23 @@ function StudioChat({
   convId,
   skillId,
   currentPrompt,
+  editorIsDirty,
   allSkills,
   onApplyDraft,
+  onNewSession,
 }: {
   convId: number;
   skillId: number | null;
   currentPrompt: string;
+  editorIsDirty: boolean;
   allSkills: SkillDetail[];
   onApplyDraft: (draft: StudioDraft) => void;
+  onNewSession: () => void;
 }) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [streaming, setStreaming] = useState(false);
   const [pendingDraft, setPendingDraft] = useState<StudioDraft | null>(null);
-  const [studioConvId, setStudioConvId] = useState<number | null>(null);
 
   const [hashQuery, setHashQuery] = useState<string | null>(null);
   const [hashActiveIdx, setHashActiveIdx] = useState(0);
@@ -850,21 +853,6 @@ function StudioChat({
     }, 0);
   }
 
-  async function ensureConv(): Promise<number> {
-    if (studioConvId) return studioConvId;
-    const workspaces = await apiFetch<{ id: number; workspace_type: string }[]>("/workspaces");
-    const studioWs = workspaces.find((ws) => ws.workspace_type === "skill_studio");
-    if (studioWs) {
-      const newConv = await apiFetch<{ id: number }>("/conversations", {
-        method: "POST",
-        body: JSON.stringify({ workspace_id: studioWs.id }),
-      });
-      setStudioConvId(newConv.id);
-      return newConv.id;
-    }
-    return convId;
-  }
-
   async function send(userText: string) {
     if (!userText.trim() || streaming) return;
     setMessages((prev) => [...prev, { role: "user", text: userText }]);
@@ -876,11 +864,15 @@ function StudioChat({
     const token = getToken();
 
     try {
-      const targetConvId = await ensureConv();
-      const resp = await fetch(`/api/proxy/conversations/${targetConvId}/messages/stream`, {
+      const resp = await fetch(`/api/proxy/conversations/${convId}/messages/stream`, {
         method: "POST",
         headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-        body: JSON.stringify({ content: userText }),
+        body: JSON.stringify({
+          content: userText,
+          selected_skill_id: skillId ?? undefined,
+          editor_prompt: currentPrompt || undefined,
+          editor_is_dirty: editorIsDirty,
+        }),
         signal: ctrl.signal,
       });
       if (!resp.ok) {
@@ -911,6 +903,15 @@ function StudioChat({
                 if (diff.system_prompt?.new) {
                   setPendingDraft({ system_prompt: diff.system_prompt.new, change_note: "AI 建议修改" });
                 }
+              } else if (curEvt === "error") {
+                const errMsg = data.message || "服务端错误";
+                setMessages((prev) => prev.map((m, i) =>
+                  i === msgIdx ? { ...m, text: errMsg, loading: false } : m
+                ));
+              } else if (curEvt === "done") {
+                setMessages((prev) => prev.map((m, i) =>
+                  i === msgIdx ? { ...m, loading: false } : m
+                ));
               } else if ((curEvt === "delta" || curEvt === "content_block_delta") && data.text) {
                 accText += data.text;
                 setMessages((prev) => prev.map((m, i) => i === msgIdx ? { ...m, text: accText } : m));
@@ -947,14 +948,19 @@ function StudioChat({
               abortRef.current?.abort();
               setMessages([]);
               setStreaming(false);
-              setStudioConvId(null);
               setPendingDraft(null);
             }}
             className="text-[8px] font-bold uppercase text-gray-400 hover:text-red-400 transition-colors"
           >
-            清除对话
+            清除
           </button>
         )}
+        <button
+          onClick={onNewSession}
+          className="text-[8px] font-bold uppercase text-gray-400 hover:text-[#00A3C4] transition-colors"
+        >
+          新建会话
+        </button>
       </div>
 
       {/* Messages */}
@@ -1066,9 +1072,12 @@ export function SkillStudio({ convId }: { convId: number }) {
   const [isNew, setIsNew] = useState(false);
 
   const [prompt, setPrompt] = useState("");
+  const [savedPrompt, setSavedPrompt] = useState("");  // last persisted version for dirty tracking
   const [externalName, setExternalName] = useState<string | null>(null);
   const [pendingDiffBase, setPendingDiffBase] = useState<string | null>(null);
   const editorSaveRef = useRef<(() => void) | null>(null);
+
+  const editorIsDirty = prompt !== savedPrompt && prompt.trim().length > 0;
 
   const selectedSkill = selectedFile
     ? (skills.find((s) => s.id === selectedFile.skillId) ?? null)
@@ -1107,11 +1116,13 @@ export function SkillStudio({ convId }: { convId: number }) {
     setSelectedFile(null);
     setIsNew(true);
     setPrompt("");
+    setSavedPrompt("");
   }
 
   function handleSaved(skill: SkillDetail) {
     setSelectedFile({ skillId: skill.id, fileType: "prompt" });
     setIsNew(false);
+    setSavedPrompt(prompt);
     fetchSkills();
   }
 
@@ -1136,6 +1147,23 @@ export function SkillStudio({ convId }: { convId: number }) {
     setPendingDiffBase(prompt);
     setPrompt(draft.system_prompt);
     if (draft.name) setExternalName(draft.name);
+  }
+
+  async function handleNewSession() {
+    try {
+      const workspaces = await apiFetch<{ id: number; workspace_type: string }[]>("/workspaces");
+      const studioWs = workspaces.find((ws) => ws.workspace_type === "skill_studio");
+      if (!studioWs) return;
+      // POST with workspace_id — backend returns existing conv or creates new one
+      // Force a truly new conv by calling without dedup (backend only deduplicates active convs,
+      // so we just navigate to the existing conv; "new session" here means clear local chat state)
+      // The backend already returns the same conv if one is active, so we navigate to it fresh.
+      const conv = await apiFetch<{ id: number }>("/conversations", {
+        method: "POST",
+        body: JSON.stringify({ workspace_id: studioWs.id }),
+      });
+      window.location.href = `/chat/${conv.id}?ws=skill_studio`;
+    } catch { /* ignore */ }
   }
 
   const showAssetEditor = selectedFile?.fileType === "asset" && selectedSkill !== null;
@@ -1199,8 +1227,10 @@ export function SkillStudio({ convId }: { convId: number }) {
           convId={convId}
           skillId={selectedSkill?.id ?? null}
           currentPrompt={prompt}
+          editorIsDirty={editorIsDirty}
           allSkills={allPublishedSkills}
           onApplyDraft={handleApplyDraft}
+          onNewSession={handleNewSession}
         />
       </div>
     </div>
