@@ -17,39 +17,17 @@ interface ChatMessage {
   loading?: boolean;
 }
 
-type RightMode = "test" | "ai";
-
-interface StudioMeta {
-  phase: "greet" | "explore" | "extract" | "generate";
-  turn?: number;
-  quick_replies?: string[];
+interface StudioDraft {
+  name?: string;
+  description?: string;
+  system_prompt: string;
+  change_note?: string;
 }
 
-function parseStudioMeta(text: string): { clean: string; meta: StudioMeta | null } {
-  const regex = /<!--STUDIO_META:([\s\S]*?)-->/;
-  const match = text.match(regex);
-  if (!match) return { clean: text, meta: null };
-  try {
-    const meta = JSON.parse(match[1]) as StudioMeta;
-    return { clean: text.replace(regex, "").trimEnd(), meta };
-  } catch { return { clean: text, meta: null }; }
+interface StudioDiff {
+  system_prompt?: { old: string; new: string };
+  [key: string]: unknown;
 }
-
-const PHASE_LABELS: Record<StudioMeta["phase"], string> = {
-  greet: "开始",
-  explore: "探索",
-  extract: "确认",
-  generate: "生成",
-};
-const PHASE_ORDER: StudioMeta["phase"][] = ["greet", "explore", "extract", "generate"];
-
-const THINKING_TEXTS = [
-  "正在理解你的需求...",
-  "正在分析使用场景...",
-  "正在深挖关键细节...",
-  "正在整理核心框架...",
-  "正在生成 Prompt...",
-];
 
 // Which file is currently selected in the editor
 type SelectedFile =
@@ -551,7 +529,6 @@ function PromptEditor({
   saveRef,
   onPromptChange,
   onSaved,
-  onAiOptimize,
   onFork,
 }: {
   skill: SkillDetail | null;
@@ -562,7 +539,6 @@ function PromptEditor({
   saveRef?: React.MutableRefObject<(() => void) | null>;
   onPromptChange: (p: string) => void;
   onSaved: (skill: SkillDetail) => void;
-  onAiOptimize: () => void;
   onFork: () => void;
 }) {
   const [name, setName] = useState("");
@@ -739,9 +715,6 @@ function PromptEditor({
       {/* Toolbar */}
       {!isReadOnly && (
         <div className="px-4 py-3 border-t-2 border-[#1A202C] flex items-center gap-2 flex-wrap flex-shrink-0">
-          <PixelButton size="sm" onClick={onAiOptimize} disabled={!prompt.trim() || !skill}>
-            ✦ AI 优化
-          </PixelButton>
           {showSaveNote ? (
             <div className="flex items-center gap-2 flex-1 min-w-0">
               <input value={changeNote} onChange={(e) => setChangeNote(e.target.value)} placeholder="变更说明（可选）" autoFocus
@@ -764,97 +737,96 @@ function PromptEditor({
   );
 }
 
-// ─── Right panel ──────────────────────────────────────────────────────────────
+// ─── Draft card ───────────────────────────────────────────────────────────────
 
-function RightPanel({
+function DraftCard({
+  draft,
+  currentPrompt,
+  onApply,
+  onDiscard,
+}: {
+  draft: StudioDraft;
+  currentPrompt: string;
+  onApply: () => void;
+  onDiscard: () => void;
+}) {
+  const [showPreview, setShowPreview] = useState(false);
+  const hasDiff = currentPrompt !== draft.system_prompt;
+
+  return (
+    <div className="mx-3 my-2 border-2 border-[#00A3C4] bg-[#F0FAFF] flex-shrink-0">
+      <div className="px-3 py-2 border-b border-[#CCE8F4] flex items-center gap-2">
+        <span className="text-[9px] font-bold uppercase tracking-widest text-[#00A3C4] flex-1">
+          ✦ 待采纳草稿{draft.name ? `：${draft.name}` : ""}
+        </span>
+        {hasDiff && (
+          <button
+            onClick={() => setShowPreview((v) => !v)}
+            className="text-[8px] font-bold uppercase text-gray-400 hover:text-[#00A3C4]"
+          >
+            {showPreview ? "收起" : "预览变更"}
+          </button>
+        )}
+      </div>
+      {draft.change_note && (
+        <div className="px-3 py-1.5 text-[9px] text-gray-600 border-b border-[#CCE8F4]">{draft.change_note}</div>
+      )}
+      {showPreview && hasDiff && (
+        <div className="max-h-48 overflow-auto border-b border-[#CCE8F4]">
+          <DiffViewer oldText={currentPrompt} newText={draft.system_prompt} />
+        </div>
+      )}
+      <div className="px-3 py-2 flex gap-2">
+        <PixelButton size="sm" onClick={onApply} className="flex-1">✓ 应用到编辑框</PixelButton>
+        <PixelButton size="sm" variant="secondary" onClick={onDiscard}>丢弃</PixelButton>
+      </div>
+    </div>
+  );
+}
+
+// ─── Right panel (Studio Chat) ─────────────────────────────────────────────────
+
+function StudioChat({
   convId,
   skillId,
-  skillName,
-  isNew,
-  triggerAiMode,
+  currentPrompt,
   allSkills,
-  onAdoptPrompt,
-  onAdoptVersion,
-  onAutoCreated,
+  onApplyDraft,
 }: {
   convId: number;
   skillId: number | null;
-  skillName: string;
-  isNew: boolean;
-  triggerAiMode: number;
+  currentPrompt: string;
   allSkills: SkillDetail[];
-  onAdoptPrompt: (newPrompt: string, name?: string) => void;
-  onAdoptVersion: () => void;
-  onAutoCreated: (skill: SkillDetail) => void;
+  onApplyDraft: (draft: StudioDraft) => void;
 }) {
-  const [mode, setMode] = useState<RightMode>("test");
-
-  const [testMessages, setTestMessages] = useState<ChatMessage[]>([]);
-  const [testInput, setTestInput] = useState("");
-  const [testConvId, setTestConvId] = useState<number | null>(null);
-  const [testing, setTesting] = useState(false);
-  const testScrollRef = useRef<HTMLDivElement>(null);
-  const testAbortRef = useRef<AbortController | null>(null);
-
-  const [aiMessages, setAiMessages] = useState<ChatMessage[]>([]);
-  const [aiInput, setAiInput] = useState("");
-  const [aiStreaming, setAiStreaming] = useState(false);
-  const [pendingPrompt, setPendingPrompt] = useState<{ prompt: string; name?: string } | null>(null);
-  const [aiConvId, setAiConvId] = useState<number | null>(null);
-  const aiScrollRef = useRef<HTMLDivElement>(null);
-  const aiAbortRef = useRef<AbortController | null>(null);
-
-  const [currentPhase, setCurrentPhase] = useState<StudioMeta["phase"]>("greet");
-  const [quickReplies, setQuickReplies] = useState<string[]>([]);
-  const [aiThinkingText, setAiThinkingText] = useState<string>("");
-  const aiMsgCountRef = useRef(0);
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [input, setInput] = useState("");
+  const [streaming, setStreaming] = useState(false);
+  const [pendingDraft, setPendingDraft] = useState<StudioDraft | null>(null);
+  const [studioConvId, setStudioConvId] = useState<number | null>(null);
 
   const [hashQuery, setHashQuery] = useState<string | null>(null);
   const [hashActiveIdx, setHashActiveIdx] = useState(0);
-  const aiInputRef = useRef<HTMLTextAreaElement>(null);
+
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const abortRef = useRef<AbortController | null>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
-    if (isNew) setMode("ai");
-  }, [isNew]);
-
-  useEffect(() => {
-    if (triggerAiMode > 0) setMode("ai");
-  }, [triggerAiMode]);
-
-  // 自动开场白：AI 模式激活且对话为空时，自动触发开场白
-  const autoGreetedRef = useRef(false);
-  useEffect(() => {
-    if (mode === "ai" && aiMessages.length === 0 && !aiStreaming && !autoGreetedRef.current) {
-      autoGreetedRef.current = true;
-      _doAiSend("你好，我想创建一个新的 AI Skill");
-    }
-    if (mode !== "ai") {
-      // 切回非 AI 模式时，允许下次切入时再次触发（如果对话已被清空）
-      if (aiMessages.length === 0) autoGreetedRef.current = false;
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mode]);
-
-  useEffect(() => {
-    testScrollRef.current?.scrollTo({ top: testScrollRef.current.scrollHeight, behavior: "smooth" });
-  }, [testMessages]);
-  useEffect(() => {
-    aiScrollRef.current?.scrollTo({ top: aiScrollRef.current.scrollHeight, behavior: "smooth" });
-  }, [testMessages]);
+    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
+  }, [messages]);
 
   const filteredSkills = hashQuery !== null
     ? allSkills.filter((s) => s.name.toLowerCase().includes(hashQuery.toLowerCase()))
     : [];
 
-  function handleAiInputChange(v: string, cursorPos: number) {
-    setAiInput(v);
+  function handleInputChange(v: string, cursorPos: number) {
+    setInput(v);
     const before = v.slice(0, cursorPos);
     const hashIdx = before.lastIndexOf("#");
-    console.log("[# debug] value:", JSON.stringify(v), "cursor:", cursorPos, "hashIdx:", hashIdx, "allSkills:", allSkills.length, "mode:", mode);
     if (hashIdx !== -1) {
       const q = before.slice(hashIdx + 1);
       if (!q.includes(" ") && !q.includes("\n")) {
-        console.log("[# debug] setHashQuery:", JSON.stringify(q));
         setHashQuery(q);
         setHashActiveIdx(0);
         return;
@@ -864,12 +836,12 @@ function RightPanel({
   }
 
   function selectHashSkill(skill: SkillDetail) {
-    const el = aiInputRef.current;
-    const cursor = el?.selectionStart ?? aiInput.length;
-    const before = aiInput.slice(0, cursor);
+    const el = inputRef.current;
+    const cursor = el?.selectionStart ?? input.length;
+    const before = input.slice(0, cursor);
     const hashIdx = before.lastIndexOf("#");
-    const newVal = aiInput.slice(0, hashIdx) + `#${skill.name} ` + aiInput.slice(cursor);
-    setAiInput(newVal);
+    const newVal = input.slice(0, hashIdx) + `#${skill.name} ` + input.slice(cursor);
+    setInput(newVal);
     setHashQuery(null);
     setTimeout(() => {
       el?.focus();
@@ -878,115 +850,33 @@ function RightPanel({
     }, 0);
   }
 
-  async function ensureTestConv(): Promise<number> {
-    if (testConvId) return testConvId;
-    const conv = await apiFetch<{ id: number }>("/conversations", { method: "POST", body: JSON.stringify({}) });
-    setTestConvId(conv.id);
-    return conv.id;
-  }
-
-  async function handleTest() {
-    if (!testInput.trim() || testing || !skillId) return;
-    const userText = testInput.trim();
-    setTestInput("");
-    setTestMessages((prev) => [...prev, { role: "user", text: userText }]);
-    setTesting(true);
-    const ctrl = new AbortController();
-    testAbortRef.current = ctrl;
-    try {
-      const cid = await ensureTestConv();
-      const token = getToken();
-      const resp = await fetch(`/api/proxy/conversations/${cid}/messages/stream`, {
+  async function ensureConv(): Promise<number> {
+    if (studioConvId) return studioConvId;
+    const workspaces = await apiFetch<{ id: number; workspace_type: string }[]>("/workspaces");
+    const studioWs = workspaces.find((ws) => ws.workspace_type === "skill_studio");
+    if (studioWs) {
+      const newConv = await apiFetch<{ id: number }>("/conversations", {
         method: "POST",
-        headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-        body: JSON.stringify({ content: userText, force_skill_id: skillId }),
-        signal: ctrl.signal,
+        body: JSON.stringify({ workspace_id: studioWs.id }),
       });
-      if (!resp.ok) {
-        setTestMessages((prev) => [...prev, { role: "assistant", text: "请求失败，请确认 Skill 有已保存的版本" }]);
-        return;
-      }
-      const reader = resp.body?.getReader();
-      if (!reader) return;
-      const decoder = new TextDecoder();
-      let buf = "", accText = "", curEvt = "delta";
-      let msgIdx = -1;
-      setTestMessages((prev) => { msgIdx = prev.length; return [...prev, { role: "assistant", text: "", loading: true }]; });
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buf += decoder.decode(value, { stream: true });
-        const lines = buf.split("\n"); buf = lines.pop() || "";
-        for (const line of lines) {
-          if (line.startsWith("event: ")) { curEvt = line.slice(7).trim(); }
-          else if (line.startsWith("data: ")) {
-            try {
-              const data = JSON.parse(line.slice(6));
-              if ((curEvt === "delta" || curEvt === "content_block_delta") && data.text) {
-                accText += data.text;
-                setTestMessages((prev) => prev.map((m, i) => i === msgIdx ? { ...m, text: accText } : m));
-              }
-            } catch { /* skip */ }
-            curEvt = "delta";
-          }
-        }
-      }
-      setTestMessages((prev) => prev.map((m, i) => i === msgIdx ? { ...m, loading: false } : m));
-    } catch (err) {
-      if ((err as Error).name !== "AbortError") {
-        setTestMessages((prev) => [...prev, { role: "assistant", text: "连接中断" }]);
-      }
-    } finally { setTesting(false); }
+      setStudioConvId(newConv.id);
+      return newConv.id;
+    }
+    return convId;
   }
 
-  async function handleAiSendText(text: string) {
-    if (!text.trim() || aiStreaming) return;
-    const userText = text.trim();
-    setAiInput("");
-    await _doAiSend(userText);
-  }
-
-  async function handleAiSend() {
-    console.log("[AI send] mode:", mode, "input:", JSON.stringify(aiInput), "streaming:", aiStreaming);
-    if (!aiInput.trim() || aiStreaming) return;
-    const userText = aiInput.trim();
-    setAiInput("");
-    await _doAiSend(userText);
-  }
-
-  async function _doAiSend(userText: string) {
-    console.log("[_doAiSend] text:", JSON.stringify(userText), "aiConvId:", aiConvId);
-    setAiMessages((prev) => [...prev, { role: "user", text: userText }]);
-    setAiStreaming(true);
-    setQuickReplies([]);
-
-    // 根据轮次选择 thinking 文案
-    const thinkingIdx = Math.min(aiMsgCountRef.current, THINKING_TEXTS.length - 1);
-    setAiThinkingText(THINKING_TEXTS[thinkingIdx]);
-    aiMsgCountRef.current += 1;
+  async function send(userText: string) {
+    if (!userText.trim() || streaming) return;
+    setMessages((prev) => [...prev, { role: "user", text: userText }]);
+    setStreaming(true);
+    setInput("");
 
     const ctrl = new AbortController();
-    aiAbortRef.current = ctrl;
+    abortRef.current = ctrl;
     const token = getToken();
-    try {
-      // Ensure we have a conversation bound to the skill_studio workspace
-      let targetConvId = aiConvId;
-      if (!targetConvId) {
-        try {
-          const workspaces = await apiFetch<{ id: number; workspace_type: string }[]>("/workspaces");
-          const studioWs = workspaces.find((ws) => ws.workspace_type === "skill_studio");
-          if (studioWs) {
-            const newConv = await apiFetch<{ id: number }>("/conversations", {
-              method: "POST",
-              body: JSON.stringify({ workspace_id: studioWs.id }),
-            });
-            targetConvId = newConv.id;
-            setAiConvId(newConv.id);
-          }
-        } catch { /* fall back to convId */ }
-        if (!targetConvId) targetConvId = convId;
-      }
 
+    try {
+      const targetConvId = await ensureConv();
       const resp = await fetch(`/api/proxy/conversations/${targetConvId}/messages/stream`, {
         method: "POST",
         headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
@@ -994,9 +884,7 @@ function RightPanel({
         signal: ctrl.signal,
       });
       if (!resp.ok) {
-        const errText = await resp.text().catch(() => "");
-        console.error("[AI send] HTTP error:", resp.status, errText);
-        setAiMessages((prev) => [...prev, { role: "assistant", text: `发送失败 (${resp.status})` }]);
+        setMessages((prev) => [...prev, { role: "assistant", text: `发送失败 (${resp.status})` }]);
         return;
       }
       const reader = resp.body?.getReader();
@@ -1004,8 +892,8 @@ function RightPanel({
       const decoder = new TextDecoder();
       let buf = "", accText = "", curEvt = "delta";
       let msgIdx = -1;
-      let firstToken = true;
-      setAiMessages((prev) => { msgIdx = prev.length; return [...prev, { role: "assistant", text: "", loading: true }]; });
+      setMessages((prev) => { msgIdx = prev.length; return [...prev, { role: "assistant", text: "", loading: true }]; });
+
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
@@ -1016,121 +904,76 @@ function RightPanel({
           else if (line.startsWith("data: ")) {
             try {
               const data = JSON.parse(line.slice(6));
-              if ((curEvt === "delta" || curEvt === "content_block_delta") && data.text) {
-                if (firstToken) {
-                  firstToken = false;
-                  setAiThinkingText(""); // 清除 thinking 文案
+              if (curEvt === "studio_draft") {
+                setPendingDraft(data as StudioDraft);
+              } else if (curEvt === "studio_diff") {
+                const diff = data as StudioDiff;
+                if (diff.system_prompt?.new) {
+                  setPendingDraft({ system_prompt: diff.system_prompt.new, change_note: "AI 建议修改" });
                 }
+              } else if ((curEvt === "delta" || curEvt === "content_block_delta") && data.text) {
                 accText += data.text;
-                setAiMessages((prev) => prev.map((m, i) => i === msgIdx ? { ...m, text: accText } : m));
+                setMessages((prev) => prev.map((m, i) => i === msgIdx ? { ...m, text: accText } : m));
               }
             } catch { /* skip */ }
             curEvt = "delta";
           }
         }
       }
-      // 流式完成，解析元数据
-      const { clean, meta } = parseStudioMeta(accText);
-      const finalText = clean || accText;
-      setAiMessages((prev) => prev.map((m, i) => i === msgIdx ? { ...m, text: finalText, loading: false } : m));
-      if (meta) {
-        setCurrentPhase(meta.phase);
-        setQuickReplies(meta.quick_replies ?? []);
-      }
-      // Auto-detect <<<SKILL_PROMPT_START>>> marker in AI response
-      const startTag = "<<<SKILL_PROMPT_START>>>";
-      const endTag = "<<<SKILL_PROMPT_END>>>";
-      const s = finalText.indexOf(startTag);
-      const e = finalText.indexOf(endTag);
-      if (s !== -1 && e !== -1 && e > s) {
-        const extracted = finalText.slice(s + startTag.length, e).trim();
-        if (extracted) setPendingPrompt({ prompt: extracted });
-      }
+      setMessages((prev) => prev.map((m, i) => i === msgIdx ? { ...m, loading: false } : m));
     } catch (err) {
       if ((err as Error).name !== "AbortError") {
-        console.error("[AI send] stream error:", err);
-        setAiMessages((prev) => [...prev, { role: "assistant", text: "连接中断" }]);
+        setMessages((prev) => [...prev, { role: "assistant", text: "连接中断" }]);
       }
     } finally {
-      setAiStreaming(false);
-      setAiThinkingText("");
+      setStreaming(false);
     }
+  }
+
+  function handleApplyDraft() {
+    if (!pendingDraft) return;
+    onApplyDraft(pendingDraft);
+    setPendingDraft(null);
   }
 
   return (
     <div className="flex flex-col flex-[1] min-w-0 border-l-2 border-[#1A202C] bg-white">
-      <div className="flex border-b-2 border-[#1A202C] flex-shrink-0">
-        {(["test", "ai"] as RightMode[]).map((m) => (
-          <button key={m} onClick={() => setMode(m)}
-            className={`flex-1 py-2.5 text-[9px] font-bold uppercase tracking-widest border-r last:border-r-0 border-[#1A202C] transition-colors ${
-              mode === m ? "bg-[#1A202C] text-white" : "bg-[#EBF4F7] text-[#1A202C] hover:bg-[#D8EEF5]"
-            }`}>
-            {m === "test" ? "测试" : "✦ AI 优化"}
+      {/* Header */}
+      <div className="px-3 py-2.5 border-b-2 border-[#1A202C] flex items-center gap-2 flex-shrink-0 bg-[#EBF4F7]">
+        <span className="text-[9px] font-bold uppercase tracking-widest text-[#00A3C4] flex-1">Studio Chat</span>
+        {messages.length > 0 && (
+          <button
+            onClick={() => {
+              abortRef.current?.abort();
+              setMessages([]);
+              setStreaming(false);
+              setStudioConvId(null);
+              setPendingDraft(null);
+            }}
+            className="text-[8px] font-bold uppercase text-gray-400 hover:text-red-400 transition-colors"
+          >
+            清除对话
           </button>
-        ))}
-      </div>
-
-      {/* AI 阶段进度条 */}
-      {mode === "ai" && (
-        <div className="flex border-b border-gray-200 flex-shrink-0 bg-[#F8FAFB]">
-          {PHASE_ORDER.map((ph, idx) => {
-            const currentIdx = PHASE_ORDER.indexOf(currentPhase);
-            const isActive = idx === currentIdx;
-            const isDone = idx < currentIdx;
-            return (
-              <div key={ph} className={`flex-1 py-1.5 text-center text-[8px] font-bold uppercase tracking-widest transition-colors ${
-                isActive ? "bg-[#1A202C] text-white" : isDone ? "text-[#00A3C4]" : "text-gray-300"
-              }`}>
-                {isDone ? "✓ " : ""}{PHASE_LABELS[ph]}
-              </div>
-            );
-          })}
-        </div>
-      )}
-
-      <div className="px-3 py-1.5 border-b border-gray-200 flex items-center gap-2 flex-shrink-0">
-        <span className="text-[8px] font-bold uppercase tracking-widest text-gray-400 flex-1 truncate">
-          {mode === "test" ? (skillName || "未选择 Skill") : "与 AI 对话，探讨 Skill 需求"}
-        </span>
-        {mode === "test" && testMessages.length > 0 && (
-          <button onClick={() => { testAbortRef.current?.abort(); setTestMessages([]); setTestConvId(null); setTesting(false); }}
-            className="text-[8px] font-bold uppercase text-gray-400 hover:text-red-400 transition-colors">清除</button>
-        )}
-        {mode === "ai" && aiMessages.length > 0 && (
-          <button onClick={() => {
-            aiAbortRef.current?.abort();
-            setAiMessages([]);
-            setAiStreaming(false);
-            setAiConvId(null);
-            setCurrentPhase("greet");
-            setQuickReplies([]);
-            setAiThinkingText("");
-            aiMsgCountRef.current = 0;
-          }}
-            className="text-[8px] font-bold uppercase text-gray-400 hover:text-red-400 transition-colors">清除对话</button>
         )}
       </div>
 
-      <div ref={mode === "test" ? testScrollRef : aiScrollRef} className="flex-1 overflow-y-auto p-3 space-y-3">
-        {(mode === "test" ? testMessages : aiMessages).length === 0 && !aiStreaming && (
+      {/* Messages */}
+      <div ref={scrollRef} className="flex-1 overflow-y-auto p-3 space-y-3">
+        {messages.length === 0 && !streaming && (
           <div className="flex items-center justify-center h-full">
             <p className="text-[9px] text-gray-400 font-bold uppercase text-center">
-              {mode === "test"
-                ? (skillId ? "输入消息测试当前 Skill" : "请先选择或保存一个 Skill")
-                : "正在连接 AI 助手..."}
+              描述你想创建或修改的 Skill<br />
+              <span className="text-gray-300 normal-case font-normal">说"帮我测试"可以触发测试</span>
             </p>
           </div>
         )}
-        {(mode === "test" ? testMessages : aiMessages).map((m, i) => (
+        {messages.map((m, i) => (
           <div key={i} className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
             <div className={`max-w-[95%] px-2.5 py-2 text-[9px] font-mono leading-relaxed whitespace-pre-wrap border ${
               m.role === "user" ? "bg-[#1A202C] text-white border-[#1A202C]" : "bg-[#F0F4F8] text-[#1A202C] border-gray-200"
             }`}>
               {m.loading && !m.text ? (
-                <span className="flex items-center gap-1.5">
-                  <span className="animate-pulse text-[#00A3C4]">▋</span>
-                  {aiThinkingText && <span className="text-[8px] text-gray-400 italic">{aiThinkingText}</span>}
-                </span>
+                <span className="animate-pulse text-[#00A3C4]">▋</span>
               ) : (
                 <>
                   {m.text}
@@ -1142,53 +985,20 @@ function RightPanel({
         ))}
       </div>
 
-      {mode === "ai" && quickReplies.length > 0 && !aiStreaming && !pendingPrompt && (
-        <div className="px-3 py-2 border-t border-gray-100 bg-[#F8FAFB] flex-shrink-0 flex flex-wrap gap-1.5">
-          {quickReplies.map((reply, i) => (
-            <button
-              key={i}
-              onClick={() => { setQuickReplies([]); handleAiSendText(reply); }}
-              className="text-[8px] font-bold px-2 py-1 border border-[#00A3C4] text-[#00A3C4] hover:bg-[#E6F7FB] transition-colors font-mono"
-            >
-              {reply}
-            </button>
-          ))}
-        </div>
+      {/* Pending draft card */}
+      {pendingDraft && (
+        <DraftCard
+          draft={pendingDraft}
+          currentPrompt={currentPrompt}
+          onApply={handleApplyDraft}
+          onDiscard={() => setPendingDraft(null)}
+        />
       )}
 
-      {mode === "ai" && (
-        <div className="px-3 py-2 border-t border-gray-200 bg-[#F8FAFB] flex-shrink-0 flex gap-2">
-          {pendingPrompt ? (
-            <>
-              <PixelButton size="sm" onClick={() => { onAdoptPrompt(pendingPrompt.prompt, pendingPrompt.name); setPendingPrompt(null); }} className="flex-1">
-                ✓ 采纳写入编辑器
-              </PixelButton>
-              <PixelButton size="sm" variant="secondary" onClick={() => setPendingPrompt(null)}>
-                丢弃
-              </PixelButton>
-            </>
-          ) : (
-            <div className="w-full flex flex-col gap-1">
-              <PixelButton
-                size="sm"
-                variant={currentPhase === "extract" || currentPhase === "generate" ? "primary" : "secondary"}
-                className={`w-full transition-all ${currentPhase === "extract" ? "animate-pulse" : ""}`}
-                disabled={aiStreaming || aiMessages.length === 0}
-                onClick={() => handleAiSendText("好的，请根据我们的探讨，现在生成完整的 System Prompt。")}
-              >
-                ✦ 生成 Prompt
-              </PixelButton>
-              {currentPhase === "explore" && (
-                <p className="text-[8px] text-gray-400 text-center">建议先充分探讨后再生成</p>
-              )}
-            </div>
-          )}
-        </div>
-      )}
-
-      <div className="border-t-2 border-[#1A202C] p-3 space-y-2 flex-shrink-0">
+      {/* Input */}
+      <div className="border-t-2 border-[#1A202C] p-3 flex-shrink-0">
         <div className="flex gap-2 relative">
-          {mode === "ai" && hashQuery !== null && (
+          {hashQuery !== null && (
             <div className="absolute bottom-full left-0 right-0 mb-1 bg-white border-2 border-[#1A202C] shadow-lg z-50 max-h-48 overflow-y-auto">
               {filteredSkills.length === 0 ? (
                 <div className="px-3 py-2 text-[9px] font-bold text-gray-400 uppercase tracking-widest">无匹配 Skill</div>
@@ -1214,25 +1024,15 @@ function RightPanel({
             </div>
           )}
           <textarea
-            ref={mode === "ai" ? aiInputRef : undefined}
-            value={mode === "test" ? testInput : aiInput}
-            onChange={(e) => {
-              if (mode === "test") {
-                setTestInput(e.target.value);
-              } else {
-                handleAiInputChange(e.target.value, e.target.selectionStart ?? e.target.value.length);
-              }
-            }}
-            placeholder={
-              mode === "test"
-                ? (skillId ? "输入测试消息，Ctrl+Enter 发送..." : "请先选择 Skill")
-                : "和 AI 聊你的 Skill 需求，# 调用 Skill，Ctrl+Enter 发送..."
-            }
-            disabled={mode === "test" ? (!skillId || testing) : aiStreaming}
+            ref={inputRef}
+            value={input}
+            onChange={(e) => handleInputChange(e.target.value, e.target.selectionStart ?? e.target.value.length)}
+            placeholder="描述需求、说「帮我测试」、# 引用 Skill，Ctrl+Enter 发送..."
+            disabled={streaming}
             rows={2}
             className="flex-1 border-2 border-[#1A202C] px-2 py-1.5 text-[9px] font-mono focus:outline-none focus:border-[#00D1FF] disabled:opacity-50 resize-none"
             onKeyDown={(e) => {
-              if (mode === "ai" && hashQuery !== null && filteredSkills.length > 0) {
+              if (hashQuery !== null && filteredSkills.length > 0) {
                 if (e.key === "ArrowDown") { e.preventDefault(); setHashActiveIdx((i) => (i + 1) % filteredSkills.length); return; }
                 if (e.key === "ArrowUp") { e.preventDefault(); setHashActiveIdx((i) => (i - 1 + filteredSkills.length) % filteredSkills.length); return; }
                 if (e.key === "Enter" && !e.ctrlKey && !e.metaKey) { e.preventDefault(); selectHashSkill(filteredSkills[hashActiveIdx]); return; }
@@ -1240,19 +1040,18 @@ function RightPanel({
               }
               if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
                 e.preventDefault();
-                mode === "test" ? handleTest() : handleAiSend();
+                send(input);
               }
             }}
           />
-          <PixelButton size="sm"
-            onClick={mode === "test" ? handleTest : handleAiSend}
-            disabled={mode === "test" ? (!skillId || testing || !testInput.trim()) : (aiStreaming || !aiInput.trim())}>
-            {(mode === "test" ? testing : aiStreaming) ? "..." : "发送"}
+          <PixelButton
+            size="sm"
+            onClick={() => send(input)}
+            disabled={streaming || !input.trim()}
+          >
+            {streaming ? "..." : "发送"}
           </PixelButton>
         </div>
-        {mode === "test" && testMessages.length > 0 && (
-          <PixelButton size="sm" onClick={onAdoptVersion} className="w-full">✓ 保存当前版本</PixelButton>
-        )}
       </div>
     </div>
   );
@@ -1269,7 +1068,6 @@ export function SkillStudio({ convId }: { convId: number }) {
   const [prompt, setPrompt] = useState("");
   const [externalName, setExternalName] = useState<string | null>(null);
   const [pendingDiffBase, setPendingDiffBase] = useState<string | null>(null);
-  const [triggerAiMode, setTriggerAiMode] = useState(0);
   const editorSaveRef = useRef<(() => void) | null>(null);
 
   const selectedSkill = selectedFile
@@ -1334,9 +1132,10 @@ export function SkillStudio({ convId }: { convId: number }) {
     }
   }
 
-  function handleAdoptVersion() {
-    console.log("[采纳] editorSaveRef.current:", editorSaveRef.current);
-    editorSaveRef.current?.();
+  function handleApplyDraft(draft: StudioDraft) {
+    setPendingDiffBase(prompt);
+    setPrompt(draft.system_prompt);
+    if (draft.name) setExternalName(draft.name);
   }
 
   const showAssetEditor = selectedFile?.fileType === "asset" && selectedSkill !== null;
@@ -1392,29 +1191,16 @@ export function SkillStudio({ convId }: { convId: number }) {
             saveRef={editorSaveRef}
             onPromptChange={setPrompt}
             onSaved={handleSaved}
-            onAiOptimize={() => setTriggerAiMode((n) => n + 1)}
             onFork={handleFork}
           />
         )}
 
-        <RightPanel
+        <StudioChat
           convId={convId}
           skillId={selectedSkill?.id ?? null}
-          skillName={selectedSkill?.name ?? ""}
-          isNew={isNew}
-          triggerAiMode={triggerAiMode}
+          currentPrompt={prompt}
           allSkills={allPublishedSkills}
-          onAdoptPrompt={(newPrompt, name) => {
-            setPendingDiffBase(prompt);
-            setPrompt(newPrompt);
-            if (name) setExternalName(name);
-          }}
-          onAdoptVersion={handleAdoptVersion}
-          onAutoCreated={(skill) => {
-            setSelectedFile({ skillId: skill.id, fileType: "prompt" });
-            setIsNew(false);
-            fetchSkills();
-          }}
+          onApplyDraft={handleApplyDraft}
         />
       </div>
     </div>
