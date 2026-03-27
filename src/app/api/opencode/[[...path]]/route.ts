@@ -90,7 +90,14 @@ export async function GET(
     return _origFetch.call(this, input, init);
   };
 
-  // patch window.open：拦截一切新 tab/窗口，全部在 iframe 内导航
+  // patch location.reload()：opencode SPA 内部偶尔调用 reload，会导致 iframe 整体刷新
+  // 用 no-op 替换，避免周期性白屏闪退
+  try {
+    Location.prototype.reload = function() {};
+  } catch(e) {}
+
+  // patch window.open：拦截一切新 tab/窗口，用 history.pushState 做 SPA 内导航
+  // 注意：不能用 location.href，那会触发整页刷新
   var _origOpen = window.open;
   window.open = function(url, target, features) {
     if (url && typeof url === "string") {
@@ -98,16 +105,19 @@ export async function GET(
       if (url.startsWith(location.origin)) {
         path = url.slice(location.origin.length) || "/";
       } else if (/^https?:\/\/(?:127\.0\.0\.1|localhost)(:\d+)?/.test(url)) {
-        // OpenCode 直接用 localhost URL 开窗口，截取路径部分
         path = url.replace(/^https?:\/\/(?:127\.0\.0\.1|localhost)(:\d+)?/, "") || "/";
       }
       if (path.startsWith("/")) {
-        location.href = path;
+        // SPA 内部跳转：pushState 静默切换，不触发页面刷新
+        history.pushState(null, "", _addPort(path));
         return null;
       }
     }
-    // 完全外部链接也留在当前窗口
-    if (url && typeof url === "string") { location.href = url; return null; }
+    // 完全外部链接：同样 pushState（留在 iframe 内，不开新窗口）
+    if (url && typeof url === "string") {
+      history.pushState(null, "", url);
+      return null;
+    }
     return _origOpen.call(this, url, target, features);
   };
 
@@ -115,14 +125,13 @@ export async function GET(
   document.addEventListener("click", function(e) {
     var el = e.target;
     while (el && el !== document) {
-      if (el.tagName === "A" && el.target === "_blank") {
+      if (el.tagName === "A" && el.getAttribute("target") === "_blank") {
         e.preventDefault();
         e.stopPropagation();
         var href = el.getAttribute("href");
-        if (href && !href.startsWith("http")) {
-          location.href = href;
-        } else if (href) {
-          location.href = href;
+        if (href) {
+          // pushState 代替 location.href，避免整页重载
+          history.pushState(null, "", href.startsWith("/") ? _addPort(href) : href);
         }
         return;
       }
