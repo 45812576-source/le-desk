@@ -726,9 +726,7 @@ function WorkdirPanel({ onClose }: { onClose: () => void }) {
   }
 
   function handleDownload(node: TreeNode) {
-    const token = document.cookie.match(/(?:^|;\s*)auth_token=([^;]*)/)?.[1]
-      ?? localStorage.getItem("auth_token")
-      ?? "";
+    const token = localStorage.getItem("token") ?? "";
     const url = `/api/proxy/dev-studio/workdir/download?path=${encodeURIComponent(node.path)}`;
     const a = document.createElement("a");
     a.href = url;
