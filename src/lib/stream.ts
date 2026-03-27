@@ -73,12 +73,11 @@ export async function* streamChat(
     const text = await resp.text().catch(() => "");
     if (resp.status === 401) {
       localStorage.removeItem("token");
-      window.location.href = "/login";
-      return;
+      localStorage.removeItem("cached_user");
     }
     yield {
       type: "error",
-      data: { message: `HTTP ${resp.status}: ${text}` },
+      data: { message: resp.status === 401 ? "登录已过期，请重新登录" : `HTTP ${resp.status}: ${text}`, error_type: resp.status === 401 ? "auth" : "server_error" },
     };
     return;
   }
@@ -159,12 +158,11 @@ export async function* streamUpload(
     const text = await resp.text().catch(() => "");
     if (resp.status === 401) {
       localStorage.removeItem("token");
-      window.location.href = "/login";
-      return;
+      localStorage.removeItem("cached_user");
     }
     yield {
       type: "error",
-      data: { message: `HTTP ${resp.status}: ${text}` },
+      data: { message: resp.status === 401 ? "登录已过期，请重新登录" : `HTTP ${resp.status}: ${text}`, error_type: resp.status === 401 ? "auth" : "server_error" },
     };
     return;
   }

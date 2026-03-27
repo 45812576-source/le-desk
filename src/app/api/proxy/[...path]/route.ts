@@ -35,11 +35,15 @@ export async function handler(
     body = await request.text();
   }
 
+  // SSE streaming endpoints need longer timeout (5min) for AI generation
+  const isStreamEndpoint = targetPath.includes("/stream") || targetPath.includes("/upload-stream");
+  const timeout = isStreamEndpoint ? 300_000 : 115_000;
+
   const resp = await fetch(targetUrl, {
     method: request.method,
     headers,
     body,
-    signal: AbortSignal.timeout(115_000),
+    signal: AbortSignal.timeout(timeout),
   });
 
   // SSE streaming: pass through the ReadableStream directly

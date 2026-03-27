@@ -902,6 +902,8 @@ function StudioChat({
     const ctrl = new AbortController();
     abortRef.current = ctrl;
     const token = getToken();
+    let accText = "";
+    let msgIdx = -1;
 
     try {
       const resp = await fetch(`/api/proxy/conversations/${convId}/messages/stream`, {
@@ -916,14 +918,17 @@ function StudioChat({
         signal: ctrl.signal,
       });
       if (!resp.ok) {
-        setMessages((prev) => [...prev, { role: "assistant", text: `发送失败 (${resp.status})` }]);
+        if (resp.status === 401) {
+          localStorage.removeItem("token");
+          localStorage.removeItem("cached_user");
+        }
+        setMessages((prev) => [...prev, { role: "assistant", text: resp.status === 401 ? "登录已过期，请重新登录" : `发送失败 (${resp.status})` }]);
         return;
       }
       const reader = resp.body?.getReader();
       if (!reader) return;
       const decoder = new TextDecoder();
-      let buf = "", accText = "", curEvt = "delta";
-      let msgIdx = -1;
+      let buf = "", curEvt = "delta";
       setMessages((prev) => { msgIdx = prev.length; return [...prev, { role: "assistant", text: "", loading: true }]; });
 
       while (true) {
@@ -964,7 +969,19 @@ function StudioChat({
       setMessages((prev) => prev.map((m, i) => i === msgIdx ? { ...m, loading: false } : m));
     } catch (err) {
       if ((err as Error).name !== "AbortError") {
-        setMessages((prev) => [...prev, { role: "assistant", text: "连接中断" }]);
+        if (accText) {
+          // 保留已累积的文本内容
+          setMessages((prev) => prev.map((m, i) =>
+            i === msgIdx ? { ...m, text: accText + "\n\n[连接中断，以上为已接收内容]", loading: false } : m
+          ));
+        } else {
+          setMessages((prev) => [...prev, { role: "assistant", text: "连接中断" }]);
+        }
+      } else if (accText) {
+        // 用户手动中止但已有内容，保留
+        setMessages((prev) => prev.map((m, i) =>
+          i === msgIdx ? { ...m, text: accText, loading: false } : m
+        ));
       }
     } finally {
       setStreaming(false);

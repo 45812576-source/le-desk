@@ -39,8 +39,8 @@ export async function apiFetch<T = unknown>(
   if (!res.ok) {
     if (res.status === 401) {
       localStorage.removeItem("token");
-      window.location.href = "/login";
-      throw new ApiError(401, "Invalid or expired token");
+      localStorage.removeItem("cached_user");
+      throw new ApiError(401, "登录已过期，请重新登录");
     }
     const text = await res.text().catch(() => "");
     let message = `HTTP ${res.status}`;

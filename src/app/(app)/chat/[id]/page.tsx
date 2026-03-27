@@ -236,9 +236,11 @@ export default function ChatDetailPage() {
     setSandboxLoaded(false);
     setSandboxSkills([]);
     setSandboxSkillId(null);
-    setWorkspaceType(null);
-    // 只在没有 URL hint 时才重置，避免 API 返回前 unmount SkillStudio
-    if (wsHint !== "skill_studio") setIsSkillStudio(false);
+    // 有 wsHint 时不重置这些状态，避免 API 返回前 SkillStudio 被 unmount 再重挂
+    if (wsHint !== "skill_studio") {
+      setWorkspaceType(null);
+      setIsSkillStudio(false);
+    }
 
     // ── Workspace (concurrent, doesn't block messages) ────────────
     const loadWorkspace = async () => {
