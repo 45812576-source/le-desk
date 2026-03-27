@@ -784,6 +784,40 @@ function DraftCard({
   );
 }
 
+// ─── Stage indicator ─────────────────────────────────────────────────────────
+
+const STUDIO_STAGE_LABELS: Record<string, string> = {
+  connecting: "连接服务...",
+  preparing: "匹配 Skill & 组装上下文...",
+  generating: "生成中...",
+  tool_calling: "调用工具中...",
+  uploading: "上传文件中...",
+  parsing: "解析文件内容...",
+  summarizing: "生成结构化摘要...",
+  pev_start: "分析任务复杂度...",
+  replanning: "重新规划中...",
+};
+
+function stageLabel(stage: string | null): string {
+  if (!stage) return "等待响应...";
+  if (stage.startsWith("executing:")) return `执行：${stage.slice(10)}`;
+  if (stage.startsWith("retrying:")) return `重试：${stage.slice(9)}`;
+  return STUDIO_STAGE_LABELS[stage] || `处理中（${stage}）...`;
+}
+
+function StageIndicator({ stage }: { stage: string | null }) {
+  return (
+    <span className="text-[#00A3C4] flex items-center gap-1.5">
+      <span className="flex gap-0.5">
+        <span className="w-1 h-1 bg-[#00A3C4] animate-bounce" style={{ animationDelay: "0ms" }} />
+        <span className="w-1 h-1 bg-[#00A3C4] animate-bounce" style={{ animationDelay: "150ms" }} />
+        <span className="w-1 h-1 bg-[#00A3C4] animate-bounce" style={{ animationDelay: "300ms" }} />
+      </span>
+      <span className="text-[8px] font-bold uppercase tracking-widest">{stageLabel(stage)}</span>
+    </span>
+  );
+}
+
 // ─── Right panel (Studio Chat) ─────────────────────────────────────────────────
 
 function StudioChat({
@@ -815,6 +849,7 @@ function StudioChat({
   });
   const [input, setInput] = useState("");
   const [streaming, setStreaming] = useState(false);
+  const [streamStage, setStreamStage] = useState<string | null>(null);
   const [pendingDraft, setPendingDraft] = useState<StudioDraft | null>(null);
 
   const [hashQuery, setHashQuery] = useState<string | null>(null);
@@ -831,6 +866,7 @@ function StudioChat({
         abortRef.current?.abort();
         setMessages([]);
         setStreaming(false);
+        setStreamStage(null);
         setPendingDraft(null);
         try { sessionStorage.removeItem(_storageKey); } catch { /* ignore */ }
       };
@@ -895,7 +931,16 @@ function StudioChat({
 
   async function send(userText: string) {
     if (!userText.trim() || streaming) return;
-    setMessages((prev) => [...prev, { role: "user", text: userText }]);
+
+    // 立即添加用户消息 + assistant loading 气泡，让用户马上看到反馈
+    let msgIdx = -1;
+    setMessages((prev) => {
+      msgIdx = prev.length + 1; // assistant 在 user 之后
+      return [...prev,
+        { role: "user", text: userText },
+        { role: "assistant", text: "", loading: true },
+      ];
+    });
     setStreaming(true);
     setInput("");
 
@@ -903,7 +948,9 @@ function StudioChat({
     abortRef.current = ctrl;
     const token = getToken();
     let accText = "";
-    let msgIdx = -1;
+
+    setStreamStage("connecting");
+    const timeout = setTimeout(() => ctrl.abort(), 30_000);
 
     try {
       const resp = await fetch(`/api/proxy/conversations/${convId}/messages/stream`, {
@@ -917,19 +964,26 @@ function StudioChat({
         }),
         signal: ctrl.signal,
       });
+      clearTimeout(timeout);
       if (!resp.ok) {
         if (resp.status === 401) {
           localStorage.removeItem("token");
           localStorage.removeItem("cached_user");
         }
-        setMessages((prev) => [...prev, { role: "assistant", text: resp.status === 401 ? "登录已过期，请重新登录" : `发送失败 (${resp.status})` }]);
+        setMessages((prev) => prev.map((m, i) =>
+          i === msgIdx ? { ...m, text: resp.status === 401 ? "登录已过期，请重新登录" : `发送失败 (${resp.status})`, loading: false } : m
+        ));
         return;
       }
       const reader = resp.body?.getReader();
-      if (!reader) return;
+      if (!reader) {
+        setMessages((prev) => prev.map((m, i) =>
+          i === msgIdx ? { ...m, text: "无法读取响应", loading: false } : m
+        ));
+        return;
+      }
       const decoder = new TextDecoder();
       let buf = "", curEvt = "delta";
-      setMessages((prev) => { msgIdx = prev.length; return [...prev, { role: "assistant", text: "", loading: true }]; });
 
       while (true) {
         const { done, value } = await reader.read();
@@ -941,7 +995,9 @@ function StudioChat({
           else if (line.startsWith("data: ")) {
             try {
               const data = JSON.parse(line.slice(6));
-              if (curEvt === "studio_draft") {
+              if (curEvt === "status" && data.stage) {
+                setStreamStage(data.stage as string);
+              } else if (curEvt === "studio_draft") {
                 setPendingDraft(data as StudioDraft);
               } else if (curEvt === "studio_diff") {
                 const diff = data as StudioDiff;
@@ -953,12 +1009,15 @@ function StudioChat({
                 setMessages((prev) => prev.map((m, i) =>
                   i === msgIdx ? { ...m, text: errMsg, loading: false } : m
                 ));
+                setStreamStage(null);
               } else if (curEvt === "done") {
                 setMessages((prev) => prev.map((m, i) =>
                   i === msgIdx ? { ...m, loading: false } : m
                 ));
+                setStreamStage(null);
               } else if ((curEvt === "delta" || curEvt === "content_block_delta") && data.text) {
                 accText += data.text;
+                setStreamStage("generating");
                 setMessages((prev) => prev.map((m, i) => i === msgIdx ? { ...m, text: accText } : m));
               }
             } catch { /* skip */ }
@@ -970,21 +1029,28 @@ function StudioChat({
     } catch (err) {
       if ((err as Error).name !== "AbortError") {
         if (accText) {
-          // 保留已累积的文本内容
           setMessages((prev) => prev.map((m, i) =>
             i === msgIdx ? { ...m, text: accText + "\n\n[连接中断，以上为已接收内容]", loading: false } : m
           ));
         } else {
-          setMessages((prev) => [...prev, { role: "assistant", text: "连接中断" }]);
+          setMessages((prev) => prev.map((m, i) =>
+            i === msgIdx ? { ...m, text: "连接中断，请重试", loading: false } : m
+          ));
         }
       } else if (accText) {
-        // 用户手动中止但已有内容，保留
         setMessages((prev) => prev.map((m, i) =>
           i === msgIdx ? { ...m, text: accText, loading: false } : m
         ));
+      } else {
+        // abort 且无内容（超时或手动取消）
+        setMessages((prev) => prev.map((m, i) =>
+          i === msgIdx ? { ...m, text: "请求超时或已取消", loading: false } : m
+        ));
       }
     } finally {
+      clearTimeout(timeout);
       setStreaming(false);
+      setStreamStage(null);
     }
   }
 
@@ -1036,11 +1102,11 @@ function StudioChat({
               m.role === "user" ? "bg-[#1A202C] text-white border-[#1A202C]" : "bg-[#F0F4F8] text-[#1A202C] border-gray-200"
             }`}>
               {m.loading && !m.text ? (
-                <span className="animate-pulse text-[#00A3C4]">▋</span>
+                <StageIndicator stage={streaming ? streamStage : null} />
               ) : (
                 <>
                   {m.text}
-                  {m.loading && <span className="animate-pulse text-[#00A3C4]">▋</span>}
+                  {m.loading && <span className="animate-pulse text-[#00A3C4]"> ▋</span>}
                 </>
               )}
             </div>
