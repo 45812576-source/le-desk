@@ -803,7 +803,14 @@ function StudioChat({
   onApplyDraft: (draft: StudioDraft) => void;
   onNewSession: () => void;
 }) {
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  // 消息按 conv+skill 分 key 持久化到 sessionStorage，页面刷新后恢复
+  const _storageKey = `studio_msgs_${convId}_${skillId ?? "free"}`;
+  const [messages, setMessages] = useState<ChatMessage[]>(() => {
+    try {
+      const raw = sessionStorage.getItem(_storageKey);
+      return raw ? (JSON.parse(raw) as ChatMessage[]) : [];
+    } catch { return []; }
+  });
   const [input, setInput] = useState("");
   const [streaming, setStreaming] = useState(false);
   const [pendingDraft, setPendingDraft] = useState<StudioDraft | null>(null);
@@ -814,6 +821,22 @@ function StudioChat({
   const scrollRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+
+  // skillId 切换时从 sessionStorage 加载对应历史
+  useEffect(() => {
+    try {
+      const raw = sessionStorage.getItem(_storageKey);
+      setMessages(raw ? (JSON.parse(raw) as ChatMessage[]) : []);
+    } catch { setMessages([]); }
+    setPendingDraft(null);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [_storageKey]);
+
+  // 每次 messages 变化时同步到 sessionStorage
+  useEffect(() => {
+    try { sessionStorage.setItem(_storageKey, JSON.stringify(messages)); } catch { /* quota exceeded */ }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [messages]);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
@@ -1149,21 +1172,13 @@ export function SkillStudio({ convId }: { convId: number }) {
     if (draft.name) setExternalName(draft.name);
   }
 
-  async function handleNewSession() {
-    try {
-      const workspaces = await apiFetch<{ id: number; workspace_type: string }[]>("/workspaces");
-      const studioWs = workspaces.find((ws) => ws.workspace_type === "skill_studio");
-      if (!studioWs) return;
-      // POST with workspace_id — backend returns existing conv or creates new one
-      // Force a truly new conv by calling without dedup (backend only deduplicates active convs,
-      // so we just navigate to the existing conv; "new session" here means clear local chat state)
-      // The backend already returns the same conv if one is active, so we navigate to it fresh.
-      const conv = await apiFetch<{ id: number }>("/conversations", {
-        method: "POST",
-        body: JSON.stringify({ workspace_id: studioWs.id }),
-      });
-      window.location.href = `/chat/${conv.id}?ws=skill_studio`;
-    } catch { /* ignore */ }
+  function handleNewSession() {
+    // 仅清空本地聊天记录，不刷新页面、不创建新对话
+    abortRef.current?.abort();
+    setMessages([]);
+    setStreaming(false);
+    setPendingDraft(null);
+    try { sessionStorage.removeItem(_storageKey); } catch { /* ignore */ }
   }
 
   const showAssetEditor = selectedFile?.fileType === "asset" && selectedSkill !== null;

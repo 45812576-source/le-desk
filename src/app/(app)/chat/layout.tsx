@@ -47,13 +47,14 @@ const ConversationTab = memo(function ConversationTab({
   const inputRef = useRef<HTMLInputElement>(null);
 
   const isOpencode = conv.workspace_type === "opencode";
+  const isSkillStudio = conv.workspace_type === "skill_studio";
   const color = conv.workspace
     ? { bg: conv.workspace.color + "22", border: conv.workspace.color, text: conv.workspace.color }
     : getTabColor(index);
-  const title = isOpencode ? "OpenCode 开发" : (conv.title || `对话 #${conv.id}`);
+  const title = isOpencode ? "OpenCode 开发" : isSkillStudio ? "Skill Studio" : (conv.title || `对话 #${conv.id}`);
 
   function startEditing() {
-    if (isOpencode) return;
+    if (isOpencode || isSkillStudio) return;
     setEditValue(conv.title || "");
     setEditing(true);
     setTimeout(() => inputRef.current?.select(), 0);
@@ -116,7 +117,7 @@ const ConversationTab = memo(function ConversationTab({
           {title}
         </span>
       )}
-      {!editing && !isOpencode && (
+      {!editing && !isOpencode && !isSkillStudio && (
         <span
           onClick={(e) => { e.preventDefault(); onDelete(conv.id, e); }}
           className="ml-1 opacity-0 group-hover:opacity-100 text-[8px] hover:text-red-500 transition-opacity flex-shrink-0 cursor-pointer"
@@ -309,6 +310,14 @@ export default function ChatLayout({
   async function handleCreateConversation(workspaceId: number | null) {
     if (creating) return;
     setShowPicker(false);
+    // skill_studio 直接跳专属入口，不走新建对话流程
+    if (workspaceId !== null) {
+      const picked = workspaces.find((w) => w.id === workspaceId);
+      if (picked?.workspace_type === "skill_studio") {
+        router.push("/skill-studio");
+        return;
+      }
+    }
     setCreating(true);
     try {
       const body: Record<string, unknown> = {};
