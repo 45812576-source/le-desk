@@ -36,6 +36,58 @@ interface WebAppApprovalDetail {
   preview_url: string;
 }
 
+interface SensitiveField {
+  field: string;
+  domain: string;
+  risk: string;
+  reason: string;
+}
+
+interface ToolRisk {
+  tool: string;
+  risk: string;
+  level: string;
+}
+
+interface PromptRisk {
+  pattern: string;
+  risk: string;
+  level: string;
+}
+
+interface MaskOverrideDraft {
+  field: string;
+  action: string;
+  params?: Record<string, unknown>;
+  position_id: number | null;
+}
+
+interface RoleOverrideDraft {
+  position_id: number | null;
+  callable: boolean;
+  data_scope: Record<string, string>;
+}
+
+interface SuggestedPolicy {
+  publish_scope: string;
+  default_data_scope: Record<string, string>;
+  role_overrides: RoleOverrideDraft[];
+  mask_overrides: MaskOverrideDraft[];
+}
+
+interface SecurityScanResult {
+  scan_version?: string;
+  risk_level?: "high" | "medium" | "low" | "unknown";
+  risk_summary?: string;
+  data_domains_accessed?: string[];
+  sensitive_fields?: SensitiveField[];
+  tool_risks?: ToolRisk[];
+  prompt_risks?: PromptRisk[];
+  suggested_policy?: SuggestedPolicy;
+  error?: string;
+  fallback?: boolean;
+}
+
 interface ApprovalItem {
   id: number;
   request_type: string;
@@ -47,6 +99,8 @@ interface ApprovalItem {
   status: string;
   stage: string | null;
   conditions: string[];
+  security_scan_result: SecurityScanResult | null;
+  dept_approved_policy: SuggestedPolicy | null;
   created_at: string;
   actions: ApprovalAction[];
 }
@@ -269,6 +323,193 @@ export default function AdminApprovalsPage() {
                                   </pre>
                                 </div>
                               )}
+                            </div>
+                          );
+                        })()}
+
+                        {/* 安全扫描报告（Skill 审批） */}
+                        {item.target_type !== "tool" && item.target_type !== "webapp" && (() => {
+                          const scan = item.security_scan_result;
+                          if (!scan) {
+                            return (
+                              <div className="mb-4 border-2 border-dashed border-gray-300 bg-gray-50 p-3 text-center">
+                                <span className="text-[9px] font-bold uppercase tracking-widest text-gray-400">安全扫描进行中…</span>
+                              </div>
+                            );
+                          }
+                          if (scan.error) {
+                            return (
+                              <div className="mb-4 border-2 border-dashed border-red-300 bg-red-50 p-3">
+                                <span className="text-[9px] font-bold uppercase tracking-widest text-red-400">安全扫描失败：{scan.error}</span>
+                              </div>
+                            );
+                          }
+                          const riskColor: Record<string, string> = {
+                            high: "border-red-400 bg-red-50",
+                            medium: "border-amber-400 bg-amber-50",
+                            low: "border-green-400 bg-green-50",
+                            unknown: "border-gray-400 bg-gray-50",
+                          };
+                          const riskBadge: Record<string, string> = {
+                            high: "text-red-600 border-red-400",
+                            medium: "text-amber-600 border-amber-400",
+                            low: "text-green-600 border-green-400",
+                            unknown: "text-gray-500 border-gray-400",
+                          };
+                          const riskLabel: Record<string, string> = { high: "🔴 高风险", medium: "🟡 中风险", low: "🟢 低风险", unknown: "⚪ 未知" };
+                          const level = scan.risk_level ?? "unknown";
+                          return (
+                            <div className={`mb-4 border-2 ${riskColor[level] ?? riskColor.unknown} p-3 space-y-2`}>
+                              <div className="flex items-center gap-2">
+                                <span className="text-[9px] font-bold uppercase tracking-widest text-gray-600">安全扫描报告</span>
+                                <span className={`text-[8px] font-bold px-1.5 py-0.5 border ${riskBadge[level] ?? riskBadge.unknown}`}>
+                                  {riskLabel[level] ?? level}
+                                </span>
+                              </div>
+
+                              {scan.risk_summary && (
+                                <div className="text-xs text-gray-700">{scan.risk_summary}</div>
+                              )}
+
+                              {/* 数据域访问 */}
+                              {scan.data_domains_accessed && scan.data_domains_accessed.length > 0 && (
+                                <div>
+                                  <div className="text-[8px] font-bold uppercase tracking-widest text-gray-400 mb-1">涉及数据域</div>
+                                  <div className="flex flex-wrap gap-1">
+                                    {scan.data_domains_accessed.map((d) => (
+                                      <span key={d} className="text-[7px] font-mono border border-blue-300 bg-blue-50 text-blue-600 px-1.5 py-0.5">{d}</span>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
+
+                              {/* 敏感字段 */}
+                              {scan.sensitive_fields && scan.sensitive_fields.length > 0 && (
+                                <div>
+                                  <div className="text-[8px] font-bold uppercase tracking-widest text-gray-400 mb-1">敏感字段</div>
+                                  <div className="space-y-1">
+                                    {scan.sensitive_fields.map((f, i) => (
+                                      <div key={i} className="flex items-start gap-2 text-[8px] border border-gray-200 bg-white px-2 py-1">
+                                        <span className="font-mono font-bold text-red-500">{f.field}</span>
+                                        <span className="text-gray-400">[{f.domain}]</span>
+                                        <span className="text-gray-600 flex-1">{f.reason}</span>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
+
+                              {/* 工具风险 */}
+                              {scan.tool_risks && scan.tool_risks.length > 0 && (
+                                <div>
+                                  <div className="text-[8px] font-bold uppercase tracking-widest text-gray-400 mb-1">工具风险</div>
+                                  <div className="space-y-1">
+                                    {scan.tool_risks.map((t, i) => (
+                                      <div key={i} className="flex items-center gap-2 text-[8px] border border-amber-200 bg-amber-50 px-2 py-1">
+                                        <span className="font-mono font-bold text-amber-600">{t.tool}</span>
+                                        <span className="text-gray-600">{t.risk}</span>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
+
+                              {/* Prompt 风险 */}
+                              {scan.prompt_risks && scan.prompt_risks.length > 0 && (
+                                <div>
+                                  <div className="text-[8px] font-bold uppercase tracking-widest text-gray-400 mb-1">Prompt 风险</div>
+                                  <div className="space-y-1">
+                                    {scan.prompt_risks.map((p, i) => (
+                                      <div key={i} className="flex items-start gap-2 text-[8px] border border-red-200 bg-red-50 px-2 py-1">
+                                        <span className="font-mono text-red-400">&ldquo;{p.pattern}&rdquo;</span>
+                                        <span className="text-gray-600">{p.risk}</span>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
+
+                              {/* Policy 草案分层视图 */}
+                              {scan.suggested_policy && (() => {
+                                const deptApproved = item.dept_approved_policy;
+                                const isSuperStage = item.stage === "super_pending";
+                                const deptPosIds = new Set((deptApproved?.role_overrides ?? []).map(o => o.position_id));
+                                const superOverrides = (scan.suggested_policy.role_overrides ?? []).filter(o => !deptPosIds.has(o.position_id));
+                                const scopeOrder = ["self_only", "same_role", "cross_role", "org_wide"];
+                                const deptScope = deptApproved?.publish_scope ?? "same_role";
+                                const suggestedScope = scan.suggested_policy.publish_scope;
+                                const needsScopeUpgrade = scopeOrder.indexOf(suggestedScope) > scopeOrder.indexOf(deptScope);
+
+                                return (
+                                  <div>
+                                    <div className="text-[8px] font-bold uppercase tracking-widest text-gray-400 mb-1">
+                                      Policy 草案
+                                      {!isSuperStage && <span className="ml-1 text-amber-500">（部门管理员审核阶段）</span>}
+                                      {isSuperStage && <span className="ml-1 text-purple-500">（超管审核阶段）</span>}
+                                    </div>
+
+                                    {/* dept 已确认部分 */}
+                                    {deptApproved && (
+                                      <div className="mb-1 bg-green-50 border border-green-200 px-2 py-1.5 space-y-1">
+                                        <div className="text-[7px] font-bold text-green-600 uppercase tracking-widest">✓ 部门管理员已确认</div>
+                                        <div className="text-[8px]">
+                                          <span className="text-gray-400">发布范围：</span>
+                                          <span className="font-mono font-bold">{deptApproved.publish_scope}</span>
+                                        </div>
+                                        {(deptApproved.role_overrides ?? []).length > 0 && (
+                                          <div className="text-[7px] text-gray-500">
+                                            本部门角色覆盖 {deptApproved.role_overrides.length} 条，
+                                            其中 {deptApproved.role_overrides.filter(o => !o.callable).length} 个禁止调用
+                                          </div>
+                                        )}
+                                        {(deptApproved.mask_overrides ?? []).length > 0 && (
+                                          <div className="flex flex-wrap gap-1">
+                                            {deptApproved.mask_overrides.slice(0, 5).map((m, i) => (
+                                              <span key={i} className="text-[7px] font-mono border border-green-300 bg-green-100 text-green-700 px-1 py-0.5">
+                                                {m.field}: {m.action}
+                                              </span>
+                                            ))}
+                                            {(deptApproved.mask_overrides ?? []).length > 5 && (
+                                              <span className="text-[7px] text-gray-400">+{deptApproved.mask_overrides.length - 5}</span>
+                                            )}
+                                          </div>
+                                        )}
+                                      </div>
+                                    )}
+
+                                    {/* super 待审部分 */}
+                                    {(superOverrides.length > 0 || needsScopeUpgrade || !deptApproved) && (
+                                      <div className="bg-purple-50 border border-purple-200 px-2 py-1.5 space-y-1">
+                                        <div className="text-[7px] font-bold text-purple-600 uppercase tracking-widest">
+                                          {isSuperStage ? "↑ 待超管确认" : "↑ 将流转超管确认"}
+                                        </div>
+                                        {needsScopeUpgrade && (
+                                          <div className="text-[8px]">
+                                            <span className="text-gray-400">范围升级：</span>
+                                            <span className="font-mono text-gray-500 line-through mr-1">{deptScope}</span>
+                                            <span className="font-mono font-bold text-purple-600">→ {suggestedScope}</span>
+                                          </div>
+                                        )}
+                                        {superOverrides.length > 0 && (
+                                          <div className="text-[7px] text-gray-500">
+                                            跨部门角色覆盖 {superOverrides.length} 条
+                                          </div>
+                                        )}
+                                        {!deptApproved && (
+                                          <div className="text-[7px] text-gray-400">（等待部门管理员先行审核）</div>
+                                        )}
+                                      </div>
+                                    )}
+
+                                    {/* 无需超管介入 */}
+                                    {deptApproved && superOverrides.length === 0 && !needsScopeUpgrade && (
+                                      <div className="bg-blue-50 border border-blue-200 px-2 py-1 text-[7px] text-blue-500">
+                                        全部在部门管理员权限内，超管仅需最终发布确认
+                                      </div>
+                                    )}
+                                  </div>
+                                );
+                              })()}
                             </div>
                           );
                         })()}
