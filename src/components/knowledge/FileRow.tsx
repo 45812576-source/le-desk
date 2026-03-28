@@ -48,6 +48,17 @@ export default function FileRow({
 
   const meta = [formatFileSize(entry.file_size), formatRelativeDate(entry.created_at)].filter(Boolean).join(" · ");
 
+  const BOARD_LABELS: Record<string, string> = {
+    A: "A. 渠道与平台", B: "B. 投放策略与方法论", C: "C. 行业与客户知识",
+    D: "D. 素材与创意", E: "E. 数据与分析", F: "F. 产品与运营",
+  };
+  const archivePath = (() => {
+    const parts: string[] = [];
+    if (entry.taxonomy_board) parts.push(BOARD_LABELS[entry.taxonomy_board] || entry.taxonomy_board);
+    if (entry.taxonomy_path?.length) parts.push(...entry.taxonomy_path);
+    return parts.join(" › ");
+  })();
+
   return (
     <div
       data-entry-id={entry.id}
@@ -79,6 +90,7 @@ export default function FileRow({
         <div className="flex-1 min-w-0">
           <div className="text-xs truncate font-medium">{displayTitle}</div>
           {meta && <div className="text-[10px] text-gray-400 truncate mt-0.5">{meta}</div>}
+          {archivePath && <div className="text-[9px] text-gray-400/70 truncate mt-0.5 font-mono">{archivePath}</div>}
         </div>
       )}
       {!renaming && (
