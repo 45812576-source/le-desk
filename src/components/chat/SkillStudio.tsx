@@ -970,6 +970,13 @@ function PromptEditor({
   const [diffBase, setDiffBase] = useState<string | null>(null);
   const [showDiff, setShowDiff] = useState(false);
 
+  // Preflight state
+  const [preflightResult, setPreflightResult] = useState<PreflightResult | null>(null);
+  const [preflightRunning, setPreflightRunning] = useState(false);
+  const [preflightStage, setPreflightStage] = useState<string | null>(null);
+  const [showKbConfirm, setShowKbConfirm] = useState<PreflightGate["items"] | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+
   const isReadOnly = skill?.status === "published" || skill?.status === "archived";
   const hasDiff = diffBase !== null && diffBase !== prompt;
 
@@ -1044,6 +1051,78 @@ function PromptEditor({
     } catch (err) {
       setSaveMsg(err instanceof Error ? err.message : "保存失败");
     } finally { setSaving(false); }
+  }
+
+  async function runPreflight() {
+    if (!skill) return;
+    setPreflightRunning(true);
+    setPreflightResult(null);
+    setPreflightStage("启动检测...");
+    const token = getToken();
+    try {
+      const resp = await fetch(`/api/proxy/sandbox/preflight/${skill.id}`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      const reader = resp.body?.getReader();
+      if (!reader) return;
+      const decoder = new TextDecoder();
+      let buf = "";
+      const gates: PreflightGate[] = [];
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        const lines = buf.split("\n");
+        buf = lines.pop() || "";
+        let curEvent = "";
+        for (const line of lines) {
+          if (line.startsWith("event: ")) { curEvent = line.slice(7).trim(); continue; }
+          if (line.startsWith("data: ")) {
+            const raw = line.slice(6);
+            try {
+              const data = JSON.parse(raw);
+              if (curEvent === "gate") {
+                if (data.status === "running") {
+                  setPreflightStage(data.label);
+                } else {
+                  const idx = gates.findIndex((g) => g.gate === data.gate);
+                  if (idx >= 0) gates[idx] = data; else gates.push(data);
+                  setPreflightResult((prev) => ({ ...prev, passed: false, gates: [...gates] } as PreflightResult));
+                  setPreflightStage(null);
+                }
+              } else if (curEvent === "stage") {
+                setPreflightStage(data.label);
+              } else if (curEvent === "test_result") {
+                setPreflightResult((prev) => ({
+                  ...prev!,
+                  tests: [...(prev?.tests || []), data],
+                }));
+              } else if (curEvent === "done") {
+                setPreflightResult(data as PreflightResult);
+                setPreflightStage(null);
+              }
+            } catch { /* ignore parse error */ }
+          }
+        }
+      }
+    } catch (err) {
+      console.error("Preflight failed", err);
+      setPreflightStage(null);
+    } finally {
+      setPreflightRunning(false);
+    }
+  }
+
+  async function handleSubmitReview() {
+    if (!skill) return;
+    setSubmitting(true);
+    try {
+      await apiFetch(`/skills/${skill.id}/status?status=published`, { method: "PATCH" });
+      setSaveMsg("✓ 已提交审核");
+      onSaved(skill);
+    } catch (err) {
+      setSaveMsg(err instanceof Error ? err.message : "提交失败");
+    } finally { setSubmitting(false); }
   }
 
   // Sync saveRef every render so parent can call handleSave
@@ -1130,6 +1209,16 @@ function PromptEditor({
         )}
       </div>
 
+      {/* Preflight Report */}
+      <PreflightReport
+        result={preflightResult}
+        stage={preflightStage}
+        running={preflightRunning}
+        onConfirmKnowledge={(items) => setShowKbConfirm(items || null)}
+        onSubmit={handleSubmitReview}
+        onRerun={runPreflight}
+      />
+
       {/* Toolbar */}
       {!isReadOnly && (
         <div className="px-4 py-3 border-t-2 border-[#1A202C] flex items-center gap-2 flex-wrap flex-shrink-0">
@@ -1147,19 +1236,285 @@ function PromptEditor({
             </PixelButton>
           )}
           {!isNew && skill && (
-            <button
-              onClick={() => window.open(`/api/proxy/skills/${skill.id}/export-zip`, "_blank")}
-              className="flex items-center gap-1 text-[8px] font-bold uppercase tracking-widest text-gray-400 hover:text-[#00A3C4] transition-colors ml-auto"
-            >
-              <Download size={9} />
-              导出 Zip
-            </button>
+            <div className="flex items-center gap-3 ml-auto">
+              <button
+                onClick={runPreflight}
+                disabled={preflightRunning}
+                className="flex items-center gap-1 text-[8px] font-bold uppercase tracking-widest text-[#6B46C1] hover:text-[#553C9A] transition-colors disabled:opacity-50"
+              >
+                {preflightRunning ? "检测中..." : "质量检测"}
+              </button>
+              <button
+                onClick={() => window.open(`/api/proxy/skills/${skill.id}/export-zip`, "_blank")}
+                className="flex items-center gap-1 text-[8px] font-bold uppercase tracking-widest text-gray-400 hover:text-[#00A3C4] transition-colors"
+              >
+                <Download size={9} />
+                导出 Zip
+              </button>
+            </div>
           )}
           {saveMsg && (
             <span className={`text-[9px] font-bold ${saveMsg.startsWith("✓") ? "text-[#00CC99]" : "text-red-500"}`}>{saveMsg}</span>
           )}
         </div>
       )}
+
+      {/* Knowledge Confirm Modal */}
+      {showKbConfirm && skill && (
+        <KnowledgeConfirmModal
+          skillId={skill.id}
+          items={showKbConfirm.map((it) => ({ check: it.check, ok: it.ok, issue: it.issue }))}
+          onDone={() => { setShowKbConfirm(null); runPreflight(); }}
+          onCancel={() => setShowKbConfirm(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+// ─── Preflight types ─────────────────────────────────────────────────────────
+
+interface PreflightGate {
+  gate: string;
+  label: string;
+  status: "running" | "passed" | "failed";
+  items?: { check: string; ok: boolean; issue?: string; detail?: string; action?: string; knowledge_id?: number }[];
+  cached?: boolean;
+  checked_at?: string;
+}
+
+interface PreflightTestResult {
+  index: number;
+  test_input: string;
+  response: string;
+  score: number;
+  detail: { score?: number; coverage?: number; completeness?: number; professionalism?: number; reason?: string };
+}
+
+interface PreflightResult {
+  passed: boolean;
+  blocked_by?: string;
+  score?: number;
+  gates: PreflightGate[];
+  tests?: PreflightTestResult[];
+}
+
+// ─── Preflight Report ────────────────────────────────────────────────────────
+
+function PreflightReport({
+  result,
+  stage,
+  running,
+  onConfirmKnowledge,
+  onSubmit,
+  onRerun,
+}: {
+  result: PreflightResult | null;
+  stage: string | null;
+  running: boolean;
+  onConfirmKnowledge: (items: PreflightGate["items"]) => void;
+  onSubmit: () => void;
+  onRerun: () => void;
+}) {
+  if (!running && !result) return null;
+
+  return (
+    <div className="px-4 py-3 border-t-2 border-[#6B46C1] bg-[#6B46C1]/5 flex-shrink-0 space-y-2">
+      {/* Header */}
+      <div className="flex items-center gap-2">
+        <span className="text-[9px] font-bold uppercase tracking-widest text-[#6B46C1]">
+          {running ? "质量检测中..." : "质量检测"}
+        </span>
+        {result && !running && (
+          <>
+            <span className={`text-xs font-bold ${result.passed ? "text-[#00CC99]" : "text-red-500"}`}>
+              {result.score != null ? `${result.score} / 100` : ""}
+            </span>
+            <span className={`text-[9px] font-bold ${result.passed ? "text-[#00CC99]" : "text-red-500"}`}>
+              {result.passed ? "✓ 通过" : result.blocked_by ? `✗ 未通过 — ${result.blocked_by}` : "✗ 质量未达标"}
+            </span>
+          </>
+        )}
+      </div>
+
+      {/* Running stage */}
+      {running && stage && (
+        <div className="text-[9px] text-[#6B46C1] font-bold animate-pulse">{stage}</div>
+      )}
+
+      {/* Gates */}
+      {result && (
+        <div className="flex flex-wrap gap-2">
+          {result.gates.map((g) => (
+            <div key={g.gate} className={`flex items-center gap-1 px-2 py-1 border text-[8px] font-bold ${
+              g.status === "passed" ? "border-[#00CC99] text-[#00CC99] bg-[#00CC99]/5" :
+              g.status === "failed" ? "border-red-400 text-red-500 bg-red-50" :
+              "border-gray-300 text-gray-400"
+            }`}>
+              {g.status === "passed" ? "✓" : g.status === "failed" ? "✗" : "..."} {g.label}
+              {g.cached && <span className="text-[7px] text-gray-400 ml-1">(缓存)</span>}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Gate failure items */}
+      {result && result.gates.filter((g) => g.status === "failed").map((g) => (
+        <div key={g.gate} className="space-y-1">
+          {(g.items || []).filter((it) => !it.ok).map((it, i) => (
+            <div key={i} className="flex items-center gap-2 text-[9px]">
+              <span className="text-red-500">⚠</span>
+              <span className="text-gray-700">{it.check}：{it.issue}</span>
+              {it.action === "confirm_archive" && (
+                <button
+                  onClick={() => onConfirmKnowledge(g.items?.filter((x) => x.action === "confirm_archive") || [])}
+                  className="text-[8px] font-bold px-1.5 py-0.5 bg-[#6B46C1] text-white"
+                >
+                  确认归档
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
+      ))}
+
+      {/* Test results */}
+      {result && result.tests && result.tests.length > 0 && (
+        <div className="space-y-1.5">
+          <div className="text-[8px] font-bold uppercase tracking-widest text-gray-400">测试用例</div>
+          {result.tests.map((t) => (
+            <div key={t.index} className="border border-gray-200 bg-white">
+              <div className="flex items-center gap-2 px-2 py-1 border-b border-gray-100">
+                <span className={`text-[9px] font-bold ${t.score >= 70 ? "text-[#00CC99]" : "text-red-500"}`}>
+                  {t.score}分
+                </span>
+                <span className="text-[8px] text-gray-500 flex-1 truncate">{t.test_input}</span>
+              </div>
+              <div className="px-2 py-1 text-[8px] text-gray-500">
+                {t.detail.reason || ""}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Actions */}
+      {!running && result && (
+        <div className="flex items-center gap-2 pt-1">
+          {result.passed && (
+            <PixelButton size="sm" onClick={onSubmit}>提交审核</PixelButton>
+          )}
+          <PixelButton size="sm" variant="secondary" onClick={onRerun}>
+            {result.passed ? "重新检测" : "修复后重检"}
+          </PixelButton>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Knowledge Confirm Modal ─────────────────────────────────────────────────
+
+function KnowledgeConfirmModal({
+  skillId,
+  items,
+  onDone,
+  onCancel,
+}: {
+  skillId: number;
+  items: { check: string; ok: boolean; issue?: string }[];
+  onDone: () => void;
+  onCancel: () => void;
+}) {
+  const [confirmations, setConfirmations] = useState(
+    items.map((it) => ({ filename: it.check, target_board: "", target_category: "general", display_title: it.check.replace(/\.[^.]+$/, "") }))
+  );
+  const [saving, setSaving] = useState(false);
+  const [step, setStep] = useState(0);
+
+  async function handleConfirmAll() {
+    setSaving(true);
+    try {
+      await apiFetch(`/sandbox/preflight/${skillId}/knowledge-confirm`, {
+        method: "POST",
+        body: JSON.stringify({ confirmations }),
+      });
+      onDone();
+    } catch (err) {
+      console.error("Knowledge confirm failed", err);
+    } finally { setSaving(false); }
+  }
+
+  const current = confirmations[step];
+  if (!current) return null;
+
+  function updateField(field: string, value: string) {
+    setConfirmations((prev) => prev.map((c, i) => i === step ? { ...c, [field]: value } : c));
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+      <div className="bg-white border-2 border-[#1A202C] w-[480px] max-h-[80vh] flex flex-col">
+        <div className="px-4 py-3 border-b-2 border-[#1A202C] bg-[#EBF4F7] flex items-center gap-2">
+          <span className="text-[9px] font-bold uppercase tracking-widest text-[#6B46C1]">确认知识库归档</span>
+          <span className="text-[8px] text-gray-400 ml-auto">{step + 1} / {confirmations.length}</span>
+        </div>
+
+        <div className="p-4 space-y-3 flex-1 overflow-y-auto">
+          <div>
+            <div className="text-[8px] font-bold uppercase tracking-widest text-gray-400 mb-1">文件名</div>
+            <div className="text-[10px] font-mono text-gray-700 bg-[#F0F4F8] px-3 py-2 border border-gray-200">{current.filename}</div>
+          </div>
+          <div>
+            <div className="text-[8px] font-bold uppercase tracking-widest text-gray-400 mb-1">条目标题</div>
+            <input
+              value={current.display_title}
+              onChange={(e) => updateField("display_title", e.target.value)}
+              className="w-full border-2 border-[#1A202C] px-3 py-1.5 text-[10px] focus:outline-none focus:border-[#6B46C1]"
+            />
+          </div>
+          <div>
+            <div className="text-[8px] font-bold uppercase tracking-widest text-gray-400 mb-1">归档板块</div>
+            <input
+              value={current.target_board}
+              onChange={(e) => updateField("target_board", e.target.value)}
+              placeholder="如：A.渠道与平台"
+              className="w-full border-2 border-gray-300 px-3 py-1.5 text-[10px] focus:outline-none focus:border-[#6B46C1]"
+            />
+          </div>
+          <div>
+            <div className="text-[8px] font-bold uppercase tracking-widest text-gray-400 mb-1">分类</div>
+            <select
+              value={current.target_category}
+              onChange={(e) => updateField("target_category", e.target.value)}
+              className="w-full border-2 border-gray-300 px-3 py-1.5 text-[10px] focus:outline-none focus:border-[#6B46C1]"
+            >
+              <option value="general">通用</option>
+              <option value="experience">经验</option>
+              <option value="external_intel">外部情报</option>
+              <option value="methodology">方法论</option>
+              <option value="sop">SOP</option>
+            </select>
+          </div>
+          <div className="text-[8px] text-gray-400">
+            命名建议：使用「领域-主题-类型」格式，如「投放-抖音ROI分析-SOP」
+          </div>
+        </div>
+
+        <div className="px-4 py-3 border-t-2 border-[#1A202C] flex items-center gap-2">
+          {step > 0 && (
+            <PixelButton size="sm" variant="secondary" onClick={() => setStep(step - 1)}>上一个</PixelButton>
+          )}
+          {step < confirmations.length - 1 ? (
+            <PixelButton size="sm" onClick={() => setStep(step + 1)}>下一个</PixelButton>
+          ) : (
+            <PixelButton size="sm" onClick={handleConfirmAll} disabled={saving}>
+              {saving ? "入库中..." : "全部入库"}
+            </PixelButton>
+          )}
+          <PixelButton size="sm" variant="secondary" onClick={onCancel}>取消</PixelButton>
+        </div>
+      </div>
     </div>
   );
 }
