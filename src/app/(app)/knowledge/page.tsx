@@ -53,17 +53,21 @@ function uploadFileXHR(file: File, onProgress: (pct: number) => void): Promise<{
     if (token) xhr.setRequestHeader("Authorization", `Bearer ${token}`);
 
     xhr.upload.onprogress = (e) => {
-      if (e.lengthComputable) onProgress(Math.round((e.loaded / e.total) * 100));
+      // Cap at 90%: the remaining 10% is reserved for backend processing
+      if (e.lengthComputable) onProgress(Math.min(90, Math.round((e.loaded / e.total) * 90)));
     };
     xhr.onload = () => {
       if (xhr.status >= 200 && xhr.status < 300) {
+        onProgress(100);
         try { resolve(JSON.parse(xhr.responseText)); }
         catch { resolve({ id: 0 }); }
       } else {
-        reject(new Error(`Upload failed: ${xhr.status}`));
+        let msg = `上传失败 (${xhr.status})`;
+        try { msg = JSON.parse(xhr.responseText)?.detail || msg; } catch {}
+        reject(new Error(msg));
       }
     };
-    xhr.onerror = () => reject(new Error("Network error"));
+    xhr.onerror = () => reject(new Error("网络错误"));
     xhr.send(form);
   });
 }
@@ -234,10 +238,11 @@ function FileManagerTab() {
     fetchAll();
   }
 
-  async function handleUpdateContent(id: number, content: string): Promise<void> {
-    await apiFetch(`/knowledge/${id}`, { method: "PATCH", body: JSON.stringify({ content }) });
-    fetchAll();
-    setSelectedEntry((prev) => prev?.id === id ? { ...prev, content } : prev);
+  async function handleUpdateContent(id: number, content: string, contentHtml?: string): Promise<void> {
+    const body: any = { content };
+    if (contentHtml !== undefined) body.content_html = contentHtml;
+    await apiFetch(`/knowledge/${id}`, { method: "PATCH", body: JSON.stringify(body) });
+    setSelectedEntry((prev) => prev?.id === id ? { ...prev, content, content_html: contentHtml ?? prev.content_html } : prev);
   }
 
   async function handleMoveEntry(entryId: number, folderId: number | null) {

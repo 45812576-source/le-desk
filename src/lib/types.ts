@@ -99,6 +99,8 @@ export interface KnowledgeEntry {
   ai_summary?: string | null;
   ai_tags?: { industry?: string[]; platform?: string[]; topic?: string[] } | null;
   quality_score?: number | null;
+  // 云文档 HTML
+  content_html?: string | null;
 }
 
 export interface Workspace {
