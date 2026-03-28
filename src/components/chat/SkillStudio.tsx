@@ -29,6 +29,12 @@ interface StudioDiff {
   [key: string]: unknown;
 }
 
+interface StudioSummary {
+  title?: string;
+  items: { label: string; value: string }[];
+  next_action?: "generate_draft" | "generate_outline" | "generate_section";
+}
+
 // Which file is currently selected in the editor
 type SelectedFile =
   | { skillId: number; fileType: "prompt" }
@@ -737,6 +743,41 @@ function PromptEditor({
   );
 }
 
+// ─── Summary card ─────────────────────────────────────────────────────────────
+
+function SummaryCard({
+  summary,
+  onConfirm,
+  onDiscard,
+}: {
+  summary: StudioSummary;
+  onConfirm: () => void;
+  onDiscard: () => void;
+}) {
+  return (
+    <div className="mx-3 my-2 border-2 border-[#00CC99] bg-[#F0FFF9] flex-shrink-0">
+      <div className="px-3 py-2 border-b border-[#CCFFF0] flex items-center gap-2">
+        <span className="text-[9px] font-bold uppercase tracking-widest text-[#00CC99] flex-1">
+          ◈ {summary.title || "需求理解摘要"}
+        </span>
+        <span className="text-[8px] text-gray-400">确认后将生成草稿</span>
+      </div>
+      <div className="px-3 py-2 space-y-1.5">
+        {summary.items.map((item, i) => (
+          <div key={i} className="flex gap-2 text-[9px]">
+            <span className="font-bold text-[#00CC99] flex-shrink-0 w-16 truncate">{item.label}</span>
+            <span className="text-[#1A202C] leading-relaxed">{item.value}</span>
+          </div>
+        ))}
+      </div>
+      <div className="px-3 py-2 border-t border-[#CCFFF0] flex gap-2">
+        <PixelButton size="sm" onClick={onConfirm} className="flex-1">✓ 确认，开始生成</PixelButton>
+        <PixelButton size="sm" variant="secondary" onClick={onDiscard}>重新描述</PixelButton>
+      </div>
+    </div>
+  );
+}
+
 // ─── Draft card ───────────────────────────────────────────────────────────────
 
 function DraftCard({
@@ -788,6 +829,9 @@ function DraftCard({
 
 const STUDIO_STAGE_LABELS: Record<string, string> = {
   connecting: "连接服务...",
+  matching_skill: "识别意图...",
+  checking_context: "检索知识 & 校验输入...",
+  compiling_prompt: "组装提示词...",
   preparing: "匹配 Skill & 组装上下文...",
   generating: "生成中...",
   tool_calling: "调用工具中...",
@@ -851,6 +895,7 @@ function StudioChat({
   const [streaming, setStreaming] = useState(false);
   const [streamStage, setStreamStage] = useState<string | null>(null);
   const [pendingDraft, setPendingDraft] = useState<StudioDraft | null>(null);
+  const [pendingSummary, setPendingSummary] = useState<StudioSummary | null>(null);
 
   const [hashQuery, setHashQuery] = useState<string | null>(null);
   const [hashActiveIdx, setHashActiveIdx] = useState(0);
@@ -868,6 +913,7 @@ function StudioChat({
         setStreaming(false);
         setStreamStage(null);
         setPendingDraft(null);
+        setPendingSummary(null);
         try { sessionStorage.removeItem(_storageKey); } catch { /* ignore */ }
       };
     }
@@ -882,6 +928,7 @@ function StudioChat({
       setMessages(raw ? (JSON.parse(raw) as ChatMessage[]) : []);
     } catch { setMessages([]); }
     setPendingDraft(null);
+    setPendingSummary(null);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [_storageKey]);
 
@@ -997,6 +1044,8 @@ function StudioChat({
               const data = JSON.parse(line.slice(6));
               if (curEvt === "status" && data.stage) {
                 setStreamStage(data.stage as string);
+              } else if (curEvt === "studio_summary") {
+                setPendingSummary(data as StudioSummary);
               } else if (curEvt === "studio_draft") {
                 setPendingDraft(data as StudioDraft);
               } else if (curEvt === "studio_diff") {
@@ -1060,6 +1109,19 @@ function StudioChat({
     setPendingDraft(null);
   }
 
+  function handleConfirmSummary() {
+    if (!pendingSummary) return;
+    setPendingSummary(null);
+    const action = pendingSummary.next_action ?? "generate_draft";
+    const msg =
+      action === "generate_outline"
+        ? "好的，请根据以上摘要生成 Skill 的完整目录骨架"
+        : action === "generate_section"
+        ? "好的，请根据以上摘要扩充对应章节内容"
+        : "好的，请根据以上摘要生成完整的 Skill 草稿";
+    send(msg);
+  }
+
   return (
     <div className="flex flex-col flex-[1] min-w-0 border-l-2 border-[#1A202C] bg-white">
       {/* Header */}
@@ -1113,6 +1175,15 @@ function StudioChat({
           </div>
         ))}
       </div>
+
+      {/* Pending summary card */}
+      {pendingSummary && (
+        <SummaryCard
+          summary={pendingSummary}
+          onConfirm={handleConfirmSummary}
+          onDiscard={() => setPendingSummary(null)}
+        />
+      )}
 
       {/* Pending draft card */}
       {pendingDraft && (
