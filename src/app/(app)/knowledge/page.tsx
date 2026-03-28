@@ -11,6 +11,7 @@ import { apiFetch } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import type { ChunkSearchResult, KnowledgeChunkDetail, KnowledgeDetail } from "@/lib/types";
 import { RichEditor } from "@/components/knowledge/RichEditor";
+import DocumentViewer from "@/components/knowledge/DocumentViewer";
 
 // 局部主题感知 icon 包装
 function ThemedIcon({
@@ -81,7 +82,8 @@ function FileRow({
   onRenameEntry: (id: number, title: string) => void;
   onDeleteEntry: (id: number) => void;
 }) {
-  const ext = entry.source_file?.split(".").pop()?.toUpperCase() ?? "TXT";
+  const ext = (entry.file_ext || entry.source_file?.split(".").pop() || "TXT").replace(/^\./, "").toUpperCase();
+  const displayTitle = entry.ai_title || entry.title || entry.source_file || "未命名";
   const [renaming, setRenaming] = useState(false);
   const [nameVal, setNameVal] = useState(entry.title);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -116,7 +118,7 @@ function FileRow({
           className="flex-1 text-[10px] border border-[#00D1FF] px-1 focus:outline-none"
         />
       ) : (
-        <span className="flex-1 text-[10px] truncate">{entry.title || entry.source_file}</span>
+        <span className="flex-1 text-[10px] truncate">{displayTitle}</span>
       )}
       {!renaming && (
         <span className="hidden group-hover:flex items-center gap-0.5 flex-shrink-0">
@@ -383,8 +385,16 @@ function PreviewPanel({
         <PixelBadge color={entry.status === "approved" ? "green" : entry.status === "pending" ? "yellow" : "gray"}>
           {entry.status === "approved" ? "已通过" : entry.status === "pending" ? "待审核" : entry.status}
         </PixelBadge>
+        {entry.ai_title && entry.ai_title !== entry.title && (
+          <span className="text-[8px] text-[#00CC99] font-bold truncate max-w-[200px]" title="AI 建议标题">🤖 {entry.ai_title}</span>
+        )}
         {entry.source_file && (
           <span className="text-[8px] text-[#00A3C4] font-bold truncate max-w-[160px]">📎 {entry.source_file}</span>
+        )}
+        {entry.file_ext && (
+          <span className="text-[7px] font-bold px-1 border border-[#00D1FF] text-[#00A3C4]">
+            {entry.file_ext.replace(".", "").toUpperCase()}
+          </span>
         )}
         <div className="flex items-center gap-1 ml-auto flex-wrap">
           {/* 移入文件夹（系统归档视图提供文件夹列表时显示） */}
@@ -436,14 +446,68 @@ function PreviewPanel({
         </div>
       </div>
 
-      {/* Rich text editor / viewer */}
-      <div className={editing ? "flex-1 min-h-0 overflow-hidden" : "flex-shrink-0"}>
-        <RichEditor
-          key={entry.id}
-          content={toHtml(contentVal)}
-          onChange={setContentVal}
-          editable={editing}
-        />
+      {/* AI 摘要和标签 */}
+      {(entry.ai_summary || entry.ai_tags) && !editing && (
+        <div className="px-5 py-3 bg-[#F0FAFF] border-b border-[#00D1FF]/30 flex-shrink-0">
+          {entry.ai_summary && (
+            <div className="mb-2">
+              <span className="text-[8px] font-bold uppercase tracking-widest text-[#00A3C4]">AI 摘要</span>
+              <p className="text-[10px] text-[#1A202C] mt-0.5 leading-relaxed">{entry.ai_summary}</p>
+            </div>
+          )}
+          {entry.ai_tags && (
+            <div className="flex flex-wrap gap-1">
+              {[...(entry.ai_tags.industry || []), ...(entry.ai_tags.platform || []), ...(entry.ai_tags.topic || [])].map((tag, i) => (
+                <span key={i} className="px-1.5 py-0.5 bg-[#00D1FF]/10 border border-[#00D1FF]/30 text-[8px] font-bold text-[#00A3C4]">{tag}</span>
+              ))}
+            </div>
+          )}
+          {entry.quality_score != null && (
+            <div className="mt-1 text-[8px] text-gray-400">质量分: {(entry.quality_score * 100).toFixed(0)}%</div>
+          )}
+        </div>
+      )}
+
+      {/* 下载按钮（有 OSS 文件时显示） */}
+      {entry.oss_key && !editing && (
+        <div className="px-5 py-2 border-b border-gray-100 flex-shrink-0">
+          <button
+            onClick={async () => {
+              try {
+                const res = await fetch(`/api/proxy/knowledge/${entry.id}/file-url`);
+                if (res.ok) {
+                  const data = await res.json();
+                  window.open(data.url, "_blank");
+                }
+              } catch {}
+            }}
+            className="text-[9px] font-bold text-[#00D1FF] hover:text-[#00A3C4] uppercase"
+          >
+            下载原始文件 {entry.source_file && `(${entry.source_file})`}
+            {entry.file_size && ` · ${(entry.file_size / 1024 / 1024).toFixed(1)}MB`}
+          </button>
+        </div>
+      )}
+
+      {/* 文档预览/编辑区域 */}
+      <div className={editing ? "flex-1 min-h-0 overflow-hidden" : "flex-1 min-h-0 overflow-y-auto"}>
+        {editing ? (
+          <RichEditor
+            key={`${entry.id}-edit`}
+            content={toHtml(contentVal)}
+            onChange={setContentVal}
+            editable={true}
+          />
+        ) : entry.oss_key ? (
+          <DocumentViewer entry={entry} />
+        ) : (
+          <RichEditor
+            key={entry.id}
+            content={toHtml(contentVal)}
+            onChange={setContentVal}
+            editable={false}
+          />
+        )}
       </div>
     </div>
   );

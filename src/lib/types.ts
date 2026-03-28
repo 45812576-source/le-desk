@@ -89,6 +89,16 @@ export interface KnowledgeEntry {
   status: "draft" | "pending" | "approved" | "rejected";
   created_by: number;
   created_at: string;
+  // OSS 文件信息
+  oss_key?: string | null;
+  file_type?: string | null;
+  file_ext?: string | null;
+  file_size?: number | null;
+  // AI 命名
+  ai_title?: string | null;
+  ai_summary?: string | null;
+  ai_tags?: { industry?: string[]; platform?: string[]; topic?: string[] } | null;
+  quality_score?: number | null;
 }
 
 export interface Workspace {
