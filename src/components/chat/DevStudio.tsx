@@ -669,7 +669,7 @@ function TreeNodeRow({
   );
 }
 
-function WorkdirPanel({ onClose }: { onClose: () => void }) {
+function WorkdirPanel({ onClose, onWorkdirChange }: { onClose: () => void; onWorkdirChange?: () => void }) {
   const [tree, setTree] = useState<TreeNode[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -699,6 +699,7 @@ function WorkdirPanel({ onClose }: { onClose: () => void }) {
       await apiFetch("/dev-studio/workdir/mkdir", { method: "POST", body: JSON.stringify({ path: mkdirPath.trim() }) });
       setMkdirPath("");
       loadTree();
+      onWorkdirChange?.();
     } catch (err) { setError(err instanceof Error ? err.message : "创建失败"); }
     finally { setMkdirBusy(false); }
   }
@@ -710,6 +711,7 @@ function WorkdirPanel({ onClose }: { onClose: () => void }) {
       await apiFetch("/dev-studio/workdir/rename", { method: "POST", body: JSON.stringify({ src: renameTarget.path, dst: renameDst.trim() }) });
       setRenameTarget(null);
       loadTree();
+      onWorkdirChange?.();
     } catch (err) { setError(err instanceof Error ? err.message : "重命名失败"); }
     finally { setRenameBusy(false); }
   }
@@ -721,6 +723,7 @@ function WorkdirPanel({ onClose }: { onClose: () => void }) {
       await apiFetch("/dev-studio/workdir/delete", { method: "POST", body: JSON.stringify({ path: deleteTarget.path }) });
       setDeleteTarget(null);
       loadTree();
+      onWorkdirChange?.();
     } catch (err) { setError(err instanceof Error ? err.message : "删除失败"); }
     finally { setDeleteBusy(false); }
   }
@@ -756,6 +759,7 @@ function WorkdirPanel({ onClose }: { onClose: () => void }) {
     try {
       await apiFetch("/dev-studio/workdir/rename", { method: "POST", body: JSON.stringify({ src: dragSrc, dst }) });
       loadTree();
+      onWorkdirChange?.();
     } catch (err) { setError(err instanceof Error ? err.message : "移动失败"); }
   }
 
@@ -848,6 +852,75 @@ function WorkdirPanel({ onClose }: { onClose: () => void }) {
   );
 }
 
+// ─── Upload Target Picker Modal ───────────────────────────────────────────────
+
+function UploadTargetModal({
+  onConfirm,
+  onCancel,
+}: {
+  onConfirm: (targetPath: string) => void;
+  onCancel: () => void;
+}) {
+  const [dirs, setDirs] = useState<TreeNode[]>([]);
+  const [selected, setSelected] = useState<TreeNode | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    apiFetch<{ tree: TreeNode[] }>("/dev-studio/workdir/tree")
+      .then((res) => {
+        setDirs(res.tree.filter((n) => n.type === "dir"));
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, []);
+
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+      <div className="bg-white border-2 border-[#1A202C] p-5 w-[400px]">
+        <div className="text-[10px] font-bold uppercase tracking-widest mb-3 text-[#D97706]">
+          选择上传目标文件夹
+        </div>
+        <div className="text-[9px] text-gray-400 mb-3">
+          不选则上传到工作区根目录
+        </div>
+        {loading ? (
+          <div className="text-[9px] text-gray-400 animate-pulse py-4">加载中...</div>
+        ) : dirs.length === 0 ? (
+          <div className="text-[9px] text-gray-400 border border-dashed border-gray-200 px-3 py-3 mb-3">
+            工作区暂无子文件夹，将上传到根目录
+          </div>
+        ) : (
+          <div className="mb-3">
+            {/* 根目录选项 */}
+            <div
+              className={`flex items-center gap-2 py-1.5 px-2 cursor-pointer transition-colors ${
+                selected === null ? "bg-[#FFF7ED] border-l-2 border-[#D97706]" : "hover:bg-gray-50"
+              }`}
+              onClick={() => setSelected(null)}
+            >
+              <span className="text-[9px] font-mono font-bold text-gray-500">/ 根目录</span>
+            </div>
+            <DirPicker nodes={dirs} selected={selected} onSelect={setSelected} />
+          </div>
+        )}
+        {selected && (
+          <div className="text-[9px] font-mono text-[#D97706] font-bold mb-3 bg-[#FFFBEB] border border-[#FCD34D] px-2 py-1.5">
+            → {selected.path}
+          </div>
+        )}
+        <div className="flex gap-2">
+          <PixelButton onClick={() => onConfirm(selected?.path ?? "")}>
+            确认
+          </PixelButton>
+          <PixelButton variant="secondary" onClick={onCancel}>
+            取消
+          </PixelButton>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Dev Studio ───────────────────────────────────────────────────────────────
 
 // 受限模型 key 常量
@@ -871,6 +944,8 @@ export function DevStudio({ convId: _convId, workspaceId }: { convId: number; wo
   const [grantedModels, setGrantedModels] = useState<string[]>([]);
   const [showTransfer, setShowTransfer] = useState(false);
   const [showWorkdir, setShowWorkdir] = useState(false);
+  const [showUploadPicker, setShowUploadPicker] = useState(false);
+  const [uploadTargetPath, setUploadTargetPath] = useState("");
   const [uploadMsg, setUploadMsg] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const retryRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -971,15 +1046,20 @@ export function DevStudio({ convId: _convId, workspaceId }: { convId: number; wo
     for (const file of files) {
       const formData = new FormData();
       formData.append("file", file);
+      if (uploadTargetPath) formData.append("target_path", uploadTargetPath);
       try {
         await apiFetch("/dev-studio/upload-file", { method: "POST", body: formData });
-        results.push(`✓ ${file.name}`);
+        const dest = uploadTargetPath ? `${uploadTargetPath}/${file.name}` : file.name;
+        results.push(`✓ ${dest}`);
       } catch (err) {
         results.push(`✗ ${file.name}：${err instanceof Error ? err.message : "失败"}`);
       }
     }
     setUploadMsg(results.join("　"));
     if (fileInputRef.current) fileInputRef.current.value = "";
+    setUploadTargetPath("");
+    // 上传完成后刷新 opencode iframe，让文件树显示新文件
+    setInstanceKey(Date.now());
     setTimeout(() => setUploadMsg(null), 8000);
   }
 
@@ -1207,7 +1287,7 @@ export function DevStudio({ convId: _convId, workspaceId }: { convId: number; wo
           ↓ 发送数据表
         </button>
         <button
-          onClick={() => fileInputRef.current?.click()}
+          onClick={() => setShowUploadPicker(true)}
           disabled={status !== "ready"}
           className="px-3 py-1 text-[9px] font-bold uppercase tracking-widest border-2 border-[#D97706] text-[#D97706] hover:bg-[#FFFBEB] disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
         >
@@ -1235,7 +1315,21 @@ export function DevStudio({ convId: _convId, workspaceId }: { convId: number; wo
       )}
 
       {showWorkdir && (
-        <WorkdirPanel onClose={() => setShowWorkdir(false)} />
+        <WorkdirPanel
+          onClose={() => setShowWorkdir(false)}
+          onWorkdirChange={() => setInstanceKey(Date.now())}
+        />
+      )}
+
+      {showUploadPicker && (
+        <UploadTargetModal
+          onConfirm={(targetPath) => {
+            setUploadTargetPath(targetPath);
+            setShowUploadPicker(false);
+            fileInputRef.current?.click();
+          }}
+          onCancel={() => setShowUploadPicker(false)}
+        />
       )}
     </div>
   );
