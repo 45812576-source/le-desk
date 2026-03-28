@@ -970,6 +970,13 @@ function PromptEditor({
   const [diffBase, setDiffBase] = useState<string | null>(null);
   const [showDiff, setShowDiff] = useState(false);
 
+  // Data table binding state
+  const [dataQueries, setDataQueries] = useState<SkillDetail["data_queries"]>([]);
+  const [showTablePicker, setShowTablePicker] = useState(false);
+  const [availableTables, setAvailableTables] = useState<{ table_name: string; display_name: string }[]>([]);
+  const [tablePickerSearch, setTablePickerSearch] = useState("");
+  const [savingTables, setSavingTables] = useState(false);
+
   // Preflight state
   const [preflightResult, setPreflightResult] = useState<PreflightResult | null>(null);
   const [preflightRunning, setPreflightRunning] = useState(false);
@@ -994,6 +1001,7 @@ function PromptEditor({
         setVersions(d.versions ?? []);
         setDiffBase(p);
         setShowDiff(false);
+        setDataQueries(d.data_queries ?? []);
       })
       .catch(() => {});
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1007,6 +1015,43 @@ function PromptEditor({
   useEffect(() => {
     if (externalName) setName(externalName);
   }, [externalName]);
+
+  useEffect(() => {
+    if (!showTablePicker) return;
+    apiFetch<{ table_name: string; display_name: string }[]>("/business-tables")
+      .then((d) => setAvailableTables(Array.isArray(d) ? d : []))
+      .catch(() => {});
+  }, [showTablePicker]);
+
+  async function saveDataQueries(next: SkillDetail["data_queries"]) {
+    if (!skill) return;
+    setSavingTables(true);
+    try {
+      await apiFetch(`/skills/${skill.id}/data-queries`, {
+        method: "PATCH",
+        body: JSON.stringify({ data_queries: next }),
+      });
+      setDataQueries(next);
+    } catch { /* ignore */ }
+    finally { setSavingTables(false); }
+  }
+
+  function addTableBinding(table: { table_name: string; display_name: string }) {
+    const already = (dataQueries ?? []).some((q) => q.table_name === table.table_name);
+    if (already) return;
+    const next = [...(dataQueries ?? []), {
+      query_name: `read_${table.table_name}`,
+      query_type: "read",
+      table_name: table.table_name,
+      description: table.display_name,
+    }];
+    saveDataQueries(next);
+    setShowTablePicker(false);
+  }
+
+  function removeTableBinding(table_name: string) {
+    saveDataQueries((dataQueries ?? []).filter((q) => q.table_name !== table_name));
+  }
 
   useEffect(() => {
     if (pendingDiffBase != null) {
@@ -1208,6 +1253,64 @@ function PromptEditor({
           />
         )}
       </div>
+
+      {/* Data Table Binding */}
+      {!isNew && skill && (
+        <div className="border-t-2 border-[#1A202C] flex-shrink-0">
+          <div className="px-4 py-2 flex items-center gap-2">
+            <span className="text-[8px] font-bold uppercase tracking-widest text-gray-400">数据表绑定</span>
+            <span className="text-[8px] text-gray-400">({(dataQueries ?? []).length})</span>
+            {!isReadOnly && (
+              <button onClick={() => { setShowTablePicker(true); setTablePickerSearch(""); }}
+                className="ml-auto text-[8px] font-bold text-[#00A3C4] hover:text-[#00D1FF] uppercase tracking-widest">
+                + 绑定表
+              </button>
+            )}
+          </div>
+          {(dataQueries ?? []).length > 0 && (
+            <div className="px-4 pb-2 flex flex-wrap gap-1">
+              {(dataQueries ?? []).map((q) => (
+                <div key={q.table_name} className="flex items-center gap-1 border border-[#00A3C4] px-1.5 py-0.5 text-[8px] font-mono text-[#00A3C4]">
+                  <span>{q.description || q.table_name}</span>
+                  {!isReadOnly && (
+                    <button onClick={() => removeTableBinding(q.table_name)} className="hover:text-red-500 leading-none">×</button>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+          {savingTables && <div className="px-4 pb-1 text-[8px] text-gray-400">保存中...</div>}
+          {showTablePicker && (
+            <div className="mx-4 mb-3 border-2 border-[#1A202C] bg-white shadow-md">
+              <div className="flex items-center border-b border-gray-200 px-2">
+                <Search size={10} className="text-gray-400 flex-shrink-0" />
+                <input autoFocus value={tablePickerSearch} onChange={(e) => setTablePickerSearch(e.target.value)}
+                  placeholder="搜索数据表..." className="flex-1 px-2 py-1.5 text-[9px] font-mono focus:outline-none" />
+                <button onClick={() => setShowTablePicker(false)} className="text-gray-400 hover:text-gray-600 text-[10px]">×</button>
+              </div>
+              <div className="max-h-40 overflow-y-auto">
+                {availableTables
+                  .filter((t) => !tablePickerSearch || t.display_name.includes(tablePickerSearch) || t.table_name.includes(tablePickerSearch))
+                  .map((t) => {
+                    const bound = (dataQueries ?? []).some((q) => q.table_name === t.table_name);
+                    return (
+                      <button key={t.table_name} onClick={() => { if (!bound) addTableBinding(t); }}
+                        disabled={bound}
+                        className={`w-full text-left px-3 py-1.5 text-[9px] font-mono border-b border-gray-100 last:border-0 flex items-center gap-2 ${bound ? "text-gray-300" : "hover:bg-[#F0F4F8]"}`}>
+                        <span className="flex-1 truncate">{t.display_name || t.table_name}</span>
+                        <span className="text-[8px] text-gray-400 flex-shrink-0">{t.table_name}</span>
+                        {bound && <span className="text-[8px] text-[#00CC99]">已绑定</span>}
+                      </button>
+                    );
+                  })}
+                {availableTables.length === 0 && (
+                  <div className="px-3 py-2 text-[9px] text-gray-400">暂无可用数据表</div>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Preflight Report */}
       <PreflightReport

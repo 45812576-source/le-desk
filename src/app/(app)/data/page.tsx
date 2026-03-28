@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { PixelButton } from "@/components/pixel/PixelButton";
 import { PixelBadge } from "@/components/pixel/PixelBadge";
 import { PixelIcon, ICONS } from "@/components/pixel";
@@ -25,6 +25,29 @@ interface Column {
 
 type ScopeValue = "all" | "department" | "private";
 
+type FieldType = "text" | "number" | "select" | "multi_select" | "date" | "person" | "url" | "checkbox" | "email" | "phone";
+
+interface FieldMeta {
+  name: string;
+  field_type: FieldType;
+  options: string[];
+  nullable: boolean;
+  comment: string;
+}
+
+const FIELD_TYPE_LABELS: Record<FieldType, string> = {
+  text: "文本",
+  number: "数字",
+  select: "单选",
+  multi_select: "多选",
+  date: "日期",
+  person: "人员",
+  url: "链接",
+  checkbox: "复选框",
+  email: "邮箱",
+  phone: "电话",
+};
+
 interface BusinessTable {
   id: number;
   table_name: string;
@@ -42,6 +65,7 @@ interface BusinessTable {
     bitable_app_token?: string;
     bitable_table_id?: string;
     last_synced_at?: number;
+    field_meta?: FieldMeta[];
   };
   created_at: string;
 }
@@ -476,37 +500,168 @@ function DbPanel({ onAdded }: { onAdded: () => void }) {
   );
 }
 
+// ─── CreateBlank Panel ────────────────────────────────────────────────────────
+function CreateBlankPanel({ onAdded }: { onAdded: () => void }) {
+  const [displayName, setDisplayName] = useState("");
+  const [description, setDescription] = useState("");
+  const [fields, setFields] = useState<FieldMeta[]>([
+    { name: "名称", field_type: "text", options: [], nullable: true, comment: "" },
+  ]);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  function addField() {
+    setFields((prev) => [...prev, { name: "", field_type: "text", options: [], nullable: true, comment: "" }]);
+  }
+
+  function removeField(i: number) {
+    setFields((prev) => prev.filter((_, idx) => idx !== i));
+  }
+
+  function updateField(i: number, patch: Partial<FieldMeta>) {
+    setFields((prev) => prev.map((f, idx) => idx === i ? { ...f, ...patch } : f));
+  }
+
+  async function handleCreate() {
+    if (!displayName.trim()) { setError("请填写表名称"); return; }
+    const invalid = fields.find((f) => !f.name.trim());
+    if (invalid !== undefined) { setError("字段名称不能为空"); return; }
+    setError(""); setSaving(true);
+    try {
+      await apiFetch("/business-tables/create-blank", {
+        method: "POST",
+        body: JSON.stringify({ display_name: displayName.trim(), description: description.trim(), fields }),
+      });
+      onAdded();
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "创建失败");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="space-y-4 max-w-2xl">
+      <div className="border-2 border-[#1A202C] bg-white">
+        <div className="px-4 py-2.5 bg-[#EBF4F7] border-b-2 border-[#1A202C]">
+          <span className="text-[9px] font-bold uppercase tracking-widest text-[#00A3C4]">— 新建空白表</span>
+        </div>
+        <div className="p-4 space-y-3">
+          <div>
+            <label className="block text-[9px] font-bold uppercase tracking-widest text-gray-500 mb-1">表名称 *</label>
+            <input
+              value={displayName}
+              onChange={(e) => setDisplayName(e.target.value)}
+              placeholder="例：客户线索表"
+              className="w-full border-2 border-[#1A202C] px-3 py-2 text-[11px] focus:outline-none focus:border-[#00D1FF]"
+            />
+          </div>
+          <div>
+            <label className="block text-[9px] font-bold uppercase tracking-widest text-gray-500 mb-1">描述（可选）</label>
+            <input
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              placeholder="这张表用来记录..."
+              className="w-full border-2 border-[#1A202C] px-3 py-2 text-[11px] focus:outline-none focus:border-[#00D1FF]"
+            />
+          </div>
+
+          {/* Field designer */}
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-[9px] font-bold uppercase tracking-widest text-gray-500">字段定义</span>
+              <button
+                onClick={addField}
+                className="text-[9px] font-bold px-2 py-0.5 border-2 border-[#1A202C] bg-white hover:bg-[#1A202C] hover:text-white transition-colors"
+              >
+                + 添加字段
+              </button>
+            </div>
+            {/* System fields hint */}
+            <div className="flex gap-1 flex-wrap mb-2">
+              {["id (自增主键)", "created_at (创建时间)", "updated_at (更新时间)"].map((f) => (
+                <span key={f} className="text-[8px] text-gray-400 border border-gray-200 px-1.5 py-0.5 bg-gray-50">{f}</span>
+              ))}
+            </div>
+            <div className="space-y-1.5">
+              {fields.map((f, i) => (
+                <div key={i} className="flex items-center gap-2 border border-gray-200 p-2 bg-white">
+                  <input
+                    value={f.name}
+                    onChange={(e) => updateField(i, { name: e.target.value })}
+                    placeholder="字段名称"
+                    className="flex-1 border-2 border-gray-200 px-2 py-1 text-[10px] font-mono focus:outline-none focus:border-[#00D1FF]"
+                  />
+                  <select
+                    value={f.field_type}
+                    onChange={(e) => updateField(i, { field_type: e.target.value as FieldType })}
+                    className="border-2 border-gray-200 px-2 py-1 text-[10px] focus:outline-none focus:border-[#00D1FF] bg-white"
+                  >
+                    {(Object.keys(FIELD_TYPE_LABELS) as FieldType[]).map((t) => (
+                      <option key={t} value={t}>{FIELD_TYPE_LABELS[t]}</option>
+                    ))}
+                  </select>
+                  {(f.field_type === "select" || f.field_type === "multi_select") && (
+                    <input
+                      value={f.options.join(",")}
+                      onChange={(e) => updateField(i, { options: e.target.value.split(",").map((s) => s.trim()).filter(Boolean) })}
+                      placeholder="选项1,选项2"
+                      className="w-28 border-2 border-gray-200 px-2 py-1 text-[10px] focus:outline-none focus:border-[#00D1FF]"
+                    />
+                  )}
+                  <button
+                    onClick={() => removeField(i)}
+                    className="text-[10px] text-gray-300 hover:text-red-400 px-1"
+                  >✕</button>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {error && <p className="text-[10px] text-red-500 font-bold">{error}</p>}
+          <PixelButton onClick={handleCreate} disabled={saving}>
+            {saving ? "创建中..." : "✓ 创建数据表"}
+          </PixelButton>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Connect Tab ─────────────────────────────────────────────────────────────
+type ConnectMode3 = ConnectMode | "blank";
+
 function ConnectTab({ onAdded }: { onAdded: () => void }) {
-  const [mode, setMode] = useState<ConnectMode>("bitable");
+  const [mode, setMode] = useState<ConnectMode3>("bitable");
+
+  const MODES: { key: ConnectMode3; icon: string; label: string }[] = [
+    { key: "bitable", icon: "🪁", label: "飞书多维表格" },
+    { key: "db",      icon: "🗄", label: "外部数据库" },
+    { key: "blank",   icon: "✦", label: "新建空白表" },
+  ];
 
   return (
     <div className="max-w-3xl">
       {/* Source type toggle */}
       <div className="flex gap-1 mb-5">
-        <button
-          onClick={() => setMode("bitable")}
-          className={`flex items-center gap-2 px-4 py-2 border-2 text-[10px] font-bold uppercase tracking-widest transition-colors ${
-            mode === "bitable"
-              ? "border-[#1A202C] bg-[#1A202C] text-white"
-              : "border-[#1A202C] bg-white text-[#1A202C] hover:bg-[#F0F4F8]"
-          }`}
-        >
-          <span>🪁</span> 飞书多维表格
-        </button>
-        <button
-          onClick={() => setMode("db")}
-          className={`flex items-center gap-2 px-4 py-2 border-2 text-[10px] font-bold uppercase tracking-widest transition-colors ${
-            mode === "db"
-              ? "border-[#1A202C] bg-[#1A202C] text-white"
-              : "border-[#1A202C] bg-white text-[#1A202C] hover:bg-[#F0F4F8]"
-          }`}
-        >
-          <span>🗄</span> 外部数据库
-        </button>
+        {MODES.map((m) => (
+          <button
+            key={m.key}
+            onClick={() => setMode(m.key)}
+            className={`flex items-center gap-2 px-4 py-2 border-2 text-[10px] font-bold uppercase tracking-widest transition-colors ${
+              mode === m.key
+                ? "border-[#1A202C] bg-[#1A202C] text-white"
+                : "border-[#1A202C] bg-white text-[#1A202C] hover:bg-[#F0F4F8]"
+            }`}
+          >
+            <span>{m.icon}</span> {m.label}
+          </button>
+        ))}
       </div>
 
-      {mode === "bitable" ? <BitablePanel onAdded={onAdded} /> : <DbPanel onAdded={onAdded} />}
+      {mode === "bitable" ? <BitablePanel onAdded={onAdded} /> :
+       mode === "db" ? <DbPanel onAdded={onAdded} /> :
+       <CreateBlankPanel onAdded={onAdded} />}
     </div>
   );
 }
@@ -633,7 +788,425 @@ function ScopeSelector({
   );
 }
 
+// ─── View types ───────────────────────────────────────────────────────────────
+interface ViewFilter {
+  field: string;
+  op: "eq" | "ne" | "gt" | "gte" | "lt" | "lte" | "contains" | "starts" | "ends";
+  value: string;
+}
+
+interface ViewSort {
+  field: string;
+  dir: "asc" | "desc";
+}
+
+interface TableViewConfig {
+  filters: ViewFilter[];
+  sorts: ViewSort[];
+  group_by: string;
+  hidden_columns: string[];
+  column_widths: Record<string, number>;
+}
+
+interface TableView {
+  id: number;
+  table_id: number;
+  name: string;
+  view_type: string;
+  config: TableViewConfig;
+  created_by: number | null;
+}
+
+const OP_LABELS: Record<string, string> = {
+  eq: "等于", ne: "不等于", gt: "大于", gte: "大于等于",
+  lt: "小于", lte: "小于等于", contains: "包含", starts: "开头是", ends: "结尾是",
+};
+
+// ─── View Bar ─────────────────────────────────────────────────────────────────
+function ViewBar({
+  tableId,
+  cols,
+  activeViewId,
+  onChangeView,
+}: {
+  tableId: number;
+  cols: string[];
+  activeViewId: number | null;
+  onChangeView: (viewId: number | null, config: TableViewConfig | null) => void;
+}) {
+  const [views, setViews] = useState<TableView[]>([]);
+  const [showFilterPanel, setShowFilterPanel] = useState(false);
+  const [showSortPanel, setShowSortPanel] = useState(false);
+  const [creatingView, setCreatingView] = useState(false);
+  const [newViewName, setNewViewName] = useState("");
+
+  const activeView = views.find((v) => v.id === activeViewId) ?? null;
+  const [localConfig, setLocalConfig] = useState<TableViewConfig>(
+    activeView?.config ?? { filters: [], sorts: [], group_by: "", hidden_columns: [], column_widths: {} }
+  );
+
+  const loadViews = useCallback(() => {
+    apiFetch<TableView[]>(`/business-tables/${tableId}/views`)
+      .then(setViews)
+      .catch(() => setViews([]));
+  }, [tableId]);
+
+  useEffect(() => { loadViews(); }, [loadViews]);
+
+  useEffect(() => {
+    const cfg = activeView?.config ?? { filters: [], sorts: [], group_by: "", hidden_columns: [], column_widths: {} };
+    setLocalConfig(cfg);
+  }, [activeViewId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function handleCreateView() {
+    if (!newViewName.trim()) return;
+    try {
+      const v = await apiFetch<TableView>(`/business-tables/${tableId}/views`, {
+        method: "POST",
+        body: JSON.stringify({ name: newViewName.trim(), config: { filters: [], sorts: [], group_by: "", hidden_columns: [], column_widths: {} } }),
+      });
+      loadViews();
+      onChangeView(v.id, v.config);
+    } catch { /* ignore */ }
+    setCreatingView(false);
+    setNewViewName("");
+  }
+
+  async function handleDeleteView(viewId: number, e: React.MouseEvent) {
+    e.stopPropagation();
+    if (!confirm("删除此视图？")) return;
+    await apiFetch(`/business-tables/${tableId}/views/${viewId}`, { method: "DELETE" });
+    loadViews();
+    if (activeViewId === viewId) onChangeView(null, null);
+  }
+
+  async function saveConfig(cfg: TableViewConfig) {
+    setLocalConfig(cfg);
+    onChangeView(activeViewId, cfg);
+    if (activeViewId) {
+      await apiFetch(`/business-tables/${tableId}/views/${activeViewId}`, {
+        method: "PATCH",
+        body: JSON.stringify({ config: cfg }),
+      });
+    }
+  }
+
+  function addFilter() {
+    const next = { ...localConfig, filters: [...localConfig.filters, { field: cols[0] ?? "", op: "eq" as const, value: "" }] };
+    saveConfig(next);
+  }
+  function updateFilter(i: number, patch: Partial<ViewFilter>) {
+    const filters = localConfig.filters.map((f, idx) => idx === i ? { ...f, ...patch } : f);
+    saveConfig({ ...localConfig, filters });
+  }
+  function removeFilter(i: number) {
+    saveConfig({ ...localConfig, filters: localConfig.filters.filter((_, idx) => idx !== i) });
+  }
+  function addSort() {
+    const next = { ...localConfig, sorts: [...localConfig.sorts, { field: cols[0] ?? "", dir: "asc" as const }] };
+    saveConfig(next);
+  }
+  function updateSort(i: number, patch: Partial<ViewSort>) {
+    const sorts = localConfig.sorts.map((s, idx) => idx === i ? { ...s, ...patch } : s);
+    saveConfig({ ...localConfig, sorts });
+  }
+  function removeSort(i: number) {
+    saveConfig({ ...localConfig, sorts: localConfig.sorts.filter((_, idx) => idx !== i) });
+  }
+
+  const filterCount = localConfig.filters.length;
+  const sortCount = localConfig.sorts.length;
+
+  return (
+    <div className="border-b border-gray-200 bg-white flex-shrink-0">
+      {/* View tabs */}
+      <div className="flex items-center gap-1 px-3 py-1.5 overflow-x-auto">
+        <button
+          onClick={() => onChangeView(null, null)}
+          className={`px-2.5 py-1 text-[9px] font-bold border-b-2 transition-colors whitespace-nowrap ${
+            activeViewId === null ? "border-[#00A3C4] text-[#00A3C4]" : "border-transparent text-gray-400 hover:text-gray-700"
+          }`}
+        >
+          默认视图
+        </button>
+        {views.map((v) => (
+          <div key={v.id} className="relative group">
+            <button
+              onClick={() => onChangeView(v.id, v.config)}
+              className={`px-2.5 py-1 text-[9px] font-bold border-b-2 transition-colors whitespace-nowrap pr-5 ${
+                activeViewId === v.id ? "border-[#00A3C4] text-[#00A3C4]" : "border-transparent text-gray-400 hover:text-gray-700"
+              }`}
+            >
+              {v.name}
+            </button>
+            <button
+              onClick={(e) => handleDeleteView(v.id, e)}
+              className="absolute right-0 top-1/2 -translate-y-1/2 hidden group-hover:block text-[8px] text-gray-300 hover:text-red-400 px-0.5"
+            >✕</button>
+          </div>
+        ))}
+        {creatingView ? (
+          <div className="flex items-center gap-1">
+            <input
+              value={newViewName}
+              onChange={(e) => setNewViewName(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") handleCreateView(); if (e.key === "Escape") setCreatingView(false); }}
+              placeholder="视图名称"
+              autoFocus
+              className="border border-[#00D1FF] text-[9px] px-1.5 py-0.5 focus:outline-none w-24"
+            />
+            <button onClick={handleCreateView} className="text-[9px] font-bold text-[#00A3C4]">✓</button>
+            <button onClick={() => setCreatingView(false)} className="text-[9px] text-gray-400">✕</button>
+          </div>
+        ) : (
+          <button
+            onClick={() => setCreatingView(true)}
+            className="text-[9px] text-gray-300 hover:text-[#00A3C4] px-1.5 whitespace-nowrap"
+          >+ 新建视图</button>
+        )}
+
+        {/* Filter / Sort buttons */}
+        <div className="ml-auto flex items-center gap-1 flex-shrink-0">
+          <button
+            onClick={() => { setShowFilterPanel((v) => !v); setShowSortPanel(false); }}
+            className={`flex items-center gap-1 text-[9px] font-bold px-2 py-0.5 border transition-colors ${
+              showFilterPanel || filterCount > 0
+                ? "border-[#00A3C4] text-[#00A3C4] bg-[#EBF4F7]"
+                : "border-gray-200 text-gray-400 hover:border-[#00A3C4] hover:text-[#00A3C4]"
+            }`}
+          >
+            筛选{filterCount > 0 && <span className="bg-[#00A3C4] text-white text-[8px] px-1 rounded-sm">{filterCount}</span>}
+          </button>
+          <button
+            onClick={() => { setShowSortPanel((v) => !v); setShowFilterPanel(false); }}
+            className={`flex items-center gap-1 text-[9px] font-bold px-2 py-0.5 border transition-colors ${
+              showSortPanel || sortCount > 0
+                ? "border-[#00A3C4] text-[#00A3C4] bg-[#EBF4F7]"
+                : "border-gray-200 text-gray-400 hover:border-[#00A3C4] hover:text-[#00A3C4]"
+            }`}
+          >
+            排序{sortCount > 0 && <span className="bg-[#00A3C4] text-white text-[8px] px-1 rounded-sm">{sortCount}</span>}
+          </button>
+        </div>
+      </div>
+
+      {/* Filter panel */}
+      {showFilterPanel && (
+        <div className="border-t border-gray-100 px-4 py-3 bg-[#FAFCFD] space-y-2">
+          <div className="text-[9px] font-bold uppercase tracking-widest text-gray-400 mb-1.5">筛选条件</div>
+          {localConfig.filters.map((f, i) => (
+            <div key={i} className="flex items-center gap-2">
+              <select value={f.field} onChange={(e) => updateFilter(i, { field: e.target.value })}
+                className="border border-gray-200 text-[9px] px-1.5 py-0.5 bg-white focus:outline-none focus:border-[#00D1FF]">
+                {cols.map((c) => <option key={c} value={c}>{c}</option>)}
+              </select>
+              <select value={f.op} onChange={(e) => updateFilter(i, { op: e.target.value as ViewFilter["op"] })}
+                className="border border-gray-200 text-[9px] px-1.5 py-0.5 bg-white focus:outline-none focus:border-[#00D1FF]">
+                {Object.entries(OP_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+              </select>
+              <input value={f.value} onChange={(e) => updateFilter(i, { value: e.target.value })}
+                placeholder="值"
+                className="border border-gray-200 text-[9px] px-1.5 py-0.5 focus:outline-none focus:border-[#00D1FF] w-28" />
+              <button onClick={() => removeFilter(i)} className="text-[9px] text-gray-300 hover:text-red-400">✕</button>
+            </div>
+          ))}
+          <button onClick={addFilter} className="text-[9px] font-bold text-[#00A3C4] hover:text-[#008BA3]">+ 添加条件</button>
+        </div>
+      )}
+
+      {/* Sort panel */}
+      {showSortPanel && (
+        <div className="border-t border-gray-100 px-4 py-3 bg-[#FAFCFD] space-y-2">
+          <div className="text-[9px] font-bold uppercase tracking-widest text-gray-400 mb-1.5">排序规则</div>
+          {localConfig.sorts.map((s, i) => (
+            <div key={i} className="flex items-center gap-2">
+              <select value={s.field} onChange={(e) => updateSort(i, { field: e.target.value })}
+                className="border border-gray-200 text-[9px] px-1.5 py-0.5 bg-white focus:outline-none focus:border-[#00D1FF]">
+                {cols.map((c) => <option key={c} value={c}>{c}</option>)}
+              </select>
+              <select value={s.dir} onChange={(e) => updateSort(i, { dir: e.target.value as "asc" | "desc" })}
+                className="border border-gray-200 text-[9px] px-1.5 py-0.5 bg-white focus:outline-none focus:border-[#00D1FF]">
+                <option value="asc">升序 ↑</option>
+                <option value="desc">降序 ↓</option>
+              </select>
+              <button onClick={() => removeSort(i)} className="text-[9px] text-gray-300 hover:text-red-400">✕</button>
+            </div>
+          ))}
+          <button onClick={addSort} className="text-[9px] font-bold text-[#00A3C4] hover:text-[#008BA3]">+ 添加排序</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Editable Cell ────────────────────────────────────────────────────────────
+function EditableCell({
+  value,
+  fieldMeta,
+  onSave,
+  readOnly,
+}: {
+  value: unknown;
+  fieldMeta?: FieldMeta;
+  onSave: (v: string) => void;
+  readOnly?: boolean;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [val, setVal] = useState(formatCellValue(value));
+  const inputRef = useRef<HTMLInputElement | HTMLSelectElement>(null);
+
+  useEffect(() => { setVal(formatCellValue(value)); }, [value]);
+  useEffect(() => { if (editing) (inputRef.current as HTMLElement | null)?.focus(); }, [editing]);
+
+  if (readOnly) {
+    return (
+      <span className="text-gray-700 font-mono">
+        {value === null || value === undefined ? <span className="text-gray-300">NULL</span> : formatCellValue(value)}
+      </span>
+    );
+  }
+
+  if (!editing) {
+    return (
+      <span
+        className="text-gray-700 font-mono cursor-text hover:bg-[#F0F8FF] px-0.5 rounded min-w-[20px] inline-block"
+        onDoubleClick={() => { setVal(formatCellValue(value)); setEditing(true); }}
+        title="双击编辑"
+      >
+        {value === null || value === undefined ? <span className="text-gray-200">—</span> : formatCellValue(value)}
+      </span>
+    );
+  }
+
+  function commit() {
+    setEditing(false);
+    if (val !== formatCellValue(value)) onSave(val);
+  }
+
+  const ft = fieldMeta?.field_type;
+
+  if (ft === "select" && fieldMeta?.options?.length) {
+    return (
+      <select
+        ref={inputRef as React.RefObject<HTMLSelectElement>}
+        value={val}
+        onChange={(e) => setVal(e.target.value)}
+        onBlur={commit}
+        className="border border-[#00D1FF] text-[9px] px-1 py-0.5 bg-white focus:outline-none"
+      >
+        <option value="">—</option>
+        {fieldMeta.options.map((o) => <option key={o} value={o}>{o}</option>)}
+      </select>
+    );
+  }
+
+  if (ft === "checkbox") {
+    return (
+      <input
+        type="checkbox"
+        checked={val === "1" || val === "true"}
+        onChange={(e) => { const v = e.target.checked ? "1" : "0"; setVal(v); onSave(v); setEditing(false); }}
+        className="w-3 h-3"
+      />
+    );
+  }
+
+  if (ft === "date") {
+    return (
+      <input
+        ref={inputRef as React.RefObject<HTMLInputElement>}
+        type="datetime-local"
+        value={val.slice(0, 16)}
+        onChange={(e) => setVal(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => { if (e.key === "Enter") commit(); if (e.key === "Escape") setEditing(false); }}
+        className="border border-[#00D1FF] text-[9px] px-1 py-0.5 focus:outline-none"
+      />
+    );
+  }
+
+  return (
+    <input
+      ref={inputRef as React.RefObject<HTMLInputElement>}
+      type={ft === "number" ? "number" : "text"}
+      value={val}
+      onChange={(e) => setVal(e.target.value)}
+      onBlur={commit}
+      onKeyDown={(e) => { if (e.key === "Enter") commit(); if (e.key === "Escape") setEditing(false); }}
+      className="border border-[#00D1FF] text-[9px] px-1 py-0.5 min-w-[60px] max-w-[200px] focus:outline-none bg-white"
+    />
+  );
+}
+
+// ─── Add Column Modal ─────────────────────────────────────────────────────────
+function AddColumnModal({ tableId, onDone, onClose }: { tableId: number; onDone: () => void; onClose: () => void }) {
+  const [name, setName] = useState("");
+  const [fieldType, setFieldType] = useState<FieldType>("text");
+  const [options, setOptions] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  async function handleAdd() {
+    if (!name.trim()) { setError("字段名不能为空"); return; }
+    setSaving(true); setError("");
+    try {
+      await apiFetch(`/business-tables/${tableId}/columns`, {
+        method: "POST",
+        body: JSON.stringify({
+          name: name.trim(),
+          field_type: fieldType,
+          options: options.split(",").map((s) => s.trim()).filter(Boolean),
+        }),
+      });
+      onDone();
+      onClose();
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "添加失败");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center">
+      <div className="bg-white border-2 border-[#1A202C] w-80 p-4 space-y-3">
+        <div className="text-[10px] font-bold uppercase tracking-widest text-[#00A3C4] mb-1">新增列</div>
+        <div>
+          <label className="block text-[9px] font-bold text-gray-500 mb-1">字段名称 *</label>
+          <input value={name} onChange={(e) => setName(e.target.value)}
+            className="w-full border-2 border-[#1A202C] px-2 py-1.5 text-[11px] font-mono focus:outline-none focus:border-[#00D1FF]"
+            placeholder="例：备注" autoFocus />
+        </div>
+        <div>
+          <label className="block text-[9px] font-bold text-gray-500 mb-1">类型</label>
+          <select value={fieldType} onChange={(e) => setFieldType(e.target.value as FieldType)}
+            className="w-full border-2 border-[#1A202C] px-2 py-1.5 text-[10px] bg-white focus:outline-none">
+            {(Object.keys(FIELD_TYPE_LABELS) as FieldType[]).map((t) => (
+              <option key={t} value={t}>{FIELD_TYPE_LABELS[t]}</option>
+            ))}
+          </select>
+        </div>
+        {(fieldType === "select" || fieldType === "multi_select") && (
+          <div>
+            <label className="block text-[9px] font-bold text-gray-500 mb-1">选项（逗号分隔）</label>
+            <input value={options} onChange={(e) => setOptions(e.target.value)}
+              placeholder="选项1,选项2,选项3"
+              className="w-full border-2 border-[#1A202C] px-2 py-1.5 text-[11px] focus:outline-none focus:border-[#00D1FF]" />
+          </div>
+        )}
+        {error && <p className="text-[10px] text-red-500 font-bold">{error}</p>}
+        <div className="flex gap-2 pt-1">
+          <PixelButton onClick={handleAdd} disabled={saving}>{saving ? "添加中..." : "✓ 添加"}</PixelButton>
+          <PixelButton variant="secondary" onClick={onClose}>取消</PixelButton>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Preview panel ────────────────────────────────────────────────────────────
+const READONLY_COLS = new Set(["id", "created_at", "updated_at", "_record_id", "_synced_at"]);
+
 function TablePreview({
   table,
   departments,
@@ -655,37 +1228,56 @@ function TablePreview({
   const [nameVal, setNameVal] = useState(table.display_name);
   const nameInputRef = useRef<HTMLInputElement>(null);
   const [showSettings, setShowSettings] = useState(false);
+  const [addingRow, setAddingRow] = useState(false);
+  const [newRowData, setNewRowData] = useState<Record<string, string>>({});
+  const [showAddCol, setShowAddCol] = useState(false);
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; rowId: number } | null>(null);
+  const [activeViewId, setActiveViewId] = useState<number | null>(null);
 
   const hidden = table.validation_rules?.hidden_fields ?? [];
+  const fieldMeta: FieldMeta[] = table.validation_rules?.field_meta ?? [];
   const colScope: ScopeValue = table.validation_rules?.column_scope ?? "private";
   const colDeptIds = table.validation_rules?.column_department_ids ?? [];
   const rowScope: ScopeValue = table.validation_rules?.row_scope ?? "private";
   const rowDeptIds = table.validation_rules?.row_department_ids ?? [];
 
-  useEffect(() => { Promise.resolve().then(() => setNameVal(table.display_name)); }, [table.id, table.display_name]);
+  // Is this a blank (user-created) table — has field_meta
+  const isEditable = fieldMeta.length > 0 || table.table_name.startsWith("usr_");
 
-  useEffect(() => {
+  const loadRows = useCallback((viewId?: number | null) => {
+    const vid = viewId !== undefined ? viewId : activeViewId;
     setLoadingRows(true);
     setRowsError("");
+    const qs = vid ? `?page=1&page_size=100&view_id=${vid}` : "?page=1&page_size=100";
     apiFetch<{ columns: string[]; rows: Record<string, unknown>[] }>(
-      `/data/${table.table_name}/rows?page=1&page_size=50`
+      `/data/${table.table_name}/rows${qs}`
     )
       .then((d) => {
-        console.log("[DataPage] rows response:", d);
         setCols(d.columns ?? []);
         setRows(d.rows ?? []);
-        if (!d.columns?.length && !d.rows?.length) {
-          setRowsError(`后端返回空数据（total=${(d as Record<string, unknown>).total ?? "?"}）`);
-        }
       })
       .catch((e: unknown) => {
-        console.error("[DataPage] rows error:", e);
-        setCols([]);
-        setRows([]);
+        setCols([]); setRows([]);
         setRowsError(e instanceof Error ? e.message : String(e));
       })
       .finally(() => setLoadingRows(false));
   }, [table.table_name]);
+
+  function handleViewChange(viewId: number | null, _config: TableViewConfig | null) {
+    setActiveViewId(viewId);
+    loadRows(viewId);
+  }
+
+  useEffect(() => { Promise.resolve().then(() => setNameVal(table.display_name)); }, [table.id, table.display_name]);
+  useEffect(() => { loadRows(); }, [loadRows]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (editingName) nameInputRef.current?.focus(); }, [editingName]);
+
+  // Close context menu on outside click
+  useEffect(() => {
+    function close() { setContextMenu(null); }
+    document.addEventListener("click", close);
+    return () => document.removeEventListener("click", close);
+  }, []);
 
   function submitRename() {
     const v = nameVal.trim();
@@ -693,12 +1285,89 @@ function TablePreview({
     setEditingName(false);
   }
 
-  useEffect(() => { if (editingName) nameInputRef.current?.focus(); }, [editingName]);
+  async function handleCellSave(rowId: number, col: string, value: string) {
+    try {
+      await apiFetch(`/data/${table.table_name}/rows/${rowId}`, {
+        method: "PUT",
+        body: JSON.stringify({ data: { [col]: value || null } }),
+      });
+      setRows((prev) => prev.map((r) => r.id === rowId ? { ...r, [col]: value } : r));
+    } catch {
+      // silently ignore
+    }
+  }
+
+  async function handleAddRow() {
+    const data: Record<string, string | null> = {};
+    editableCols.forEach((c) => { data[c] = newRowData[c] ?? null; });
+    try {
+      await apiFetch(`/data/${table.table_name}/rows`, {
+        method: "POST",
+        body: JSON.stringify({ data }),
+      });
+      setAddingRow(false);
+      setNewRowData({});
+      loadRows();
+    } catch (e: unknown) {
+      alert(e instanceof Error ? e.message : "新增失败");
+    }
+  }
+
+  async function handleDeleteRow(rowId: number) {
+    if (!confirm("确认删除这行数据？")) return;
+    try {
+      await apiFetch(`/data/${table.table_name}/rows/${rowId}`, { method: "DELETE" });
+      setRows((prev) => prev.filter((r) => r.id !== rowId));
+    } catch (e: unknown) {
+      alert(e instanceof Error ? e.message : "删除失败");
+    }
+  }
+
+  async function handleDropColumn(colName: string) {
+    if (!confirm(`确认删除列「${colName}」及其所有数据？`)) return;
+    try {
+      await apiFetch(`/business-tables/${table.id}/columns/${colName}`, { method: "DELETE" });
+      onRename(table.id, table.display_name); // trigger parent refresh
+      loadRows();
+    } catch (e: unknown) {
+      alert(e instanceof Error ? e.message : "删除列失败");
+    }
+  }
 
   const visibleCols = cols.filter((c) => !hidden.includes(c));
+  const editableCols = visibleCols.filter((c) => !READONLY_COLS.has(c));
+
+  function getFieldMeta(colName: string): FieldMeta | undefined {
+    return fieldMeta.find((m) => m.name === colName);
+  }
 
   return (
-    <div className="flex-1 min-h-0 overflow-y-auto bg-white flex flex-col">
+    <div className="flex-1 min-h-0 overflow-y-auto bg-white flex flex-col" onClick={() => setContextMenu(null)}>
+      {/* Context menu */}
+      {contextMenu && (
+        <div
+          className="fixed z-50 bg-white border-2 border-[#1A202C] shadow-lg py-1 w-28"
+          style={{ top: contextMenu.y, left: contextMenu.x }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <button
+            onClick={() => { handleDeleteRow(contextMenu.rowId); setContextMenu(null); }}
+            className="w-full text-left px-3 py-1.5 text-[10px] font-bold text-red-500 hover:bg-red-50"
+          >
+            🗑 删除行
+          </button>
+        </div>
+      )}
+
+      {/* Add column modal */}
+      {showAddCol && (
+        <AddColumnModal
+          tableId={table.id}
+          onDone={() => { onRename(table.id, table.display_name); loadRows(); }}
+          onClose={() => setShowAddCol(false)}
+        />
+      )}
+
       {/* Header */}
       <div className="px-5 py-4 border-b-2 border-[#1A202C] flex-shrink-0 flex items-start gap-3">
         <div className="flex-1 min-w-0">
@@ -726,6 +1395,14 @@ function TablePreview({
           <p className="text-[9px] text-gray-400 font-mono mt-0.5">{table.table_name}</p>
         </div>
         <PixelBadge color="gray">{table.columns.length} 列</PixelBadge>
+        {isEditable && (
+          <button
+            onClick={() => setShowAddCol(true)}
+            className="text-[9px] font-bold px-2 py-1 border-2 border-[#00A3C4] text-[#00A3C4] hover:bg-[#00A3C4] hover:text-white transition-colors flex-shrink-0"
+          >
+            + 新增列
+          </button>
+        )}
         {table.validation_rules?.bitable_app_token && (
           <BitableResyncButton table={table} onDone={() => onRename(table.id, table.display_name)} />
         )}
@@ -767,20 +1444,28 @@ function TablePreview({
               {table.columns.map((c) => {
                 const isHidden = hidden.includes(c.name);
                 return (
-                  <button
-                    key={c.name}
-                    onClick={() => onToggleField(table.id, c.name, !isHidden)}
-                    title={isHidden ? "已隐藏，点击恢复" : "点击隐藏"}
-                    className={`inline-flex items-center gap-1.5 border-2 px-2 py-0.5 text-[9px] font-bold transition-colors ${
-                      isHidden
-                        ? "border-gray-200 text-gray-300 bg-gray-50"
-                        : "border-[#1A202C] text-[#1A202C] bg-white hover:border-[#00A3C4] hover:text-[#00A3C4]"
-                    }`}
-                  >
-                    <span>{isHidden ? "○" : "●"}</span>
-                    {c.name}
-                    <span className="text-[8px] font-mono opacity-60">{c.type}</span>
-                  </button>
+                  <div key={c.name} className="inline-flex items-center gap-0.5 group">
+                    <button
+                      onClick={() => onToggleField(table.id, c.name, !isHidden)}
+                      title={isHidden ? "已隐藏，点击恢复" : "点击隐藏"}
+                      className={`inline-flex items-center gap-1.5 border-2 px-2 py-0.5 text-[9px] font-bold transition-colors ${
+                        isHidden
+                          ? "border-gray-200 text-gray-300 bg-gray-50"
+                          : "border-[#1A202C] text-[#1A202C] bg-white hover:border-[#00A3C4] hover:text-[#00A3C4]"
+                      }`}
+                    >
+                      <span>{isHidden ? "○" : "●"}</span>
+                      {c.name}
+                      <span className="text-[8px] font-mono opacity-60">{c.type}</span>
+                    </button>
+                    {isEditable && !READONLY_COLS.has(c.name) && (
+                      <button
+                        onClick={() => handleDropColumn(c.name)}
+                        className="hidden group-hover:inline text-[9px] text-gray-300 hover:text-red-400 px-0.5"
+                        title="删除列"
+                      >✕</button>
+                    )}
+                  </div>
                 );
               })}
             </div>
@@ -788,7 +1473,15 @@ function TablePreview({
         </>
       )}
 
-      {/* ── 数据预览 ── */}
+      {/* ── 视图栏 ── */}
+      <ViewBar
+        tableId={table.id}
+        cols={cols}
+        activeViewId={activeViewId}
+        onChangeView={handleViewChange}
+      />
+
+      {/* ── 数据区域 ── */}
       <div className="flex-1 min-h-0 overflow-auto">
         {loadingRows ? (
           <div className="flex items-center justify-center h-32 text-[10px] font-bold uppercase tracking-widest text-[#00A3C4] animate-pulse">
@@ -798,45 +1491,114 @@ function TablePreview({
           <div className="flex items-center justify-center h-32 text-[10px] font-bold text-red-500">
             {rowsError}
           </div>
-        ) : rows.length === 0 ? (
-          <div className="flex items-center justify-center h-32 text-[10px] font-bold uppercase tracking-widest text-gray-300">
-            暂无数据
-          </div>
         ) : (
-          <table className="text-[9px]" style={{ minWidth: "100%" }}>
-            <thead className="sticky top-0 z-10">
-              <tr className="bg-[#EBF4F7]">
-                {visibleCols.map((c) => (
-                  <th
-                    key={c}
-                    className="text-left px-3 py-2 font-bold uppercase tracking-widest text-[#00A3C4] border-b-2 border-[#1A202C] border-r border-gray-200 whitespace-nowrap"
-                  >
-                    {c}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((row, i) => (
-                <tr
-                  key={i}
-                  className={`border-t border-gray-100 ${i % 2 === 0 ? "bg-white" : "bg-[#F8FBFD]"}`}
-                >
+          <>
+            <table className="text-[9px]" style={{ minWidth: "100%" }}>
+              <thead className="sticky top-0 z-10">
+                <tr className="bg-[#EBF4F7]">
+                  {isEditable && <th className="w-6 border-b-2 border-[#1A202C] border-r border-gray-200" />}
                   {visibleCols.map((c) => (
-                    <td
+                    <th
                       key={c}
-                      className="px-3 py-1.5 border-r border-gray-100 font-mono text-gray-700 whitespace-nowrap max-w-[240px] truncate"
-                      title={formatCellValue(row[c])}
+                      className="text-left px-3 py-2 font-bold uppercase tracking-widest text-[#00A3C4] border-b-2 border-[#1A202C] border-r border-gray-200 whitespace-nowrap"
                     >
-                      {row[c] === null || row[c] === undefined
-                        ? <span className="text-gray-300">NULL</span>
-                        : formatCellValue(row[c])}
-                    </td>
+                      {c}
+                      {getFieldMeta(c) && (
+                        <span className="text-[7px] text-gray-400 ml-1 normal-case font-normal">
+                          {FIELD_TYPE_LABELS[getFieldMeta(c)!.field_type]}
+                        </span>
+                      )}
+                    </th>
                   ))}
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {rows.map((row, i) => (
+                  <tr
+                    key={String(row.id ?? i)}
+                    className={`border-t border-gray-100 ${i % 2 === 0 ? "bg-white" : "bg-[#F8FBFD]"}`}
+                    onContextMenu={(e) => {
+                      if (!isEditable || !row.id) return;
+                      e.preventDefault();
+                      setContextMenu({ x: e.clientX, y: e.clientY, rowId: row.id as number });
+                    }}
+                  >
+                    {isEditable && (
+                      <td className="w-6 border-r border-gray-100 text-center">
+                        <button
+                          onClick={() => row.id && handleDeleteRow(row.id as number)}
+                          className="text-[8px] text-gray-200 hover:text-red-400 px-1"
+                          title="删除行"
+                        >✕</button>
+                      </td>
+                    )}
+                    {visibleCols.map((c) => (
+                      <td
+                        key={c}
+                        className="px-3 py-1.5 border-r border-gray-100 whitespace-nowrap max-w-[240px] truncate"
+                        title={formatCellValue(row[c])}
+                      >
+                        <EditableCell
+                          value={row[c]}
+                          fieldMeta={getFieldMeta(c)}
+                          readOnly={!isEditable || READONLY_COLS.has(c)}
+                          onSave={(v) => row.id && handleCellSave(row.id as number, c, v)}
+                        />
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+
+                {/* New row input */}
+                {addingRow && (
+                  <tr className="border-t-2 border-[#00D1FF] bg-[#F0FBFF]">
+                    {isEditable && <td className="w-6 border-r border-gray-100" />}
+                    {visibleCols.map((c) => (
+                      <td key={c} className="px-1 py-1 border-r border-gray-100">
+                        {READONLY_COLS.has(c) ? (
+                          <span className="text-[9px] text-gray-300 px-2">auto</span>
+                        ) : (
+                          <input
+                            value={newRowData[c] ?? ""}
+                            onChange={(e) => setNewRowData((prev) => ({ ...prev, [c]: e.target.value }))}
+                            className="border border-[#00D1FF] text-[9px] px-1 py-0.5 w-full focus:outline-none bg-white"
+                            placeholder={c}
+                          />
+                        )}
+                      </td>
+                    ))}
+                  </tr>
+                )}
+              </tbody>
+            </table>
+
+            {/* Add row / confirm buttons */}
+            {isEditable && (
+              <div className="flex items-center gap-2 px-3 py-2 border-t border-gray-100">
+                {!addingRow ? (
+                  <button
+                    onClick={() => { setAddingRow(true); setNewRowData({}); }}
+                    className="text-[9px] font-bold text-[#00A3C4] hover:text-[#008BA3] flex items-center gap-1"
+                  >
+                    + 新增行
+                  </button>
+                ) : (
+                  <>
+                    <PixelButton size="sm" onClick={handleAddRow}>✓ 保存</PixelButton>
+                    <PixelButton size="sm" variant="secondary" onClick={() => { setAddingRow(false); setNewRowData({}); }}>取消</PixelButton>
+                  </>
+                )}
+                {rows.length === 0 && !addingRow && (
+                  <span className="text-[9px] text-gray-300 ml-2">暂无数据</span>
+                )}
+              </div>
+            )}
+            {!isEditable && rows.length === 0 && (
+              <div className="flex items-center justify-center h-24 text-[10px] font-bold uppercase tracking-widest text-gray-300">
+                暂无数据
+              </div>
+            )}
+          </>
         )}
       </div>
     </div>

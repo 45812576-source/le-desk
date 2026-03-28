@@ -176,6 +176,7 @@ export interface SkillDetail {
   system_prompt?: string;
   source_files?: { filename: string; path: string; size: number; category?: string }[];
   rejection_comment?: string | null;
+  data_queries?: { query_name: string; query_type: string; table_name: string; description?: string }[];
 }
 
 export interface SkillVersion {
