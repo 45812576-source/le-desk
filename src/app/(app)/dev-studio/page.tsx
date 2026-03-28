@@ -1,12 +1,14 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { apiFetch } from "@/lib/api";
 import type { Workspace } from "@/lib/types";
 
 export default function DevStudioEntryPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const fromSkill = searchParams.get("from_skill");
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -24,13 +26,14 @@ export default function DevStudioEntryPage() {
           method: "POST",
           body: JSON.stringify({ workspace_id: devWs.id }),
         });
-        router.replace(`/chat/${conv.id}`);
+        const qs = fromSkill ? `?from_skill=${fromSkill}` : "";
+        router.replace(`/chat/${conv.id}${qs}`);
       } catch (e) {
         setError(e instanceof Error ? e.message : "启动失败");
       }
     }
     enter();
-  }, [router]);
+  }, [router, fromSkill]);
 
   if (error) {
     return (

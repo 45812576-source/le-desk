@@ -1,11 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ChevronDown, ChevronRight, File, FileCode, Upload, Trash2, Zap } from "lucide-react";
+import { ChevronDown, ChevronRight, File, FileCode, Upload, Trash2, Zap, BookOpen, FileText, Lightbulb, Terminal, Layout, Plus, Download, Package, X, Search, ExternalLink } from "lucide-react";
 import { PixelButton } from "@/components/pixel/PixelButton";
 import { PixelBadge } from "@/components/pixel/PixelBadge";
 import { apiFetch, getToken } from "@/lib/api";
-import type { SkillDetail, SkillVersion } from "@/lib/types";
+import type { SkillDetail, SkillVersion, BoundTool } from "@/lib/types";
 import { useTheme } from "@/lib/theme";
 import { ICONS, PixelIcon } from "@/components/pixel";
 
@@ -24,8 +24,18 @@ interface StudioDraft {
   change_note?: string;
 }
 
+interface DiffOp {
+  type: "replace" | "insert_after" | "insert_before" | "delete" | "append";
+  old?: string;
+  new?: string;
+  anchor?: string;
+  content?: string;
+}
+
 interface StudioDiff {
-  system_prompt?: { old: string; new: string };
+  system_prompt?: { old: string; new: string };  // 向后兼容
+  ops?: DiffOp[];
+  change_note?: string;
   [key: string]: unknown;
 }
 
@@ -33,6 +43,17 @@ interface StudioSummary {
   title?: string;
   items: { label: string; value: string }[];
   next_action?: "generate_draft" | "generate_outline" | "generate_section";
+}
+
+interface ToolSuggestionItem {
+  name: string;
+  reason: string;
+  action: "bind_existing" | "create_new";
+  tool_id: number | null;
+}
+
+interface StudioToolSuggestion {
+  suggestions: ToolSuggestionItem[];
 }
 
 // Which file is currently selected in the editor
@@ -45,6 +66,98 @@ const TEXT_EXTENSIONS = new Set([".md", ".txt", ".py", ".js", ".ts", ".json", ".
 function isTextFile(filename: string) {
   const ext = filename.slice(filename.lastIndexOf(".")).toLowerCase();
   return TEXT_EXTENSIONS.has(ext);
+}
+
+// ─── 文件角色分类 ───────────────────────────────────────────────────────────────
+
+type FileCategory = "knowledge-base" | "reference" | "example" | "tool" | "template" | "other";
+
+const CATEGORY_CONFIG: Record<FileCategory, { icon: typeof File; label: string; hint: string }> = {
+  "knowledge-base": { icon: BookOpen, label: "知识库", hint: "知识库文件 — AI 推理时作为领域知识注入" },
+  "reference":      { icon: FileText, label: "参考资料", hint: "参考资料 — 方法论、API 文档" },
+  "example":        { icon: Lightbulb, label: "示例", hint: "示例文件 — 提供输入输出样本" },
+  "tool":           { icon: Terminal, label: "工具", hint: "工具脚本 — 可执行辅助脚本" },
+  "template":       { icon: Layout, label: "模板", hint: "模板文件 — 输出格式模板" },
+  "other":          { icon: File, label: "其他", hint: "" },
+};
+
+const CATEGORY_ORDER: FileCategory[] = ["knowledge-base", "reference", "example", "tool", "template", "other"];
+
+function inferCategory(filename: string): FileCategory {
+  const lower = filename.toLowerCase();
+  const base = lower.split("/").pop() || lower;
+  if (base.endsWith(".js") || base.endsWith(".py") || base.endsWith(".sh") || base.endsWith(".ts")) return "tool";
+  if (base.includes("template") || base.startsWith("_")) return "template";
+  if (base.startsWith("example") || base.includes("example")) return "example";
+  if (base.includes("-kb.") || base.includes("knowledge")) return "knowledge-base";
+  if (base.includes("reference") || base.endsWith(".dot") || base.endsWith(".xml")) return "reference";
+  return "other";
+}
+
+function getFileCategory(file: { filename: string; category?: string }): FileCategory {
+  if (file.category && file.category in CATEGORY_CONFIG) return file.category as FileCategory;
+  return inferCategory(file.filename);
+}
+
+const NEW_FILE_TEMPLATES: Partial<Record<FileCategory, string>> = {
+  "knowledge-base": "# 知识库\n\n> AI 推理时参考此内容。\n\n",
+  "example":        "# 示例\n\n## 输入\n\n## 期望输出\n",
+  "reference":      "# 参考资料\n\n",
+  "template":       "# 输出模板\n\n",
+};
+
+const NEW_FILE_PREFIX: Partial<Record<FileCategory, string>> = {
+  "knowledge-base": "-kb",
+  "example":        "example-",
+  "reference":      "reference-",
+  "template":       "template-",
+};
+
+// ─── applyOps: 精准局部编辑 ─────────────────────────────────────────────────────
+
+function applyOps(text: string, ops: DiffOp[]): string {
+  // 倒序应用 ops，避免前面的 op 改变后面 op 的偏移量
+  const reversed = [...ops].reverse();
+  let result = text;
+  for (const op of reversed) {
+    switch (op.type) {
+      case "replace": {
+        if (!op.old) break;
+        const idx = result.indexOf(op.old);
+        if (idx === -1) break; // 找不到则跳过
+        result = result.slice(0, idx) + (op.new ?? "") + result.slice(idx + op.old.length);
+        break;
+      }
+      case "insert_after": {
+        if (!op.anchor || !op.content) break;
+        const idx = result.indexOf(op.anchor);
+        if (idx === -1) break;
+        const insertPos = idx + op.anchor.length;
+        result = result.slice(0, insertPos) + "\n" + op.content + result.slice(insertPos);
+        break;
+      }
+      case "insert_before": {
+        if (!op.anchor || !op.content) break;
+        const idx = result.indexOf(op.anchor);
+        if (idx === -1) break;
+        result = result.slice(0, idx) + op.content + "\n" + result.slice(idx);
+        break;
+      }
+      case "delete": {
+        if (!op.old) break;
+        const idx = result.indexOf(op.old);
+        if (idx === -1) break;
+        result = result.slice(0, idx) + result.slice(idx + op.old.length);
+        break;
+      }
+      case "append": {
+        if (!op.content) break;
+        result = result.trimEnd() + "\n\n" + op.content;
+        break;
+      }
+    }
+  }
+  return result;
 }
 
 // ─── Status badge ──────────────────────────────────────────────────────────────
@@ -60,6 +173,87 @@ function SkillIcon({ size }: { size: number }) {
   const { theme } = useTheme();
   if (theme === "lab") return <PixelIcon {...ICONS.skills} size={size} />;
   return <Zap size={size} className="text-muted-foreground" />;
+}
+
+// ─── Tool binding popup ──────────────────────────────────────────────────────
+
+function ToolBindPopup({
+  skillId,
+  existingIds,
+  onBound,
+  onClose,
+}: {
+  skillId: number;
+  existingIds: Set<number>;
+  onBound: (tool: BoundTool) => void;
+  onClose: () => void;
+}) {
+  const [tools, setTools] = useState<BoundTool[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState("");
+  const [binding, setBinding] = useState<number | null>(null);
+
+  useEffect(() => {
+    apiFetch<BoundTool[]>("/tools?status=published")
+      .then((data) => setTools(Array.isArray(data) ? data : []))
+      .catch(() => setTools([]))
+      .finally(() => setLoading(false));
+  }, []);
+
+  const filtered = tools.filter(
+    (t) => !existingIds.has(t.id) && (!search || t.name.includes(search) || (t.display_name || "").includes(search) || (t.description || "").includes(search))
+  );
+
+  async function handleBind(tool: BoundTool) {
+    setBinding(tool.id);
+    try {
+      await apiFetch(`/tools/skill/${skillId}/tools/${tool.id}`, { method: "POST" });
+      onBound(tool);
+    } catch (err) {
+      console.error("Bind failed", err);
+    } finally { setBinding(null); }
+  }
+
+  return (
+    <div className="pl-7 pr-3 py-2 bg-[#F0F4F8] border-t border-gray-200 space-y-1.5">
+      <div className="flex items-center gap-1.5">
+        <span className="text-[8px] font-bold uppercase tracking-widest text-[#6B46C1]">选择工具</span>
+        <button onClick={onClose} className="ml-auto text-gray-400 hover:text-gray-600"><X size={9} /></button>
+      </div>
+      <input
+        value={search}
+        onChange={(e) => setSearch(e.target.value)}
+        placeholder="搜索工具..."
+        className="w-full text-[9px] font-mono px-1.5 py-1 border border-gray-300 bg-white outline-none focus:border-[#6B46C1]"
+        autoFocus
+      />
+      <div className="max-h-32 overflow-y-auto space-y-0.5">
+        {loading ? (
+          <div className="text-[8px] text-gray-400 py-1">加载中...</div>
+        ) : filtered.length === 0 ? (
+          <div className="text-[8px] text-gray-400 py-1">无可用工具</div>
+        ) : (
+          filtered.map((t) => (
+            <div key={t.id} className="flex items-center gap-1.5 py-0.5">
+              <Package size={8} className="text-[#6B46C1] flex-shrink-0" />
+              <div className="flex-1 min-w-0">
+                <span className="text-[9px] font-mono truncate block">{t.display_name || t.name}</span>
+                {t.description && <span className="text-[8px] text-gray-400 truncate block">{t.description}</span>}
+              </div>
+              <span className="text-[7px] px-1 py-0.5 bg-[#6B46C1]/10 text-[#6B46C1] font-bold flex-shrink-0">{t.tool_type}</span>
+              <button
+                onClick={() => handleBind(t)}
+                disabled={binding === t.id}
+                className="text-[8px] font-bold px-1.5 py-0.5 bg-[#6B46C1] text-white disabled:opacity-50 flex-shrink-0"
+              >
+                {binding === t.id ? "..." : "绑定"}
+              </button>
+            </div>
+          ))
+        )}
+      </div>
+    </div>
+  );
 }
 
 // ─── Left panel ───────────────────────────────────────────────────────────────
@@ -123,6 +317,116 @@ function SkillList({
     const assetFiles = skill.source_files ?? [];
     const isReadOnly = skill.status === "published" || skill.status === "archived";
 
+    // 新建文件状态
+    const [showNewFile, setShowNewFile] = useState(false);
+    const [newFileCategory, setNewFileCategory] = useState<FileCategory>("knowledge-base");
+    const [newFileName, setNewFileName] = useState("");
+    const [creating, setCreating] = useState(false);
+
+    // 已绑定工具
+    const [boundTools, setBoundTools] = useState<BoundTool[]>([]);
+    const [showToolBind, setShowToolBind] = useState(false);
+    const toolUploadRef = useRef<HTMLInputElement>(null);
+    const [uploadingTool, setUploadingTool] = useState(false);
+
+    useEffect(() => {
+      if (!isOpen) return;
+      apiFetch<BoundTool[]>(`/skills/${skill.id}/bound-tools`)
+        .then((data) => setBoundTools(Array.isArray(data) ? data : []))
+        .catch(() => setBoundTools([]));
+    }, [isOpen, skill.id]);
+
+    async function handleUnbind(toolId: number, e: React.MouseEvent) {
+      e.stopPropagation();
+      await apiFetch(`/tools/skill/${skill.id}/tools/${toolId}`, { method: "DELETE" });
+      setBoundTools((prev) => prev.filter((t) => t.id !== toolId));
+    }
+
+    async function handleToolUpload(file: File) {
+      setUploadingTool(true);
+      try {
+        const formData = new FormData();
+        formData.append("file", file);
+        const token = getToken();
+        const resp = await fetch(`/api/proxy/skills/${skill.id}/upload-tool`, {
+          method: "POST",
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+          body: formData,
+        });
+        if (resp.ok) {
+          const result = await resp.json();
+          if (result.tool_id) {
+            setBoundTools((prev) => [...prev, { id: result.tool_id, name: result.tool_name || "tool", display_name: result.tool_name || "tool", tool_type: "BUILTIN", description: "", status: "draft" }]);
+          }
+          onRefreshSkill(skill.id);
+        }
+      } catch (err) { console.error("Tool upload failed", err); }
+      finally { setUploadingTool(false); }
+    }
+
+    // 按 category 分组
+    const grouped = CATEGORY_ORDER.reduce<Record<FileCategory, typeof assetFiles>>((acc, cat) => {
+      acc[cat] = assetFiles.filter((f) => getFileCategory(f) === cat);
+      return acc;
+    }, {} as Record<FileCategory, typeof assetFiles>);
+
+    async function handleCreateFile() {
+      if (!newFileName.trim()) return;
+      const fname = newFileName.endsWith(".md") ? newFileName : newFileName + ".md";
+      setCreating(true);
+      try {
+        await apiFetch(`/skills/${skill.id}/files/${encodeURIComponent(fname)}`, {
+          method: "PUT",
+          body: JSON.stringify({ content: NEW_FILE_TEMPLATES[newFileCategory] || "" }),
+        });
+        onRefreshSkill(skill.id);
+        setShowNewFile(false);
+        setNewFileName("");
+        onSelectFile({ skillId: skill.id, fileType: "asset", filename: fname });
+      } catch (err) {
+        console.error("Create file failed", err);
+      } finally { setCreating(false); }
+    }
+
+    function renderFileItem(f: { filename: string; path: string; size: number; category?: string }) {
+      const cat = getFileCategory(f);
+      const cfg = CATEGORY_CONFIG[cat];
+      const Icon = cfg.icon;
+      const isSelected =
+        isThisSkillSelected &&
+        selectedFile?.fileType === "asset" &&
+        (selectedFile as { filename: string }).filename === f.filename;
+      return (
+        <div
+          key={f.filename}
+          className={`w-full flex items-center gap-1.5 pl-9 pr-2 py-1 transition-colors group ${
+            isSelected ? "bg-[#CCF2FF]" : "hover:bg-[#F0F4F8]"
+          }`}
+        >
+          <button
+            className="flex-1 flex items-center gap-1.5 min-w-0 text-left"
+            onClick={() => onSelectFile({ skillId: skill.id, fileType: "asset", filename: f.filename })}
+          >
+            <Icon size={9} className={`flex-shrink-0 ${isSelected ? "text-[#00A3C4]" : "text-gray-400"}`} />
+            <span className={`text-[9px] font-mono truncate ${isSelected ? "text-[#00A3C4]" : "text-gray-600"}`}>
+              {f.filename}
+            </span>
+            <span className="text-[8px] text-gray-400 flex-shrink-0 ml-auto">
+              {f.size > 1024 ? `${(f.size / 1024).toFixed(1)}k` : `${f.size}b`}
+            </span>
+          </button>
+          {!isReadOnly && (
+            <button
+              onClick={(e) => handleDelete(skill.id, f.filename, e)}
+              className="opacity-0 group-hover:opacity-100 text-red-400 hover:text-red-600 transition-opacity flex-shrink-0"
+            >
+              <Trash2 size={9} />
+            </button>
+          )}
+        </div>
+      );
+    }
+
     return (
       <div>
         {/* Folder row */}
@@ -167,46 +471,104 @@ function SkillList({
               <span className="text-[9px] font-mono">SKILL.md</span>
             </button>
 
-            {/* Asset files */}
-            {assetFiles.map((f) => {
-              const isSelected =
-                isThisSkillSelected &&
-                selectedFile?.fileType === "asset" &&
-                (selectedFile as { filename: string }).filename === f.filename;
+            {/* Asset files grouped by category */}
+            {CATEGORY_ORDER.map((cat) => {
+              const files = grouped[cat];
+              if (!files || files.length === 0) return null;
+              const cfg = CATEGORY_CONFIG[cat];
+              const CatIcon = cfg.icon;
               return (
-                <div
-                  key={f.filename}
-                  className={`w-full flex items-center gap-1.5 pl-7 pr-2 py-1.5 transition-colors group ${
-                    isSelected ? "bg-[#CCF2FF]" : "hover:bg-[#F0F4F8]"
-                  }`}
-                >
-                  <button
-                    className="flex-1 flex items-center gap-1.5 min-w-0 text-left"
-                    onClick={() => onSelectFile({ skillId: skill.id, fileType: "asset", filename: f.filename })}
-                  >
-                    <FileCode size={9} className={`flex-shrink-0 ${isSelected ? "text-[#00A3C4]" : "text-gray-400"}`} />
-                    <span className={`text-[9px] font-mono truncate ${isSelected ? "text-[#00A3C4]" : "text-gray-600"}`}>
-                      {f.filename}
-                    </span>
-                    <span className="text-[8px] text-gray-400 flex-shrink-0 ml-auto">
-                      {f.size > 1024 ? `${(f.size / 1024).toFixed(1)}k` : `${f.size}b`}
-                    </span>
-                  </button>
-                  {!isReadOnly && (
-                    <button
-                      onClick={(e) => handleDelete(skill.id, f.filename, e)}
-                      className="opacity-0 group-hover:opacity-100 text-red-400 hover:text-red-600 transition-opacity flex-shrink-0"
-                    >
-                      <Trash2 size={9} />
-                    </button>
-                  )}
+                <div key={cat}>
+                  <div className="pl-7 pr-3 py-1 flex items-center gap-1">
+                    <CatIcon size={8} className="text-gray-400" />
+                    <span className="text-[8px] font-bold uppercase tracking-widest text-gray-400">{cfg.label}</span>
+                  </div>
+                  {files.map(renderFileItem)}
                 </div>
               );
             })}
 
-            {/* Upload button */}
+            {/* Bound tools (from ToolRegistry) */}
+            {boundTools.length > 0 && (
+              <div>
+                <div className="pl-7 pr-3 py-1 flex items-center gap-1">
+                  <Package size={8} className="text-gray-400" />
+                  <span className="text-[8px] font-bold uppercase tracking-widest text-gray-400">已绑定工具</span>
+                </div>
+                {boundTools.map((t) => (
+                  <div key={t.id} className="w-full flex items-center gap-1.5 pl-9 pr-2 py-1 group hover:bg-[#F0F4F8]">
+                    <Package size={9} className="text-[#6B46C1] flex-shrink-0" />
+                    <span className="text-[9px] font-mono truncate text-gray-600 flex-1 min-w-0">{t.display_name || t.name}</span>
+                    <span className="text-[7px] px-1 py-0.5 bg-[#6B46C1]/10 text-[#6B46C1] font-bold flex-shrink-0">{t.tool_type}</span>
+                    {!isReadOnly && (
+                      <button
+                        onClick={(e) => handleUnbind(t.id, e)}
+                        className="opacity-0 group-hover:opacity-100 text-red-400 hover:text-red-600 transition-opacity flex-shrink-0"
+                        title="解绑"
+                      >
+                        <X size={9} />
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Tool actions: upload script / bind existing */}
             {!isReadOnly && (
-              <div className="pl-7 pr-3 py-1.5">
+              <div className="pl-7 pr-3 py-1 flex items-center gap-2">
+                <button
+                  onClick={() => toolUploadRef.current?.click()}
+                  disabled={uploadingTool}
+                  className="flex items-center gap-1 text-[7px] font-bold uppercase tracking-widest text-[#6B46C1]/60 hover:text-[#6B46C1] transition-colors"
+                >
+                  <Upload size={7} />
+                  {uploadingTool ? "上传中..." : "上传脚本"}
+                </button>
+                <button
+                  onClick={() => setShowToolBind(true)}
+                  className="flex items-center gap-1 text-[7px] font-bold uppercase tracking-widest text-[#6B46C1]/60 hover:text-[#6B46C1] transition-colors"
+                >
+                  <Search size={7} />
+                  绑定已有
+                </button>
+                <input
+                  ref={toolUploadRef}
+                  type="file"
+                  accept=".py"
+                  className="hidden"
+                  onChange={async (e) => {
+                    const file = e.target.files?.[0];
+                    if (file) await handleToolUpload(file);
+                    e.target.value = "";
+                  }}
+                />
+              </div>
+            )}
+
+            {/* Tool binding popup */}
+            {showToolBind && (
+              <ToolBindPopup
+                skillId={skill.id}
+                existingIds={new Set(boundTools.map((t) => t.id))}
+                onBound={(tool) => {
+                  setBoundTools((prev) => [...prev, tool]);
+                  setShowToolBind(false);
+                }}
+                onClose={() => setShowToolBind(false)}
+              />
+            )}
+
+            {/* New file + Upload buttons */}
+            {!isReadOnly && (
+              <div className="pl-7 pr-3 py-1.5 flex items-center gap-3 border-t border-gray-100">
+                <button
+                  onClick={() => { setShowNewFile((v) => !v); setNewFileName(""); }}
+                  className="flex items-center gap-1 text-[8px] font-bold uppercase tracking-widest text-gray-400 hover:text-[#00A3C4] transition-colors"
+                >
+                  <Plus size={8} />
+                  新建文件
+                </button>
                 <button
                   onClick={() => {
                     setUploadingFor(skill.id);
@@ -215,8 +577,49 @@ function SkillList({
                   className="flex items-center gap-1 text-[8px] font-bold uppercase tracking-widest text-gray-400 hover:text-[#00A3C4] transition-colors"
                 >
                   <Upload size={8} />
-                  上传附属文件
+                  上传
                 </button>
+              </div>
+            )}
+
+            {/* Inline new file form */}
+            {showNewFile && !isReadOnly && (
+              <div className="pl-7 pr-3 py-2 bg-[#F0F4F8] border-t border-gray-200 space-y-1.5">
+                <div className="flex gap-1 flex-wrap">
+                  {(["knowledge-base", "example", "reference", "template"] as FileCategory[]).map((cat) => (
+                    <button
+                      key={cat}
+                      onClick={() => {
+                        setNewFileCategory(cat);
+                        const prefix = NEW_FILE_PREFIX[cat] || "";
+                        setNewFileName(prefix);
+                      }}
+                      className={`text-[8px] px-1.5 py-0.5 border transition-colors ${
+                        newFileCategory === cat
+                          ? "border-[#00A3C4] bg-[#CCF2FF] text-[#00A3C4] font-bold"
+                          : "border-gray-300 text-gray-500 hover:border-[#00A3C4]"
+                      }`}
+                    >
+                      {CATEGORY_CONFIG[cat].label}
+                    </button>
+                  ))}
+                </div>
+                <div className="flex gap-1">
+                  <input
+                    value={newFileName}
+                    onChange={(e) => setNewFileName(e.target.value)}
+                    placeholder="文件名.md"
+                    className="flex-1 text-[9px] font-mono px-1.5 py-1 border border-gray-300 bg-white outline-none focus:border-[#00A3C4] min-w-0"
+                    onKeyDown={(e) => { if (e.key === "Enter") handleCreateFile(); }}
+                  />
+                  <button
+                    onClick={handleCreateFile}
+                    disabled={creating || !newFileName.trim()}
+                    className="text-[8px] font-bold px-2 py-1 bg-[#00A3C4] text-white disabled:opacity-50"
+                  >
+                    {creating ? "..." : "创建"}
+                  </button>
+                </div>
               </div>
             )}
           </div>
@@ -438,6 +841,8 @@ function AssetFileEditor({
   }
 
   const fileInfo = (skill.source_files ?? []).find((f) => f.filename === filename);
+  const fileCategory = fileInfo ? getFileCategory(fileInfo) : inferCategory(filename);
+  const categoryHint = CATEGORY_CONFIG[fileCategory]?.hint;
 
   return (
     <div className="flex-1 flex flex-col bg-white overflow-hidden min-w-0 w-0 flex-[1]">
@@ -449,7 +854,7 @@ function AssetFileEditor({
 
       {/* Header */}
       <div className="px-4 py-3 border-b-2 border-[#1A202C] flex items-center gap-3 flex-shrink-0">
-        <FileCode size={12} className="text-[#00A3C4] flex-shrink-0" />
+        {(() => { const CatIcon = CATEGORY_CONFIG[fileCategory]?.icon || FileCode; return <CatIcon size={12} className="text-[#00A3C4] flex-shrink-0" />; })()}
         <span className="text-xs font-bold font-mono flex-1 truncate">{filename}</span>
         {fileInfo && (
           <span className="text-[8px] text-gray-400 font-mono flex-shrink-0">
@@ -462,6 +867,13 @@ function AssetFileEditor({
           </button>
         )}
       </div>
+
+      {/* Category hint bar */}
+      {categoryHint && (
+        <div className="px-4 py-1.5 bg-[#F0F4F8] border-b border-gray-200 flex-shrink-0">
+          <span className="text-[9px] text-gray-500">{categoryHint}</span>
+        </div>
+      )}
 
       {/* Editor area */}
       <div className="flex-1 flex flex-col px-4 py-3 overflow-hidden min-h-0">
@@ -734,11 +1146,85 @@ function PromptEditor({
               {saving ? "保存中..." : isNew ? "创建 Skill" : "保存版本"}
             </PixelButton>
           )}
+          {!isNew && skill && (
+            <button
+              onClick={() => window.open(`/api/proxy/skills/${skill.id}/export-zip`, "_blank")}
+              className="flex items-center gap-1 text-[8px] font-bold uppercase tracking-widest text-gray-400 hover:text-[#00A3C4] transition-colors ml-auto"
+            >
+              <Download size={9} />
+              导出 Zip
+            </button>
+          )}
           {saveMsg && (
             <span className={`text-[9px] font-bold ${saveMsg.startsWith("✓") ? "text-[#00CC99]" : "text-red-500"}`}>{saveMsg}</span>
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+// ─── Tool suggestion card ─────────────────────────────────────────────────────
+
+function ToolSuggestionCard({
+  suggestion,
+  skillId,
+  onBound,
+  onDevStudio,
+}: {
+  suggestion: StudioToolSuggestion;
+  skillId: number | null;
+  onBound: () => void;
+  onDevStudio: (desc: string) => void;
+}) {
+  const [binding, setBinding] = useState<number | null>(null);
+
+  async function handleBind(toolId: number) {
+    if (!skillId) return;
+    setBinding(toolId);
+    try {
+      await apiFetch(`/tools/skill/${skillId}/tools/${toolId}`, { method: "POST" });
+      onBound();
+    } catch (err) {
+      console.error("Bind failed", err);
+    } finally { setBinding(null); }
+  }
+
+  return (
+    <div className="border-2 border-[#6B46C1] bg-[#6B46C1]/5 p-3 space-y-2">
+      <div className="flex items-center gap-1.5">
+        <Package size={10} className="text-[#6B46C1]" />
+        <span className="text-[9px] font-bold uppercase tracking-widest text-[#6B46C1]">工具建议</span>
+      </div>
+      {suggestion.suggestions.map((s, i) => (
+        <div key={i} className="flex items-start gap-2 pl-1">
+          <div className="flex-1 min-w-0">
+            <div className="text-[10px] font-bold text-gray-800">{s.name}</div>
+            <div className="text-[9px] text-gray-500 mt-0.5">{s.reason}</div>
+          </div>
+          <div className="flex gap-1 flex-shrink-0">
+            {s.action === "bind_existing" && s.tool_id ? (
+              <button
+                onClick={() => handleBind(s.tool_id!)}
+                disabled={binding === s.tool_id}
+                className="text-[8px] font-bold px-2 py-1 bg-[#6B46C1] text-white disabled:opacity-50"
+              >
+                {binding === s.tool_id ? "..." : "绑定"}
+              </button>
+            ) : (
+              <>
+                <button
+                  onClick={() => onDevStudio(s.name + "：" + s.reason)}
+                  className="text-[8px] font-bold px-2 py-1 bg-[#6B46C1] text-white flex items-center gap-1"
+                >
+                  <ExternalLink size={7} />
+                  Dev Studio
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+      ))}
     </div>
   );
 }
@@ -872,6 +1358,8 @@ function StudioChat({
   allSkills,
   onApplyDraft,
   onNewSession,
+  onToolBound,
+  onDevStudio,
   clearRef,
 }: {
   convId: number;
@@ -881,6 +1369,8 @@ function StudioChat({
   allSkills: SkillDetail[];
   onApplyDraft: (draft: StudioDraft) => void;
   onNewSession: () => void;
+  onToolBound: () => void;
+  onDevStudio: (desc: string) => void;
   clearRef?: { current: (() => void) | null };
 }) {
   // 消息按 conv+skill 分 key 持久化到 sessionStorage，页面刷新后恢复
@@ -896,6 +1386,7 @@ function StudioChat({
   const [streamStage, setStreamStage] = useState<string | null>(null);
   const [pendingDraft, setPendingDraft] = useState<StudioDraft | null>(null);
   const [pendingSummary, setPendingSummary] = useState<StudioSummary | null>(null);
+  const [pendingToolSuggestion, setPendingToolSuggestion] = useState<StudioToolSuggestion | null>(null);
 
   const [hashQuery, setHashQuery] = useState<string | null>(null);
   const [hashActiveIdx, setHashActiveIdx] = useState(0);
@@ -1050,9 +1541,15 @@ function StudioChat({
                 setPendingDraft(data as StudioDraft);
               } else if (curEvt === "studio_diff") {
                 const diff = data as StudioDiff;
-                if (diff.system_prompt?.new) {
+                if (diff.ops && diff.ops.length > 0) {
+                  const newPrompt = applyOps(currentPrompt, diff.ops);
+                  setPendingDraft({ system_prompt: newPrompt, change_note: diff.change_note || "AI 局部修改" });
+                } else if (diff.system_prompt?.new) {
+                  // 向后兼容老格式
                   setPendingDraft({ system_prompt: diff.system_prompt.new, change_note: "AI 建议修改" });
                 }
+              } else if (curEvt === "studio_tool_suggestion") {
+                setPendingToolSuggestion(data as StudioToolSuggestion);
               } else if (curEvt === "error") {
                 const errMsg = data.message || "服务端错误";
                 setMessages((prev) => prev.map((m, i) =>
@@ -1193,6 +1690,18 @@ function StudioChat({
           onApply={handleApplyDraft}
           onDiscard={() => setPendingDraft(null)}
         />
+      )}
+
+      {/* Tool suggestion card */}
+      {pendingToolSuggestion && pendingToolSuggestion.suggestions.length > 0 && (
+        <div className="px-3 py-2 flex-shrink-0">
+          <ToolSuggestionCard
+            suggestion={pendingToolSuggestion}
+            skillId={skillId}
+            onBound={() => { setPendingToolSuggestion(null); onToolBound(); }}
+            onDevStudio={(desc) => { setPendingToolSuggestion(null); onDevStudio(desc); }}
+          />
+        </div>
       )}
 
       {/* Input */}
@@ -1349,6 +1858,21 @@ export function SkillStudio({ convId }: { convId: number }) {
     clearChatRef.current?.();
   }
 
+  async function handleDevStudioJump(desc: string) {
+    if (!selectedSkill) return;
+    try {
+      await apiFetch("/dev-studio/tool-task", {
+        method: "POST",
+        body: JSON.stringify({
+          skill_id: selectedSkill.id,
+          skill_name: selectedSkill.name,
+          tool_description: desc,
+        }),
+      });
+    } catch { /* best effort */ }
+    window.open(`/dev-studio?from_skill=${selectedSkill.id}`, "_blank");
+  }
+
   const showAssetEditor = selectedFile?.fileType === "asset" && selectedSkill !== null;
 
   return (
@@ -1414,6 +1938,8 @@ export function SkillStudio({ convId }: { convId: number }) {
           allSkills={allPublishedSkills}
           onApplyDraft={handleApplyDraft}
           onNewSession={handleNewSession}
+          onToolBound={() => { if (selectedSkill) refreshSkill(selectedSkill.id); }}
+          onDevStudio={handleDevStudioJump}
           clearRef={clearChatRef}
         />
       </div>

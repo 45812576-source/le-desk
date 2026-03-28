@@ -164,7 +164,7 @@ export interface SkillDetail {
   versions?: SkillVersion[];
   source_type?: "local" | "imported" | "forked";
   system_prompt?: string;
-  source_files?: { filename: string; path: string; size: number }[];
+  source_files?: { filename: string; path: string; size: number; category?: string }[];
   rejection_comment?: string | null;
 }
 
@@ -177,6 +177,15 @@ export interface SkillVersion {
   change_note: string;
   created_by: number;
   created_at: string;
+}
+
+export interface BoundTool {
+  id: number;
+  name: string;
+  display_name: string;
+  tool_type: string;
+  description: string;
+  status: string;
 }
 
 export interface KnowledgeDetail extends KnowledgeEntry {

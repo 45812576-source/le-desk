@@ -237,7 +237,7 @@ function SaveModal({
   onCancel,
 }: {
   mode: SaveMode;
-  onSave: (data: { name: string; shareUrl?: string; previewUrl?: string }) => void;
+  onSave: (data: { name: string; toolId?: number; shareUrl?: string; previewUrl?: string }) => void;
   onCancel: () => void;
 }) {
   const [name, setName] = useState("");
@@ -345,7 +345,7 @@ function SaveModal({
     setError("");
     try {
       if (mode === "tool") {
-        await apiFetch("/dev-studio/save-tool", {
+        const result = await apiFetch<{ id: number; name: string }>("/dev-studio/save-tool", {
           method: "POST",
           body: JSON.stringify({
             name: name.trim(),
@@ -357,7 +357,7 @@ function SaveModal({
             config: {},
           }),
         });
-        onSave({ name: name.trim() });
+        onSave({ name: name.trim(), toolId: result.id });
       } else if (mode === "skill") {
         await apiFetch("/dev-studio/save-skill", {
           method: "POST",
@@ -572,6 +572,47 @@ function RequirementsBanner({ workspaceId }: { workspaceId: number }) {
               </pre>
             </div>
           )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Tool request banner (from Skill Studio) ────────────────────────────────
+
+function ToolRequestBanner({ fromSkillId }: { fromSkillId: number }) {
+  const [content, setContent] = useState<string | null>(null);
+  const [collapsed, setCollapsed] = useState(false);
+
+  useEffect(() => {
+    apiFetch<{ content: string }>("/dev-studio/read-file?path=TOOL_REQUEST.md")
+      .then((d) => setContent(d.content))
+      .catch(() => setContent(null));
+  }, [fromSkillId]);
+
+  if (!content) return null;
+
+  return (
+    <div className="flex-shrink-0 border-b-2 border-[#6B46C1] bg-[#6B46C1]/5">
+      <div className="flex items-center justify-between px-4 py-2">
+        <div className="flex items-center gap-2">
+          <div className="w-2 h-2 bg-[#6B46C1]" />
+          <span className="text-[9px] font-bold uppercase tracking-widest text-[#6B46C1]">
+            工具开发需求 · 来自 Skill Studio
+          </span>
+        </div>
+        <button
+          onClick={() => setCollapsed(!collapsed)}
+          className="text-[9px] text-[#6B46C1] font-bold hover:text-[#553C9A] transition-colors"
+        >
+          {collapsed ? "▸ 展开" : "▾ 收起"}
+        </button>
+      </div>
+      {!collapsed && (
+        <div className="px-4 pb-3 max-h-48 overflow-y-auto">
+          <pre className="text-[9px] text-gray-700 whitespace-pre-wrap leading-relaxed font-sans bg-white border border-[#E9D8FD] px-3 py-2">
+            {content}
+          </pre>
         </div>
       )}
     </div>
@@ -928,7 +969,7 @@ const RESTRICTED_MODELS = ["lemondata/gpt-5.4"];
 
 type Status = "loading" | "ready" | "error";
 
-export function DevStudio({ convId: _convId, workspaceId }: { convId: number; workspaceId?: number }) {
+export function DevStudio({ convId: _convId, workspaceId, fromSkillId }: { convId: number; workspaceId?: number; fromSkillId?: number }) {
   const { theme } = useTheme();
   const [status, setStatus] = useState<Status>("loading");
   const [opencodeUrl, setOpencodeUrl] = useState<string | null>(null);
@@ -1028,14 +1069,27 @@ export function DevStudio({ convId: _convId, workspaceId }: { convId: number; wo
     } catch {}
   }
 
-  function handleSaveSuccess(data: { name: string; shareUrl?: string; previewUrl?: string }) {
+  const [boundToSkill, setBoundToSkill] = useState(false);
+
+  async function handleSaveSuccess(data: { name: string; toolId?: number; shareUrl?: string; previewUrl?: string }) {
     setSaveMode(null);
     setSaveSuccess(`已发布：${data.name}`);
     setSaveShareUrl(data.shareUrl ?? null);
     setSavePreviewUrl(data.previewUrl ?? null);
     setShowWebApps(true);
     fetchWebApps();
-    setTimeout(() => { setSaveSuccess(null); setSaveShareUrl(null); setSavePreviewUrl(null); }, 5000);
+
+    // 如果来自 Skill Studio 且保存的是 Tool，自动绑定
+    if (fromSkillId && data.toolId) {
+      try {
+        await apiFetch(`/tools/skill/${fromSkillId}/tools/${data.toolId}`, { method: "POST" });
+        setBoundToSkill(true);
+      } catch { /* best effort */ }
+    }
+
+    if (!fromSkillId) {
+      setTimeout(() => { setSaveSuccess(null); setSaveShareUrl(null); setSavePreviewUrl(null); }, 5000);
+    }
   }
 
   async function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
@@ -1073,6 +1127,8 @@ export function DevStudio({ convId: _convId, workspaceId }: { convId: number; wo
     <div className="h-full flex flex-col bg-[#F0F4F8]">
       {/* Requirements Banner (dev project context) */}
       {workspaceId && <RequirementsBanner workspaceId={workspaceId} />}
+      {/* Tool request from Skill Studio */}
+      {fromSkillId && <ToolRequestBanner fromSkillId={fromSkillId} />}
 
       {/* Header */}
       <div className="flex-shrink-0 border-b-2 border-[#1A202C] bg-white px-4 h-11 flex items-center justify-between">
@@ -1183,6 +1239,17 @@ export function DevStudio({ convId: _convId, workspaceId }: { convId: number; wo
       {saveSuccess && (
         <div className="flex-shrink-0 bg-green-50 border-t-2 border-[#00CC99] px-4 py-2 flex items-center gap-2">
           <span className="text-[9px] text-[#00A87A] font-bold">✓ {saveSuccess}</span>
+          {boundToSkill && (
+            <>
+              <span className="text-[9px] text-[#6B46C1] font-bold">· 已绑定到源 Skill</span>
+              <button
+                onClick={() => window.location.href = "/skill-studio"}
+                className="text-[8px] font-bold px-2 py-1 bg-[#6B46C1] text-white ml-2"
+              >
+                返回 Skill Studio
+              </button>
+            </>
+          )}
         </div>
       )}
 

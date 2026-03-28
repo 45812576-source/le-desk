@@ -18,6 +18,9 @@ type WorkspaceData = { workspace_type?: string; welcome_message?: string; skills
 const _wsCache = new Map<number, WorkspaceData>();
 
 const STAGE_LABELS: Record<string, string> = {
+  matching_skill: "识别意图...",
+  checking_context: "检索知识 & 校验输入...",
+  compiling_prompt: "组装提示词...",
   preparing: "匹配 Skill & 组装上下文...",
   generating: "生成中...",
   tool_calling: "调用工具中...",
@@ -378,7 +381,8 @@ export default function ChatDetailPage() {
   }
 
   if (isOpencode) {
-    return <DevStudio convId={convId} workspaceId={opencodeWorkspaceId ?? undefined} />;
+    const fromSkillId = searchParams.get("from_skill") ? Number(searchParams.get("from_skill")) : undefined;
+    return <DevStudio convId={convId} workspaceId={opencodeWorkspaceId ?? undefined} fromSkillId={fromSkillId} />;
   }
 
   if (isSkillStudio) {
