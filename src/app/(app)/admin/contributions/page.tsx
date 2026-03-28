@@ -183,6 +183,11 @@ function UsageRow({ stat: s, rank: i }: { stat: OpenCodeUsageStat; rank: number 
           </span>
         </td>
         <td className="px-3 py-2 text-xs">{s.sessions}</td>
+        <td className="px-3 py-2 text-xs font-mono">
+          {s.ai_calls > 0
+            ? <span className="font-bold text-[#00A3C4]">{s.ai_calls}</span>
+            : <span className="text-gray-300">—</span>}
+        </td>
         <td className="px-3 py-2 text-[9px] text-gray-500 max-w-[100px]">
           {s.top_model ? (
             <span
@@ -315,7 +320,7 @@ function OpenCodeTab() {
         <table className="w-full border-2 border-[#1A202C]">
           <thead>
             <tr className="bg-[#EBF4F7]">
-              {["排名", "用户", "Workspace", "会话数", "主力模型", "Input", "Output", "缓存读", "改文件", "新增行", "删除行", "提交Skill", "提交Tool", "产出文件"].map((h) => (
+              {["排名", "用户", "Workspace", "会话数", "AI调用", "主力模型", "Input", "Output", "缓存读", "改文件", "新增行", "删除行", "提交Skill", "提交Tool", "产出文件"].map((h) => (
                 <th key={h} className="text-left text-[10px] font-bold uppercase tracking-widest text-[#00A3C4] px-3 py-2 border-b-2 border-[#1A202C]">
                   {h}
                 </th>

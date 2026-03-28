@@ -349,6 +349,7 @@ export interface OpenCodeUsageStat {
   user_id: number;
   display_name: string;
   sessions: number;
+  ai_calls: number;
   input_tokens: number;
   output_tokens: number;
   cache_read_tokens: number;
