@@ -530,6 +530,7 @@ function FileManagerTab() {
       {/* Right: preview */}
       <PreviewPanel
         entry={selectedEntry}
+        currentUser={currentUser}
         onUpdateContent={handleUpdateContent}
         onDelete={handleDeleteEntry}
         onRename={handleRenameEntry}

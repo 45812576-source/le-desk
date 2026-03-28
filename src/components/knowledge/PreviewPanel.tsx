@@ -1,10 +1,10 @@
 "use client";
 
 import { useEffect, useRef, useState, useCallback } from "react";
-import { Eye, Download, Save, Cloud, CloudOff } from "lucide-react";
+import { Eye, Download, Save, Cloud, CloudOff, Lock } from "lucide-react";
 import { PixelIcon, ICONS, PixelBadge } from "@/components/pixel";
 import { useTheme } from "@/lib/theme";
-import type { KnowledgeDetail } from "@/lib/types";
+import type { KnowledgeDetail, User } from "@/lib/types";
 import { RichEditor } from "@/components/knowledge/RichEditor";
 import DocumentViewer from "@/components/knowledge/DocumentViewer";
 
@@ -63,6 +63,7 @@ function Breadcrumbs({ folders, entry }: { folders: Folder[]; entry: KnowledgeDe
 
 interface PreviewPanelProps {
   entry: KnowledgeDetail | null;
+  currentUser: User | null;
   onUpdateContent: (id: number, content: string, contentHtml?: string) => Promise<void>;
   onDelete: (id: number) => void;
   onRename: (id: number, title: string) => void;
@@ -72,6 +73,7 @@ interface PreviewPanelProps {
 
 export default function PreviewPanel({
   entry,
+  currentUser,
   onUpdateContent,
   onDelete,
   onRename,
@@ -90,6 +92,21 @@ export default function PreviewPanel({
   // Determine if this entry uses RichEditor (cloud doc) or native viewer
   const ext = (entry?.file_ext || "").toLowerCase();
   const isMediaFile = entry?.oss_key && MEDIA_EXTS.has(ext);
+
+  // Permission check: can the current user edit this entry?
+  const canEdit = (() => {
+    if (!currentUser || !entry) return false;
+    if (currentUser.role === "super_admin") return true;
+    if (entry.created_by === currentUser.id) return true;
+    if (currentUser.role === "dept_admin" && currentUser.department_id != null) {
+      // dept_admin can edit entries in their department
+      // Note: entry doesn't expose department_id to frontend directly,
+      // but entries created by same-department users are implicitly in the same dept.
+      // Backend will enforce the real check; frontend allows attempt.
+      return true;
+    }
+    return false;
+  })();
 
   // Init content on entry switch
   useEffect(() => {
@@ -124,6 +141,7 @@ export default function PreviewPanel({
   }, [onUpdateContent]);
 
   const handleContentChange = useCallback((newHtml: string) => {
+    if (!canEdit) return;
     setHtmlVal(newHtml);
     setSaveState("dirty");
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
@@ -131,7 +149,7 @@ export default function PreviewPanel({
     if (id != null) {
       saveTimerRef.current = setTimeout(() => doSave(id, newHtml), 2000);
     }
-  }, [doSave]);
+  }, [doSave, canEdit]);
 
   // Manual save
   const handleManualSave = useCallback(() => {
@@ -191,17 +209,21 @@ export default function PreviewPanel({
             className="flex-1 text-base font-bold border-b-2 border-[#00D1FF] px-1 py-0.5 focus:outline-none bg-transparent"
           />
         ) : (
-          <h2 className="text-base font-bold cursor-text hover:text-[#00A3C4] flex-1 truncate transition-colors" onClick={() => { setEditingTitle(true); setTitleVal(entry.title); }}>
+          <h2
+            className={`text-base font-bold flex-1 truncate transition-colors ${canEdit ? "cursor-text hover:text-[#00A3C4]" : ""}`}
+            onClick={canEdit ? () => { setEditingTitle(true); setTitleVal(entry.title); } : undefined}
+          >
             {entry.title}
           </h2>
         )}
 
-        {/* Save status indicator */}
+        {/* Save status indicator / read-only badge */}
         {!isMediaFile && (
           <div className="flex items-center gap-1 text-[10px]">
-            {saveState === "saved" && <><Cloud size={12} className="text-green-400" /><span className="text-gray-400">已保存</span></>}
-            {saveState === "saving" && <><Cloud size={12} className="text-[#00D1FF] animate-pulse" /><span className="text-gray-400">保存中…</span></>}
-            {saveState === "dirty" && (
+            {!canEdit && <><Lock size={12} className="text-gray-400" /><span className="text-gray-400">只读</span></>}
+            {canEdit && saveState === "saved" && <><Cloud size={12} className="text-green-400" /><span className="text-gray-400">已保存</span></>}
+            {canEdit && saveState === "saving" && <><Cloud size={12} className="text-[#00D1FF] animate-pulse" /><span className="text-gray-400">保存中…</span></>}
+            {canEdit && saveState === "dirty" && (
               <button onClick={handleManualSave} className="flex items-center gap-1 text-orange-400 hover:text-orange-500">
                 <CloudOff size={12} /><span>未保存</span>
               </button>
@@ -272,12 +294,14 @@ export default function PreviewPanel({
             </button>
           )}
 
-          <button
-            onClick={() => onDelete(entry.id)}
-            className="px-2 py-1 rounded-md text-[10px] font-medium text-red-400 hover:bg-red-50 hover:text-red-500 transition-colors"
-          >
-            删除
-          </button>
+          {canEdit && (
+            <button
+              onClick={() => onDelete(entry.id)}
+              className="px-2 py-1 rounded-md text-[10px] font-medium text-red-400 hover:bg-red-50 hover:text-red-500 transition-colors"
+            >
+              删除
+            </button>
+          )}
         </div>
       </div>
 
@@ -297,7 +321,7 @@ export default function PreviewPanel({
             key={entry.id}
             content={htmlVal}
             onChange={handleContentChange}
-            editable={true}
+            editable={canEdit}
           />
         )}
       </div>
