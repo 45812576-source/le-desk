@@ -4,17 +4,67 @@ import { useCallback, useEffect, useState } from "react";
 import { apiFetch } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import type { ApprovalRequest } from "@/lib/types";
-import { Check, X, Clock, FileText, Send, Inbox } from "lucide-react";
+import { Check, X, Clock, FileText, Send, Inbox, ChevronDown, ChevronRight, Play } from "lucide-react";
+import { SandboxTestModal } from "@/components/skill/SandboxTestModal";
 
-type Tab = "incoming" | "outgoing";
+type MainTab = "incoming" | "outgoing";
+
+const TYPE_TABS: { key: string; label: string }[] = [
+  { key: "", label: "全部" },
+  { key: "skill_publish", label: "Skill 审核" },
+  { key: "knowledge_edit", label: "知识库" },
+  { key: "tool_publish", label: "工具" },
+  { key: "webapp_publish", label: "Web APP" },
+  { key: "scope_change,mask_override,schema_approval", label: "权限&脱敏" },
+];
+
+function requestTypeLabel(type: string): string {
+  const map: Record<string, string> = {
+    knowledge_edit: "文档编辑权限",
+    skill_publish: "Skill 发布",
+    tool_publish: "工具发布",
+    webapp_publish: "应用发布",
+    scope_change: "权限变更",
+    mask_override: "脱敏覆盖",
+    schema_approval: "Schema 审批",
+  };
+  return map[type] || type;
+}
+
+function formatTime(iso: string | null) {
+  if (!iso) return "";
+  const d = new Date(iso);
+  const now = new Date();
+  const diffMs = now.getTime() - d.getTime();
+  const diffMin = Math.floor(diffMs / 60000);
+  if (diffMin < 1) return "刚刚";
+  if (diffMin < 60) return `${diffMin}分钟前`;
+  const diffHr = Math.floor(diffMin / 60);
+  if (diffHr < 24) return `${diffHr}小时前`;
+  const diffDay = Math.floor(diffHr / 24);
+  if (diffDay < 7) return `${diffDay}天前`;
+  return d.toLocaleDateString("zh-CN");
+}
+
+const CAT_COLOR: Record<string, string> = {
+  example: "bg-green-100 text-green-700",
+  "knowledge-base": "bg-cyan-100 text-cyan-700",
+  reference: "bg-amber-100 text-amber-700",
+  template: "bg-purple-100 text-purple-700",
+};
 
 export default function ApprovalsPage() {
   const { user } = useAuth();
-  const [tab, setTab] = useState<Tab>("incoming");
+  const [mainTab, setMainTab] = useState<MainTab>("incoming");
+  const [typeFilter, setTypeFilter] = useState("");
   const [incoming, setIncoming] = useState<ApprovalRequest[]>([]);
   const [outgoing, setOutgoing] = useState<ApprovalRequest[]>([]);
   const [loading, setLoading] = useState(true);
   const [acting, setActing] = useState<number | null>(null);
+  const [expandedId, setExpandedId] = useState<number | null>(null);
+  const [fileContents, setFileContents] = useState<Record<string, string>>({});
+  const [fileLoading, setFileLoading] = useState<string | null>(null);
+  const [sandboxItem, setSandboxItem] = useState<{ id: number; name: string } | null>(null);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -43,59 +93,149 @@ export default function ApprovalsPage() {
     setActing(null);
   }
 
-  const pendingIncoming = incoming.filter((r) => r.status === "pending");
-  const resolvedIncoming = incoming.filter((r) => r.status !== "pending");
+  async function loadFileContent(skillId: number, filename: string) {
+    const key = `${skillId}:${filename}`;
+    if (fileContents[key] !== undefined) {
+      setFileContents((prev) => { const next = { ...prev }; delete next[key]; return next; });
+      return;
+    }
+    setFileLoading(key);
+    try {
+      const data = await apiFetch<{ content: string }>(`/skills/${skillId}/files/${encodeURIComponent(filename)}`);
+      setFileContents((prev) => ({ ...prev, [key]: data.content }));
+    } catch {
+      setFileContents((prev) => ({ ...prev, [key]: "加载失败" }));
+    } finally {
+      setFileLoading(null);
+    }
+  }
+
+  // Filter by type
+  function filterByType(items: ApprovalRequest[]) {
+    if (!typeFilter) return items;
+    const types = typeFilter.split(",");
+    return items.filter((r) => types.includes(r.request_type));
+  }
+
+  const filteredIncoming = filterByType(incoming);
+  const filteredOutgoing = filterByType(outgoing);
+  const pendingIncoming = filteredIncoming.filter((r) => r.status === "pending");
+  const resolvedIncoming = filteredIncoming.filter((r) => r.status !== "pending");
 
   return (
     <div className="flex-1 min-h-0 overflow-y-auto bg-background">
       <div className="max-w-3xl mx-auto px-6 py-8">
+        {sandboxItem && (
+          <SandboxTestModal
+            type="skill"
+            id={sandboxItem.id}
+            name={sandboxItem.name}
+            onPassed={() => setSandboxItem(null)}
+            onCancel={() => setSandboxItem(null)}
+            passedLabel="✓ 测试通过，关闭"
+          />
+        )}
+
         {/* Header */}
         <h1 className="text-xl font-bold text-foreground mb-1">审批管理</h1>
-        <p className="text-sm text-muted-foreground mb-6">管理文档编辑权限申请</p>
+        <p className="text-sm text-muted-foreground mb-4">管理审批请求</p>
 
-        {/* Tabs */}
-        <div className="flex gap-1 mb-6 border-b border-border">
-          <TabButton
-            active={tab === "incoming"}
-            onClick={() => setTab("incoming")}
-            count={pendingIncoming.length}
+        {/* Main Tabs: incoming / outgoing */}
+        <div className="flex gap-1 mb-4 border-b border-border">
+          <MainTabButton
+            active={mainTab === "incoming"}
+            onClick={() => setMainTab("incoming")}
+            count={incoming.filter((r) => r.status === "pending").length}
           >
             <Inbox size={14} />
             我收到的
-          </TabButton>
-          <TabButton
-            active={tab === "outgoing"}
-            onClick={() => setTab("outgoing")}
+          </MainTabButton>
+          <MainTabButton
+            active={mainTab === "outgoing"}
+            onClick={() => setMainTab("outgoing")}
           >
             <Send size={14} />
             我发起的
-          </TabButton>
+          </MainTabButton>
+        </div>
+
+        {/* Type sub-tabs */}
+        <div className="flex gap-0 mb-4 overflow-x-auto">
+          {TYPE_TABS.map((t) => (
+            <button
+              key={t.key}
+              onClick={() => setTypeFilter(t.key)}
+              className={`px-3 py-1.5 text-xs font-medium whitespace-nowrap rounded-full transition-colors ${
+                typeFilter === t.key
+                  ? "bg-foreground text-background"
+                  : "bg-muted text-muted-foreground hover:text-foreground"
+              } mr-1.5`}
+            >
+              {t.label}
+            </button>
+          ))}
         </div>
 
         {loading ? (
           <div className="text-center text-muted-foreground text-sm py-16">加载中…</div>
-        ) : tab === "incoming" ? (
+        ) : mainTab === "incoming" ? (
           <div className="space-y-3">
             {pendingIncoming.length === 0 && resolvedIncoming.length === 0 && (
               <EmptyState text="暂无审批请求" />
             )}
             {pendingIncoming.map((r) => (
-              <IncomingCard key={r.id} request={r} acting={acting} onAction={handleAction} />
+              <ApprovalCard
+                key={r.id}
+                request={r}
+                acting={acting}
+                onAction={handleAction}
+                expanded={expandedId === r.id}
+                onToggleExpand={() => setExpandedId(expandedId === r.id ? null : r.id)}
+                fileContents={fileContents}
+                fileLoading={fileLoading}
+                onLoadFile={loadFileContent}
+                onSandbox={setSandboxItem}
+                showActions
+              />
             ))}
             {resolvedIncoming.length > 0 && (
               <>
                 <div className="text-xs text-muted-foreground uppercase tracking-wider mt-6 mb-2">已处理</div>
                 {resolvedIncoming.map((r) => (
-                  <IncomingCard key={r.id} request={r} acting={acting} onAction={handleAction} />
+                  <ApprovalCard
+                    key={r.id}
+                    request={r}
+                    acting={acting}
+                    onAction={handleAction}
+                    expanded={expandedId === r.id}
+                    onToggleExpand={() => setExpandedId(expandedId === r.id ? null : r.id)}
+                    fileContents={fileContents}
+                    fileLoading={fileLoading}
+                    onLoadFile={loadFileContent}
+                    onSandbox={setSandboxItem}
+                    showActions={false}
+                  />
                 ))}
               </>
             )}
           </div>
         ) : (
           <div className="space-y-3">
-            {outgoing.length === 0 && <EmptyState text="暂无发起的申请" />}
-            {outgoing.map((r) => (
-              <OutgoingCard key={r.id} request={r} />
+            {filteredOutgoing.length === 0 && <EmptyState text="暂无发起的申请" />}
+            {filteredOutgoing.map((r) => (
+              <ApprovalCard
+                key={r.id}
+                request={r}
+                acting={null}
+                onAction={() => {}}
+                expanded={expandedId === r.id}
+                onToggleExpand={() => setExpandedId(expandedId === r.id ? null : r.id)}
+                fileContents={fileContents}
+                fileLoading={fileLoading}
+                onLoadFile={loadFileContent}
+                onSandbox={setSandboxItem}
+                showActions={false}
+              />
             ))}
           </div>
         )}
@@ -104,7 +244,7 @@ export default function ApprovalsPage() {
   );
 }
 
-function TabButton({
+function MainTabButton({
   active,
   onClick,
   count,
@@ -155,59 +295,51 @@ function StatusBadge({ status }: { status: string }) {
   return <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-gray-100 text-gray-600">{status}</span>;
 }
 
-function requestTypeLabel(type: string): string {
-  const map: Record<string, string> = {
-    knowledge_edit: "文档编辑权限",
-    skill_publish: "Skill 发布",
-    tool_publish: "工具发布",
-    webapp_publish: "应用发布",
-    scope_change: "权限变更",
-    mask_override: "脱敏覆盖",
-    schema_approval: "Schema 审批",
-  };
-  return map[type] || type;
-}
-
-function formatTime(iso: string | null) {
-  if (!iso) return "";
-  const d = new Date(iso);
-  const now = new Date();
-  const diffMs = now.getTime() - d.getTime();
-  const diffMin = Math.floor(diffMs / 60000);
-  if (diffMin < 1) return "刚刚";
-  if (diffMin < 60) return `${diffMin}分钟前`;
-  const diffHr = Math.floor(diffMin / 60);
-  if (diffHr < 24) return `${diffHr}小时前`;
-  const diffDay = Math.floor(diffHr / 24);
-  if (diffDay < 7) return `${diffDay}天前`;
-  return d.toLocaleDateString("zh-CN");
-}
-
-function IncomingCard({
+function ApprovalCard({
   request: r,
   acting,
   onAction,
+  expanded,
+  onToggleExpand,
+  fileContents,
+  fileLoading,
+  onLoadFile,
+  onSandbox,
+  showActions,
 }: {
   request: ApprovalRequest;
   acting: number | null;
   onAction: (id: number, action: "approve" | "reject") => void;
+  expanded: boolean;
+  onToggleExpand: () => void;
+  fileContents: Record<string, string>;
+  fileLoading: string | null;
+  onLoadFile: (skillId: number, filename: string) => void;
+  onSandbox: (item: { id: number; name: string }) => void;
+  showActions: boolean;
 }) {
   const detail = r.target_detail || {};
   const title = (detail.title || detail.name || `#${r.target_id}`) as string;
   const fileExt = detail.file_ext as string | undefined;
   const isPending = r.status === "pending";
+  const isSkill = r.request_type === "skill_publish";
+  const isTool = r.request_type === "tool_publish";
+  const isWebApp = r.request_type === "webapp_publish";
+  const hasExpandable = isSkill || isTool || isWebApp;
 
   return (
-    <div className="border border-border rounded-lg p-4 bg-card hover:shadow-sm transition-shadow">
-      <div className="flex items-start gap-3">
-        {/* Avatar placeholder */}
+    <div className="border border-border rounded-lg bg-card hover:shadow-sm transition-shadow">
+      <div className="flex items-start gap-3 p-4">
+        {/* Avatar */}
         <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0 text-xs font-bold text-primary">
           {(r.requester_name || "?").charAt(0)}
         </div>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
             <span className="text-sm font-medium text-foreground">{r.requester_name}</span>
-            <span className="text-xs text-muted-foreground">申请{requestTypeLabel(r.request_type)}</span>
+            <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground font-medium">
+              {requestTypeLabel(r.request_type)}
+            </span>
             <StatusBadge status={r.status} />
           </div>
           <div className="flex items-center gap-1.5 mt-1">
@@ -215,68 +347,13 @@ function IncomingCard({
             <span className="text-xs text-foreground font-medium truncate">{title}</span>
             {fileExt && (
               <span className="text-[9px] px-1 py-0.5 rounded bg-muted text-muted-foreground font-semibold">
-                {(fileExt as string).replace(".", "").toUpperCase()}
+                {fileExt.replace(".", "").toUpperCase()}
               </span>
             )}
           </div>
           <div className="text-[11px] text-muted-foreground mt-1">{formatTime(r.created_at)}</div>
-        </div>
-        {/* Action buttons */}
-        {isPending && (
-          <div className="flex items-center gap-2 flex-shrink-0">
-            <button
-              disabled={acting === r.id}
-              onClick={() => onAction(r.id, "approve")}
-              className="flex items-center gap-1 px-3 py-1.5 rounded-md text-xs font-medium bg-green-500 text-white hover:bg-green-600 disabled:opacity-50 transition-colors"
-            >
-              <Check size={12} />
-              通过
-            </button>
-            <button
-              disabled={acting === r.id}
-              onClick={() => onAction(r.id, "reject")}
-              className="flex items-center gap-1 px-3 py-1.5 rounded-md text-xs font-medium bg-red-500 text-white hover:bg-red-600 disabled:opacity-50 transition-colors"
-            >
-              <X size={12} />
-              拒绝
-            </button>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
 
-function OutgoingCard({ request: r }: { request: ApprovalRequest }) {
-  const detail = r.target_detail || {};
-  const title = (detail.title || detail.name || `#${r.target_id}`) as string;
-  const fileExt = detail.file_ext as string | undefined;
-  const creatorName = detail.creator_name as string | undefined;
-
-  return (
-    <div className="border border-border rounded-lg p-4 bg-card hover:shadow-sm transition-shadow">
-      <div className="flex items-start gap-3">
-        <div className="w-8 h-8 rounded-full bg-muted flex items-center justify-center flex-shrink-0">
-          <FileText size={14} className="text-muted-foreground" />
-        </div>
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-xs text-muted-foreground">{requestTypeLabel(r.request_type)}</span>
-            <StatusBadge status={r.status} />
-          </div>
-          <div className="flex items-center gap-1.5 mt-1">
-            <span className="text-xs text-foreground font-medium truncate">{title}</span>
-            {fileExt && (
-              <span className="text-[9px] px-1 py-0.5 rounded bg-muted text-muted-foreground font-semibold">
-                {(fileExt as string).replace(".", "").toUpperCase()}
-              </span>
-            )}
-          </div>
-          <div className="flex items-center gap-2 mt-1 text-[11px] text-muted-foreground">
-            {creatorName && <span>文档创建者: {creatorName}</span>}
-            <span>{formatTime(r.created_at)}</span>
-          </div>
-          {/* Show approval action info */}
+          {/* Action history */}
           {r.actions.length > 0 && (
             <div className="mt-2 text-[11px] text-muted-foreground">
               {r.actions.map((a) => (
@@ -290,7 +367,180 @@ function OutgoingCard({ request: r }: { request: ApprovalRequest }) {
             </div>
           )}
         </div>
+
+        {/* Right: actions + expand toggle */}
+        <div className="flex items-center gap-2 flex-shrink-0">
+          {showActions && isPending && (
+            <>
+              <button
+                disabled={acting === r.id}
+                onClick={() => onAction(r.id, "approve")}
+                className="flex items-center gap-1 px-3 py-1.5 rounded-md text-xs font-medium bg-green-500 text-white hover:bg-green-600 disabled:opacity-50 transition-colors"
+              >
+                <Check size={12} />
+                通过
+              </button>
+              <button
+                disabled={acting === r.id}
+                onClick={() => onAction(r.id, "reject")}
+                className="flex items-center gap-1 px-3 py-1.5 rounded-md text-xs font-medium bg-red-500 text-white hover:bg-red-600 disabled:opacity-50 transition-colors"
+              >
+                <X size={12} />
+                拒绝
+              </button>
+            </>
+          )}
+          {hasExpandable && (
+            <button
+              onClick={onToggleExpand}
+              className="p-1.5 rounded hover:bg-muted transition-colors text-muted-foreground"
+            >
+              {expanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+            </button>
+          )}
+        </div>
       </div>
+
+      {/* Expanded detail */}
+      {expanded && isSkill && (
+        <SkillDetail
+          detail={detail}
+          targetId={r.target_id}
+          isPending={isPending}
+          fileContents={fileContents}
+          fileLoading={fileLoading}
+          onLoadFile={onLoadFile}
+          onSandbox={onSandbox}
+        />
+      )}
+      {expanded && isTool && (
+        <div className="border-t border-border px-4 py-3 bg-muted/30">
+          <div className="text-xs text-muted-foreground">
+            <span className="font-medium">工具名：</span>{String(detail.tool_name || detail.name || "")}
+          </div>
+          {detail.description ? (
+            <div className="text-xs text-muted-foreground mt-1">{String(detail.description)}</div>
+          ) : null}
+        </div>
+      )}
+      {expanded && isWebApp && (
+        <div className="border-t border-border px-4 py-3 bg-muted/30">
+          <div className="text-xs text-muted-foreground">
+            <span className="font-medium">名称：</span>{String(detail.name || "")}
+          </div>
+          {detail.description ? (
+            <div className="text-xs text-muted-foreground mt-1">{String(detail.description)}</div>
+          ) : null}
+          {detail.preview_url ? (
+            <a
+              href={String(detail.preview_url)}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-block mt-2 text-xs font-medium text-primary hover:underline"
+            >
+              预览 Web App ↗
+            </a>
+          ) : null}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SkillDetail({
+  detail,
+  targetId,
+  isPending,
+  fileContents,
+  fileLoading,
+  onLoadFile,
+  onSandbox,
+}: {
+  detail: Record<string, unknown>;
+  targetId: number | null;
+  isPending: boolean;
+  fileContents: Record<string, string>;
+  fileLoading: string | null;
+  onLoadFile: (skillId: number, filename: string) => void;
+  onSandbox: (item: { id: number; name: string }) => void;
+}) {
+  const sourceFiles = (detail.source_files || []) as { filename: string; category: string }[];
+
+  return (
+    <div className="border-t border-border px-4 py-3 bg-muted/30 space-y-3">
+      {/* Basic info */}
+      <div className="flex items-center gap-2 flex-wrap">
+        <span className="text-xs font-medium text-foreground">{String(detail.name || "")}</span>
+        {detail.scope ? (
+          <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-primary/10 text-primary font-medium">
+            {String(detail.scope)}
+          </span>
+        ) : null}
+        {isPending && targetId && (
+          <button
+            onClick={() => onSandbox({ id: targetId, name: String(detail.name || "") })}
+            className="ml-auto flex items-center gap-1 px-2 py-1 rounded text-[10px] font-medium bg-purple-100 text-purple-700 hover:bg-purple-200 transition-colors"
+          >
+            <Play size={10} />
+            沙盒测试
+          </button>
+        )}
+      </div>
+
+      {detail.description ? (
+        <div className="text-xs text-muted-foreground">{String(detail.description)}</div>
+      ) : null}
+      {detail.change_note ? (
+        <div className="text-xs"><span className="text-muted-foreground">变更说明：</span>{String(detail.change_note)}</div>
+      ) : null}
+
+      {/* System Prompt */}
+      {detail.system_prompt ? (
+        <div>
+          <div className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider mb-1">System Prompt</div>
+          <pre className="text-[10px] text-foreground whitespace-pre-wrap leading-relaxed font-mono bg-background border border-border rounded px-3 py-2 max-h-48 overflow-y-auto">
+            {String(detail.system_prompt)}
+          </pre>
+        </div>
+      ) : null}
+
+      {/* Source files */}
+      {sourceFiles.length > 0 && (
+        <div>
+          <div className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider mb-1">
+            附属文件 ({sourceFiles.length})
+          </div>
+          <div className="space-y-1">
+            {sourceFiles.map((f) => {
+              const key = `${targetId}:${f.filename}`;
+              return (
+                <div key={f.filename}>
+                  <button
+                    onClick={() => targetId && onLoadFile(targetId, f.filename)}
+                    className="flex items-center gap-2 w-full text-left px-2 py-1.5 border border-border rounded bg-background hover:bg-muted/50 transition-colors"
+                  >
+                    <span className="text-xs font-mono font-medium text-foreground">{f.filename}</span>
+                    <span className={`text-[9px] px-1.5 py-0.5 rounded-full font-medium ${CAT_COLOR[f.category] || "bg-gray-100 text-gray-600"}`}>
+                      {f.category}
+                    </span>
+                    {fileLoading === key && (
+                      <span className="text-[9px] text-primary animate-pulse ml-auto">加载中...</span>
+                    )}
+                    <span className="ml-auto text-xs text-muted-foreground">
+                      {fileContents[key] !== undefined ? "▼" : "▶"}
+                    </span>
+                  </button>
+                  {fileContents[key] !== undefined && (
+                    <pre className="text-[10px] text-foreground whitespace-pre-wrap leading-relaxed font-mono bg-background border border-t-0 border-border rounded-b px-3 py-2 max-h-48 overflow-y-auto">
+                      {fileContents[key]}
+                    </pre>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

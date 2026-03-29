@@ -6,7 +6,7 @@ import { PageShell } from "@/components/layout/PageShell";
 import { ICONS } from "@/components/pixel";
 import { PixelButton } from "@/components/pixel/PixelButton";
 import { PixelBadge } from "@/components/pixel/PixelBadge";
-import { PixelSelect } from "@/components/pixel/PixelSelect";
+
 import { apiFetch } from "@/lib/api";
 import type { ToolApprovalDetail } from "@/lib/types";
 import { SandboxTestModal } from "@/components/skill/SandboxTestModal";
@@ -134,10 +134,20 @@ const TYPE_LABEL: Record<string, string> = {
   skill_publish: "Skill发布",
   tool_publish: "工具发布",
   webapp_publish: "WebApp发布",
+  knowledge_edit: "知识编辑",
   scope_change: "权限变更",
   mask_override: "脱敏覆盖",
   schema_approval: "Schema审批",
 };
+
+const TYPE_TABS: { key: string; label: string }[] = [
+  { key: "", label: "全部" },
+  { key: "skill_publish", label: "Skill 审核" },
+  { key: "knowledge_edit", label: "知识库" },
+  { key: "tool_publish", label: "工具" },
+  { key: "webapp_publish", label: "Web APP" },
+  { key: "scope_change,mask_override,schema_approval", label: "权限&脱敏" },
+];
 
 function stageLabel(stage: string | null): string | null {
   if (!stage) return null;
@@ -227,7 +237,24 @@ export default function AdminApprovalsPage() {
           passedLabel="✓ 测试通过，关闭"
         />
       )}
-      {/* Filters */}
+      {/* Type Tabs */}
+      <div className="flex items-center gap-0 mb-3 border-b-2 border-[#1A202C] overflow-x-auto">
+        {TYPE_TABS.map((t) => (
+          <button
+            key={t.key}
+            onClick={() => { setTypeFilter(t.key); setPage(1); }}
+            className={`px-4 py-2 text-[10px] font-bold uppercase tracking-widest whitespace-nowrap border-b-2 transition-colors -mb-[2px] ${
+              typeFilter === t.key
+                ? "border-[#00D1FF] text-[#00A3C4] bg-[#EBF4F7]"
+                : "border-transparent text-gray-400 hover:text-gray-600"
+            }`}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Status Filters */}
       <div className="flex items-center gap-3 mb-4 flex-wrap">
         <div className="flex gap-1">
           {["", "pending", "approved", "rejected", "conditions"].map((s) => (
@@ -241,16 +268,6 @@ export default function AdminApprovalsPage() {
             </PixelButton>
           ))}
         </div>
-        <PixelSelect
-          value={typeFilter}
-          onChange={(e) => { setTypeFilter(e.target.value); setPage(1); }}
-          className="w-auto"
-        >
-          <option value="">全部类型</option>
-          {Object.entries(TYPE_LABEL).map(([k, v]) => (
-            <option key={k} value={k}>{v}</option>
-          ))}
-        </PixelSelect>
         <span className="text-[10px] text-gray-400 font-bold ml-auto">共 {data.total} 条</span>
       </div>
 
