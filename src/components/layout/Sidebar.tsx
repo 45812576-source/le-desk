@@ -269,7 +269,6 @@ export function Sidebar({ user, taskPending = 0, onLogout }: SidebarProps) {
             <NavItem href="/chat" label="对话" icon={ICONS.chat} {...navItemProps} />
             <NavItem href="/projects" label="项目" icon={ICONS.project} {...navItemProps} />
             <NavItem href="/tasks" label="待办中心" icon={ICONS.tasks} {...navItemProps} badge={taskPending} />
-            <NavItem href="/approvals" label="审批管理" icon={ICONS.approvals} {...navItemProps} badge={approvalPending || undefined} />
             <NavItem href="/dev-studio" label="工具开发" icon={ICONS.devStudio} {...navItemProps} />
           </NavGroup>
 
@@ -279,16 +278,18 @@ export function Sidebar({ user, taskPending = 0, onLogout }: SidebarProps) {
             <NavItem href="/data" label="数据表" icon={ICONS.data} {...navItemProps} />
           </NavGroup>
 
-          {isAdmin && (
-            <NavGroup label="权限安全" storageKey="nav_group_admin_perm" collapsed={collapsed} isLab={isLab}>
-              <NavItem href="/admin/knowledge" label="知识审核" icon={ICONS.review} {...navItemProps} />
-              <NavItem href="/admin/skills" label="Skill管理" icon={ICONS.skillsAdmin} {...navItemProps} />
-              <NavItem href="/admin/approvals" label="审批管理" icon={ICONS.approvals} badge={approvalPending || undefined} {...navItemProps} />
-              {isSuperAdmin && (
-                <NavItem href="/admin/user-permissions" label="用户权限" icon={ICONS.users} {...navItemProps} />
-              )}
-            </NavGroup>
-          )}
+          <NavGroup label="权限安全" storageKey="nav_group_admin_perm" collapsed={collapsed} isLab={isLab}>
+            <NavItem href="/admin/approvals" label="审批管理" icon={ICONS.approvals} badge={approvalPending || undefined} {...navItemProps} />
+            {isAdmin && (
+              <>
+                <NavItem href="/admin/knowledge" label="知识审核" icon={ICONS.review} {...navItemProps} />
+                <NavItem href="/admin/skills" label="Skill管理" icon={ICONS.skillsAdmin} {...navItemProps} />
+              </>
+            )}
+            {isSuperAdmin && (
+              <NavItem href="/admin/user-permissions" label="用户权限" icon={ICONS.users} {...navItemProps} />
+            )}
+          </NavGroup>
 
           {isSuperAdmin && (
             <NavGroup label="系统运营" storageKey="nav_group_admin_ops" collapsed={collapsed} isLab={isLab}>
