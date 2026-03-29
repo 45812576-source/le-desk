@@ -56,6 +56,17 @@ interface StudioToolSuggestion {
   suggestions: ToolSuggestionItem[];
 }
 
+interface StudioFileSplit {
+  files: {
+    filename: string;
+    category: FileCategory;
+    content: string;
+    reason: string;
+  }[];
+  main_prompt_after_split: string;
+  change_note?: string;
+}
+
 // Which file is currently selected in the editor
 type SelectedFile =
   | { skillId: number; fileType: "prompt" }
@@ -1769,6 +1780,80 @@ function DraftCard({
   );
 }
 
+// ─── File split card ─────────────────────────────────────────────────────────
+
+function FileSplitCard({
+  split,
+  currentPrompt,
+  skillId,
+  splitting,
+  onConfirm,
+  onDiscard,
+}: {
+  split: StudioFileSplit;
+  currentPrompt: string;
+  skillId: number | null;
+  splitting: boolean;
+  onConfirm: () => void;
+  onDiscard: () => void;
+}) {
+  const [showPreview, setShowPreview] = useState(false);
+  const hasDiff = currentPrompt !== split.main_prompt_after_split;
+
+  return (
+    <div className="mx-3 my-2 border-2 border-[#E9D5FF] bg-[#FAF5FF] flex-shrink-0">
+      <div className="px-3 py-2 border-b border-[#E9D5FF] flex items-center gap-2">
+        <span className="text-[9px] font-bold uppercase tracking-widest text-[#6B46C1] flex-1">
+          ✦ 文件拆分建议
+        </span>
+        <span className="text-[8px] text-gray-400">{split.files.length} 个文件待拆出</span>
+      </div>
+      {split.change_note && (
+        <div className="px-3 py-1.5 text-[9px] text-gray-600 border-b border-[#E9D5FF]">{split.change_note}</div>
+      )}
+      <div className="px-3 py-2 space-y-1.5">
+        {split.files.map((f, i) => {
+          const cfg = CATEGORY_CONFIG[f.category] || CATEGORY_CONFIG.other;
+          const CatIcon = cfg.icon;
+          return (
+            <div key={i} className="flex items-start gap-2">
+              <CatIcon size={10} className="text-[#6B46C1] flex-shrink-0 mt-0.5" />
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[9px] font-mono font-bold text-gray-800">{f.filename}</span>
+                  <span className="text-[7px] px-1 py-0.5 bg-[#6B46C1]/10 text-[#6B46C1] font-bold">{cfg.label}</span>
+                </div>
+                <div className="text-[8px] text-gray-500 mt-0.5">{f.reason}</div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      {hasDiff && (
+        <div className="px-3 py-1 border-t border-[#E9D5FF]">
+          <button
+            onClick={() => setShowPreview((v) => !v)}
+            className="text-[8px] font-bold uppercase tracking-widest text-gray-400 hover:text-[#6B46C1]"
+          >
+            {showPreview ? "收起主文件变更" : "预览主文件变更"}
+          </button>
+        </div>
+      )}
+      {showPreview && hasDiff && (
+        <div className="max-h-48 overflow-auto border-t border-[#E9D5FF]">
+          <DiffViewer oldText={currentPrompt} newText={split.main_prompt_after_split} />
+        </div>
+      )}
+      <div className="px-3 py-2 border-t border-[#E9D5FF] flex gap-2">
+        <PixelButton size="sm" onClick={onConfirm} disabled={splitting || !skillId} className="flex-1">
+          {splitting ? "拆分中..." : "✓ 确认拆分"}
+        </PixelButton>
+        <PixelButton size="sm" variant="secondary" onClick={onDiscard} disabled={splitting}>不拆分</PixelButton>
+      </div>
+    </div>
+  );
+}
+
 // ─── Stage indicator ─────────────────────────────────────────────────────────
 
 const STUDIO_STAGE_LABELS: Record<string, string> = {
@@ -1818,6 +1903,7 @@ function StudioChat({
   onNewSession,
   onToolBound,
   onDevStudio,
+  onFileSplitDone,
   clearRef,
 }: {
   convId: number;
@@ -1829,6 +1915,7 @@ function StudioChat({
   onNewSession: () => void;
   onToolBound: () => void;
   onDevStudio: (desc: string) => void;
+  onFileSplitDone: () => void;
   clearRef?: { current: (() => void) | null };
 }) {
   // 消息按 conv+skill 分 key 持久化到 sessionStorage，页面刷新后恢复
@@ -1845,6 +1932,8 @@ function StudioChat({
   const [pendingDraft, setPendingDraft] = useState<StudioDraft | null>(null);
   const [pendingSummary, setPendingSummary] = useState<StudioSummary | null>(null);
   const [pendingToolSuggestion, setPendingToolSuggestion] = useState<StudioToolSuggestion | null>(null);
+  const [pendingFileSplit, setPendingFileSplit] = useState<StudioFileSplit | null>(null);
+  const [splitting, setSplitting] = useState(false);
 
   const [hashQuery, setHashQuery] = useState<string | null>(null);
   const [hashActiveIdx, setHashActiveIdx] = useState(0);
@@ -1863,6 +1952,7 @@ function StudioChat({
         setStreamStage(null);
         setPendingDraft(null);
         setPendingSummary(null);
+        setPendingFileSplit(null);
         try { sessionStorage.removeItem(_storageKey); } catch { /* ignore */ }
       };
     }
@@ -1878,6 +1968,7 @@ function StudioChat({
     } catch { setMessages([]); }
     setPendingDraft(null);
     setPendingSummary(null);
+    setPendingFileSplit(null);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [_storageKey]);
 
@@ -2008,6 +2099,8 @@ function StudioChat({
                 }
               } else if (curEvt === "studio_tool_suggestion") {
                 setPendingToolSuggestion(data as StudioToolSuggestion);
+              } else if (curEvt === "studio_file_split") {
+                setPendingFileSplit(data as StudioFileSplit);
               } else if (curEvt === "error") {
                 const errMsg = data.message || "服务端错误";
                 setMessages((prev) => prev.map((m, i) =>
@@ -2077,6 +2170,29 @@ function StudioChat({
     send(msg);
   }
 
+  async function handleConfirmSplit() {
+    if (!pendingFileSplit || !skillId) return;
+    setSplitting(true);
+    try {
+      for (const f of pendingFileSplit.files) {
+        await apiFetch(`/skills/${skillId}/files/${encodeURIComponent(f.filename)}`, {
+          method: "PUT",
+          body: JSON.stringify({ content: f.content }),
+        });
+      }
+      onApplyDraft({
+        system_prompt: pendingFileSplit.main_prompt_after_split,
+        change_note: pendingFileSplit.change_note || "拆分文件",
+      });
+      onFileSplitDone();
+    } catch (err) {
+      console.error("File split failed", err);
+    } finally {
+      setSplitting(false);
+      setPendingFileSplit(null);
+    }
+  }
+
   return (
     <div className="flex flex-col flex-[1] min-w-0 border-l-2 border-[#1A202C] bg-white">
       {/* Header */}
@@ -2089,6 +2205,7 @@ function StudioChat({
               setMessages([]);
               setStreaming(false);
               setPendingDraft(null);
+              setPendingFileSplit(null);
             }}
             className="text-[8px] font-bold uppercase text-gray-400 hover:text-red-400 transition-colors"
           >
@@ -2160,6 +2277,18 @@ function StudioChat({
             onDevStudio={(desc) => { setPendingToolSuggestion(null); onDevStudio(desc); }}
           />
         </div>
+      )}
+
+      {/* File split card */}
+      {pendingFileSplit && pendingFileSplit.files.length > 0 && (
+        <FileSplitCard
+          split={pendingFileSplit}
+          currentPrompt={currentPrompt}
+          skillId={skillId}
+          splitting={splitting}
+          onConfirm={handleConfirmSplit}
+          onDiscard={() => setPendingFileSplit(null)}
+        />
       )}
 
       {/* Input */}
@@ -2398,6 +2527,7 @@ export function SkillStudio({ convId }: { convId: number }) {
           onNewSession={handleNewSession}
           onToolBound={() => { if (selectedSkill) refreshSkill(selectedSkill.id); }}
           onDevStudio={handleDevStudioJump}
+          onFileSplitDone={() => { if (selectedSkill) refreshSkill(selectedSkill.id); }}
           clearRef={clearChatRef}
         />
       </div>
