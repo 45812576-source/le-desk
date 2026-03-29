@@ -19,6 +19,11 @@ import TaskItem from "@tiptap/extension-task-item";
 import Placeholder from "@tiptap/extension-placeholder";
 import HorizontalRule from "@tiptap/extension-horizontal-rule";
 import Typography from "@tiptap/extension-typography";
+import { Mathematics } from "@tiptap/extension-mathematics";
+import "katex/dist/katex.min.css";
+import { Callout } from "@/components/knowledge/extensions/Callout";
+import { FileEmbed } from "@/components/knowledge/extensions/FileEmbed";
+import { ColumnBlock, Column } from "@/components/knowledge/extensions/Columns";
 import {
   Bold, Italic, Underline as UnderlineIcon, Strikethrough, Code,
   Heading1, Heading2, Heading3,
@@ -28,6 +33,7 @@ import {
   Undo2, Redo2, Highlighter, CheckSquare, Minus,
   Table as TableIcon, Plus, Trash2,
   Rows3, Columns3,
+  MessageSquareWarning, Paperclip, Sigma,
 } from "lucide-react";
 
 // ─── Slash Command Menu ──────────────────────────────────────────────────────
@@ -36,21 +42,38 @@ interface SlashMenuItem {
   title: string;
   description: string;
   icon: React.ReactNode;
-  command: (editor: any) => void;
+  group: string;
+  command: (editor: any, callbacks?: SlashCallbacks) => void;
+}
+
+interface SlashCallbacks {
+  onImageUpload?: () => void;
+  onFileUpload?: () => void;
 }
 
 const SLASH_ITEMS: SlashMenuItem[] = [
-  { title: "正文", description: "普通段落文本", icon: <AlignLeft size={16} />, command: (e) => e.chain().focus().setParagraph().run() },
-  { title: "标题 1", description: "大标题", icon: <Heading1 size={16} />, command: (e) => e.chain().focus().toggleHeading({ level: 1 }).run() },
-  { title: "标题 2", description: "中标题", icon: <Heading2 size={16} />, command: (e) => e.chain().focus().toggleHeading({ level: 2 }).run() },
-  { title: "标题 3", description: "小标题", icon: <Heading3 size={16} />, command: (e) => e.chain().focus().toggleHeading({ level: 3 }).run() },
-  { title: "无序列表", description: "项目符号列表", icon: <List size={16} />, command: (e) => e.chain().focus().toggleBulletList().run() },
-  { title: "有序列表", description: "编号列表", icon: <ListOrdered size={16} />, command: (e) => e.chain().focus().toggleOrderedList().run() },
-  { title: "待办清单", description: "可勾选任务列表", icon: <CheckSquare size={16} />, command: (e) => e.chain().focus().toggleTaskList().run() },
-  { title: "引用", description: "引用块", icon: <Quote size={16} />, command: (e) => e.chain().focus().toggleBlockquote().run() },
-  { title: "代码块", description: "代码片段", icon: <CodeXml size={16} />, command: (e) => e.chain().focus().toggleCodeBlock().run() },
-  { title: "分割线", description: "水平分隔线", icon: <Minus size={16} />, command: (e) => e.chain().focus().setHorizontalRule().run() },
-  { title: "表格", description: "插入 3×3 表格", icon: <TableIcon size={16} />, command: (e) => e.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run() },
+  // ── 基础 ──
+  { group: "基础", title: "正文", description: "普通段落文本", icon: <AlignLeft size={16} />, command: (e) => e.chain().focus().setParagraph().run() },
+  { group: "基础", title: "标题 1", description: "大标题", icon: <Heading1 size={16} />, command: (e) => e.chain().focus().toggleHeading({ level: 1 }).run() },
+  { group: "基础", title: "标题 2", description: "中标题", icon: <Heading2 size={16} />, command: (e) => e.chain().focus().toggleHeading({ level: 2 }).run() },
+  { group: "基础", title: "标题 3", description: "小标题", icon: <Heading3 size={16} />, command: (e) => e.chain().focus().toggleHeading({ level: 3 }).run() },
+  { group: "基础", title: "有序列表", description: "编号列表", icon: <ListOrdered size={16} />, command: (e) => e.chain().focus().toggleOrderedList().run() },
+  { group: "基础", title: "无序列表", description: "项目符号列表", icon: <List size={16} />, command: (e) => e.chain().focus().toggleBulletList().run() },
+  { group: "基础", title: "待办清单", description: "可勾选任务列表", icon: <CheckSquare size={16} />, command: (e) => e.chain().focus().toggleTaskList().run() },
+  { group: "基础", title: "代码块", description: "代码片段", icon: <CodeXml size={16} />, command: (e) => e.chain().focus().toggleCodeBlock().run() },
+  { group: "基础", title: "引用", description: "引用块", icon: <Quote size={16} />, command: (e) => e.chain().focus().toggleBlockquote().run() },
+  { group: "基础", title: "高亮块", description: "彩色信息提示块", icon: <MessageSquareWarning size={16} />, command: (e) => e.chain().focus().setCallout({ type: "info" }).run() },
+  { group: "基础", title: "表格", description: "插入 3×3 表格", icon: <TableIcon size={16} />, command: (e) => e.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run() },
+  { group: "基础", title: "链接", description: "插入超链接", icon: <LinkIcon size={16} />, command: (e) => {
+    const url = window.prompt("链接地址", "https://");
+    if (url) e.chain().focus().setLink({ href: url }).run();
+  }},
+  // ── 插入 ──
+  { group: "插入", title: "图片", description: "上传图片", icon: <ImagePlus size={16} />, command: (_e, cb) => cb?.onImageUpload?.() },
+  { group: "插入", title: "视频或文件", description: "上传视频、音频或文件", icon: <Paperclip size={16} />, command: (_e, cb) => cb?.onFileUpload?.() },
+  { group: "插入", title: "分割线", description: "水平分隔线", icon: <Minus size={16} />, command: (e) => e.chain().focus().setHorizontalRule().run() },
+  { group: "插入", title: "公式", description: "LaTeX 数学公式", icon: <Sigma size={16} />, command: (e) => e.chain().focus().insertContent({ type: "text", text: "$$  $$" }).run() },
+  { group: "插入", title: "分栏", description: "两列并排布局", icon: <Columns3 size={16} />, command: (e) => e.chain().focus().setColumns(2).run() },
 ];
 
 function SlashCommandMenu({
@@ -58,11 +81,13 @@ function SlashCommandMenu({
   query,
   onClose,
   position,
+  callbacks,
 }: {
   editor: any;
   query: string;
   onClose: () => void;
   position: { top: number; left: number };
+  callbacks?: SlashCallbacks;
 }) {
   const [selectedIndex, setSelectedIndex] = useState(0);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -72,28 +97,27 @@ function SlashCommandMenu({
 
   useEffect(() => { setSelectedIndex(0); }, [query]);
 
+  const execItem = useCallback((item: SlashMenuItem) => {
+    const { from } = editor.state.selection;
+    const slashPos = from - query.length - 1;
+    editor.chain().focus().deleteRange({ from: Math.max(0, slashPos), to: from }).run();
+    item.command(editor, callbacks);
+    onClose();
+  }, [editor, query, onClose, callbacks]);
+
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
       if (e.key === "ArrowDown") { e.preventDefault(); setSelectedIndex((i) => (i + 1) % filtered.length); }
       else if (e.key === "ArrowUp") { e.preventDefault(); setSelectedIndex((i) => (i - 1 + filtered.length) % filtered.length); }
       else if (e.key === "Enter") {
         e.preventDefault();
-        if (filtered[selectedIndex]) {
-          // Delete the slash + query text, then run command
-          const { from } = editor.state.selection;
-          const textBefore = editor.state.doc.textBetween(Math.max(0, from - query.length - 1), from, "\n");
-          const slashPos = from - query.length - 1;
-          editor.chain().focus().deleteRange({ from: Math.max(0, slashPos), to: from }).run();
-          filtered[selectedIndex].command(editor);
-          onClose();
-        }
+        if (filtered[selectedIndex]) execItem(filtered[selectedIndex]);
       } else if (e.key === "Escape") { e.preventDefault(); onClose(); }
     }
     document.addEventListener("keydown", handleKeyDown, true);
     return () => document.removeEventListener("keydown", handleKeyDown, true);
-  }, [editor, filtered, selectedIndex, query, onClose]);
+  }, [editor, filtered, selectedIndex, query, onClose, execItem]);
 
-  // Scroll active item into view
   useEffect(() => {
     const el = menuRef.current?.querySelector(`[data-index="${selectedIndex}"]`);
     el?.scrollIntoView({ block: "nearest" });
@@ -101,41 +125,47 @@ function SlashCommandMenu({
 
   if (filtered.length === 0) return null;
 
+  // Group items
+  let lastGroup = "";
+  let flatIndex = -1;
+
   return (
     <div
       ref={menuRef}
-      className="fixed z-[9999] bg-white border border-gray-200 rounded-lg shadow-xl py-1 w-[240px] max-h-[320px] overflow-y-auto"
+      className="fixed z-[9999] bg-white border border-gray-200 rounded-lg shadow-xl py-1 w-[260px] max-h-[400px] overflow-y-auto"
       style={{ top: position.top, left: position.left }}
     >
-      <div className="px-3 py-1.5 text-[10px] font-semibold text-gray-400 uppercase tracking-wider">插入块</div>
-      {filtered.map((item, i) => (
-        <button
-          key={item.title}
-          data-index={i}
-          onMouseDown={(e) => {
-            e.preventDefault();
-            const { from } = editor.state.selection;
-            const slashPos = from - query.length - 1;
-            editor.chain().focus().deleteRange({ from: Math.max(0, slashPos), to: from }).run();
-            item.command(editor);
-            onClose();
-          }}
-          onMouseEnter={() => setSelectedIndex(i)}
-          className={`w-full flex items-center gap-3 px-3 py-2 text-left transition-colors ${
-            i === selectedIndex ? "bg-[#F0F9FF]" : "hover:bg-gray-50"
-          }`}
-        >
-          <span className={`flex-shrink-0 w-8 h-8 flex items-center justify-center rounded-md border ${
-            i === selectedIndex ? "border-[#00D1FF] bg-[#E0F7FF] text-[#00A3C4]" : "border-gray-200 text-gray-500"
-          }`}>
-            {item.icon}
-          </span>
-          <div className="min-w-0">
-            <div className="text-[13px] font-medium text-gray-800 truncate">{item.title}</div>
-            <div className="text-[11px] text-gray-400 truncate">{item.description}</div>
+      {filtered.map((item) => {
+        flatIndex++;
+        const i = flatIndex;
+        const showGroupHeader = item.group !== lastGroup;
+        lastGroup = item.group;
+        return (
+          <div key={item.title}>
+            {showGroupHeader && (
+              <div className="px-3 py-1.5 text-[10px] font-semibold text-gray-400 uppercase tracking-wider mt-1 first:mt-0">{item.group}</div>
+            )}
+            <button
+              data-index={i}
+              onMouseDown={(e) => { e.preventDefault(); execItem(item); }}
+              onMouseEnter={() => setSelectedIndex(i)}
+              className={`w-full flex items-center gap-3 px-3 py-2 text-left transition-colors ${
+                i === selectedIndex ? "bg-[#F0F9FF]" : "hover:bg-gray-50"
+              }`}
+            >
+              <span className={`flex-shrink-0 w-8 h-8 flex items-center justify-center rounded-md border ${
+                i === selectedIndex ? "border-[#00D1FF] bg-[#E0F7FF] text-[#00A3C4]" : "border-gray-200 text-gray-500"
+              }`}>
+                {item.icon}
+              </span>
+              <div className="min-w-0">
+                <div className="text-[13px] font-medium text-gray-800 truncate">{item.title}</div>
+                <div className="text-[11px] text-gray-400 truncate">{item.description}</div>
+              </div>
+            </button>
           </div>
-        </button>
-      ))}
+        );
+      })}
     </div>
   );
 }
@@ -317,6 +347,7 @@ interface RichEditorProps {
 
 export function RichEditor({ content, onChange, editable = true }: RichEditorProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const mediaInputRef = useRef<HTMLInputElement>(null);
   const [slashMenu, setSlashMenu] = useState<{ query: string; position: { top: number; left: number } } | null>(null);
 
   const editor = useEditor({
@@ -341,6 +372,11 @@ export function RichEditor({ content, onChange, editable = true }: RichEditorPro
       TableRow,
       TableHeader,
       TableCell,
+      Callout,
+      FileEmbed,
+      ColumnBlock,
+      Column,
+      Mathematics,
       ...(editable
         ? [Placeholder.configure({ placeholder: ({ node }) => {
             if (node.type.name === "heading") return "标题";
@@ -422,6 +458,35 @@ export function RichEditor({ content, onChange, editable = true }: RichEditorPro
     }
   }, [editor]);
 
+  const uploadMedia = useCallback(async (file: File) => {
+    if (!editor) return;
+    const form = new FormData();
+    form.append("file", file);
+    const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+    try {
+      const res = await fetch("/api/proxy/knowledge/image-upload", {
+        method: "POST",
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        body: form,
+      });
+      if (!res.ok) throw new Error("upload failed");
+      const { url } = await res.json();
+      const src = `/api/proxy${url}`;
+      const mime = file.type || "";
+      let fileType = "file";
+      if (mime.startsWith("video/")) fileType = "video";
+      else if (mime.startsWith("audio/")) fileType = "audio";
+      editor.chain().focus().setFileEmbed({ src, filename: file.name, fileType }).run();
+    } catch {
+      alert("文件上传失败");
+    }
+  }, [editor]);
+
+  const slashCallbacks: SlashCallbacks = {
+    onImageUpload: () => fileInputRef.current?.click(),
+    onFileUpload: () => mediaInputRef.current?.click(),
+  };
+
   if (!editor) return null;
 
   return (
@@ -440,6 +505,13 @@ export function RichEditor({ content, onChange, editable = true }: RichEditorPro
         className="hidden"
         onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadImage(f); e.target.value = ""; }}
       />
+      <input
+        ref={mediaInputRef}
+        type="file"
+        accept="video/*,audio/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.zip,.rar"
+        className="hidden"
+        onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadMedia(f); e.target.value = ""; }}
+      />
 
       <div className={editable ? "flex-1 overflow-y-auto" : ""}>
         <EditorContent editor={editor} className={editable ? "h-full" : ""} />
@@ -451,6 +523,7 @@ export function RichEditor({ content, onChange, editable = true }: RichEditorPro
           query={slashMenu.query}
           position={slashMenu.position}
           onClose={() => setSlashMenu(null)}
+          callbacks={slashCallbacks}
         />
       )}
 
@@ -690,6 +763,125 @@ const editorStyles = `
 }
 [data-theme="dark"] .le-editor-body .editor-link {
   color: #63B3ED;
+}
+
+/* === Callout === */
+.le-editor-body .callout {
+  padding: 0.75rem 1rem;
+  margin: 0.75rem 0;
+  border-radius: 8px;
+  border-left: 4px solid;
+}
+.le-editor-body .callout p { margin: 0.15rem 0; }
+.le-editor-body .callout-info {
+  background: #EFF6FF;
+  border-left-color: #3B82F6;
+}
+.le-editor-body .callout-warning {
+  background: #FFFBEB;
+  border-left-color: #F59E0B;
+}
+.le-editor-body .callout-success {
+  background: #F0FDF4;
+  border-left-color: #22C55E;
+}
+.le-editor-body .callout-error {
+  background: #FEF2F2;
+  border-left-color: #EF4444;
+}
+
+/* === Columns === */
+.le-editor-body .column-block {
+  display: grid;
+  gap: 1.5rem;
+  margin: 0.75rem 0;
+}
+.le-editor-body .column {
+  min-width: 0;
+  padding: 0.5rem;
+  border: 1px dashed #E2E8F0;
+  border-radius: 6px;
+}
+.le-editor-body .column > *:first-child { margin-top: 0; }
+.le-editor-body .column > *:last-child { margin-bottom: 0; }
+
+/* === File Embed === */
+.le-editor-body .file-embed {
+  margin: 0.75rem 0;
+}
+.le-editor-body .file-embed-video {
+  max-width: 100%;
+  border-radius: 8px;
+}
+.le-editor-body .file-embed-audio {
+  width: 100%;
+}
+.le-editor-body .file-embed-card {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.6rem 1rem;
+  background: #F7FAFC;
+  border: 1px solid #E2E8F0;
+  border-radius: 8px;
+}
+.le-editor-body .file-embed-link {
+  color: #00A3C4;
+  text-decoration: none;
+  font-size: 14px;
+  font-weight: 500;
+}
+.le-editor-body .file-embed-link:hover {
+  text-decoration: underline;
+}
+.le-editor-body .file-embed-link::before {
+  content: "📎 ";
+}
+
+/* === KaTeX === */
+.le-editor-body .Tiptap-mathematics-editor {
+  font-family: "JetBrains Mono", monospace;
+  background: #F1F5F9;
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+  font-size: 14px;
+}
+.le-editor-body .Tiptap-mathematics-render {
+  padding: 0.1em 0.2em;
+}
+
+/* === Dark: Callout === */
+[data-theme="dark"] .le-editor-body .callout-info {
+  background: #1E293B; border-left-color: #60A5FA;
+}
+[data-theme="dark"] .le-editor-body .callout-warning {
+  background: #1C1917; border-left-color: #FBBF24;
+}
+[data-theme="dark"] .le-editor-body .callout-success {
+  background: #14231A; border-left-color: #4ADE80;
+}
+[data-theme="dark"] .le-editor-body .callout-error {
+  background: #1F1215; border-left-color: #F87171;
+}
+
+/* === Dark: Columns === */
+[data-theme="dark"] .le-editor-body .column {
+  border-color: var(--border);
+}
+
+/* === Dark: File Embed === */
+[data-theme="dark"] .le-editor-body .file-embed-card {
+  background: var(--muted);
+  border-color: var(--border);
+}
+[data-theme="dark"] .le-editor-body .file-embed-link {
+  color: #63B3ED;
+}
+
+/* === Dark: KaTeX === */
+[data-theme="dark"] .le-editor-body .Tiptap-mathematics-editor {
+  background: var(--muted);
+  color: var(--foreground);
 }
 
 /* === Selection === */
