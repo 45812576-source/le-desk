@@ -274,7 +274,7 @@ export function Sidebar({ user, taskPending = 0, onLogout }: SidebarProps) {
 
           <NavGroup label="知识管理" storageKey="nav_group_knowledge" collapsed={collapsed} isLab={isLab}>
             <NavItem href="/knowledge" label="我的知识" icon={ICONS.knowledgeMy} {...navItemProps} />
-            <NavItem href="/skills" label="Skills & Tools" icon={ICONS.skills} {...navItemProps} />
+            <NavItem href="/skills" label="工作台配置" icon={ICONS.skills} {...navItemProps} />
             <NavItem href="/data" label="数据表" icon={ICONS.data} {...navItemProps} />
           </NavGroup>
 

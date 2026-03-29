@@ -181,16 +181,11 @@ function WorkspacePicker({
   const systemWs = workspaces.filter(
     (w) => w.workspace_type === "opencode" || w.workspace_type === "sandbox" || w.workspace_type === "skill_studio"
   );
-  // 其余按 category 分组
-  const others = workspaces.filter(
+  // 管理员推荐的工作台
+  const recommendedWs = workspaces.filter(
     (w) => w.workspace_type !== "opencode" && w.workspace_type !== "sandbox" && w.workspace_type !== "skill_studio"
+      && (w as Record<string, unknown>).recommended_by
   );
-  const categoryMap = new Map<string, Workspace[]>();
-  for (const ws of others) {
-    const cat = ws.category || "其他";
-    if (!categoryMap.has(cat)) categoryMap.set(cat, []);
-    categoryMap.get(cat)!.push(ws);
-  }
 
   return (
     <div
@@ -211,7 +206,7 @@ function WorkspacePicker({
           <div>
             <div className="text-[8px] font-bold uppercase tracking-widest text-gray-400 mb-1.5 px-0.5">系统内置</div>
             <div className="grid grid-cols-2 gap-2">
-              {/* 自由对话始终第一 */}
+              {/* 自定义工作台始终第一 */}
               <button
                 onClick={() => onSelect(null)}
                 className="text-left px-3 py-2.5 border-2 border-[#1A202C] hover:bg-[#CCF2FF] transition-colors flex items-center gap-2.5"
@@ -220,29 +215,28 @@ function WorkspacePicker({
                   ∞
                 </div>
                 <div>
-                  <div className="text-[10px] font-bold uppercase tracking-wide">自由对话</div>
-                  <div className="text-[8px] text-gray-400">不绑定工作台</div>
+                  <div className="text-[10px] font-bold uppercase tracking-wide">自定义工作台</div>
+                  <div className="text-[8px] text-gray-400">使用个人工作台配置</div>
                 </div>
               </button>
               {systemWs.map((ws) => <WsCard key={ws.id} ws={ws} onSelect={onSelect} />)}
             </div>
           </div>
 
-          {/* 按 category 分组 */}
-          {Array.from(categoryMap.entries()).map(([cat, list]) => (
-            <div key={cat}>
-              <div className="text-[8px] font-bold uppercase tracking-widest text-gray-400 mb-1.5 px-0.5">{cat}</div>
+          {/* 管理员推荐 */}
+          {recommendedWs.length > 0 && (
+            <div>
+              <div className="text-[8px] font-bold uppercase tracking-widest text-gray-400 mb-1.5 px-0.5">部门推荐</div>
               <div className="grid grid-cols-2 gap-2">
-                {list.map((ws) => <WsCard key={ws.id} ws={ws} onSelect={onSelect} />)}
+                {recommendedWs.map((ws) => <WsCard key={ws.id} ws={ws} onSelect={onSelect} />)}
               </div>
             </div>
-          ))}
+          )}
 
           {workspaces.length === 0 && (
             <div className="py-6 text-center text-[9px] text-gray-400 font-bold uppercase tracking-widest">
               暂无可用工作台
-            </div>
-          )}
+            </div>)}
         </div>
       </div>
     </div>

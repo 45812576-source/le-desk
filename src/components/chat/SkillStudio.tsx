@@ -9,6 +9,7 @@ import type { SkillDetail, SkillVersion, BoundTool } from "@/lib/types";
 import { useTheme } from "@/lib/theme";
 import { ICONS, PixelIcon } from "@/components/pixel";
 import { ImportSkillModal } from "@/components/skill/ImportSkillModal";
+import { CommentsPanel, type Suggestion } from "@/components/skill/CommentsPanel";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -278,6 +279,7 @@ function SkillList({
   onNew,
   onImport,
   onRefreshSkill,
+  onAdoptSuggestion,
 }: {
   skills: SkillDetail[];
   loading: boolean;
@@ -286,10 +288,12 @@ function SkillList({
   onNew: () => void;
   onImport: () => void;
   onRefreshSkill: (skillId: number) => void;
+  onAdoptSuggestion?: (skillName: string, suggestion: Suggestion) => void;
 }) {
   const [expanded, setExpanded] = useState<Set<number>>(new Set());
   const uploadInputRef = useRef<HTMLInputElement>(null);
   const [uploadingFor, setUploadingFor] = useState<number | null>(null);
+  const [suggestionPopupSkillId, setSuggestionPopupSkillId] = useState<number | null>(null);
 
   const drafts = skills.filter((s) => s.status === "draft" || s.status === "reviewing");
   const published = skills.filter((s) => s.status === "published" || s.status === "archived");
@@ -467,7 +471,45 @@ function SkillList({
               <PixelBadge color={badge.color}>{badge.label}</PixelBadge>
             </div>
           </div>
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              setSuggestionPopupSkillId(suggestionPopupSkillId === skill.id ? null : skill.id);
+            }}
+            className="flex-shrink-0 text-[7px] font-bold text-[#805AD5] border border-[#805AD5] px-1 py-0.5 hover:bg-[#FAF5FF] transition-colors"
+            title="查看用户意见"
+          >
+            意见
+          </button>
         </button>
+
+        {/* Suggestion popup */}
+        {suggestionPopupSkillId === skill.id && (
+          <div className="bg-[#FAF5FF] border-b-2 border-[#805AD5] p-2 max-h-64 overflow-y-auto">
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-[8px] font-bold uppercase text-[#805AD5]">用户意见</span>
+              <button
+                onClick={() => setSuggestionPopupSkillId(null)}
+                className="text-[8px] text-gray-400 hover:text-gray-600"
+              >
+                <X size={10} />
+              </button>
+            </div>
+            <CommentsPanel
+              skillId={skill.id}
+              onIterateDone={() => onRefreshSkill(skill.id)}
+              hideIterate
+              statusFilter="pending"
+              onAdopt={(s) => {
+                if (onAdoptSuggestion) {
+                  onAdoptSuggestion(skill.name, s);
+                  setSuggestionPopupSkillId(null);
+                  return true;
+                }
+              }}
+            />
+          </div>
+        )}
 
         {/* Expanded file list */}
         {isOpen && (
@@ -1911,6 +1953,7 @@ function StudioChat({
   onDevStudio,
   onFileSplitDone,
   clearRef,
+  setInputRef,
 }: {
   convId: number;
   skillId: number | null;
@@ -1923,6 +1966,7 @@ function StudioChat({
   onDevStudio: (desc: string) => void;
   onFileSplitDone: () => void;
   clearRef?: { current: (() => void) | null };
+  setInputRef?: { current: ((text: string) => void) | null };
 }) {
   // 消息按 conv+skill 分 key 持久化到 sessionStorage，页面刷新后恢复
   const _storageKey = `studio_msgs_${convId}_${skillId ?? "free"}`;
@@ -1965,6 +2009,17 @@ function StudioChat({
     return () => { if (clearRef) clearRef.current = null; };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [clearRef, _storageKey]);
+
+  // 注册 setInput 回调给父组件（用于意见采纳填充）
+  useEffect(() => {
+    if (setInputRef) {
+      setInputRef.current = (text: string) => {
+        setInput(text);
+        setTimeout(() => inputRef.current?.focus(), 50);
+      };
+    }
+    return () => { if (setInputRef) setInputRef.current = null; };
+  }, [setInputRef]);
 
   // skillId 切换时从 sessionStorage 加载对应历史
   useEffect(() => {
@@ -2374,6 +2429,7 @@ export function SkillStudio({ convId }: { convId: number }) {
   const [pendingDiffBase, setPendingDiffBase] = useState<string | null>(null);
   const editorSaveRef = useRef<(() => void) | null>(null);
   const clearChatRef = useRef<(() => void) | null>(null);
+  const setInputRef = useRef<((text: string) => void) | null>(null);
 
   const editorIsDirty = prompt !== savedPrompt && prompt.trim().length > 0;
 
@@ -2452,6 +2508,11 @@ export function SkillStudio({ convId }: { convId: number }) {
     clearChatRef.current?.();
   }
 
+  function handleAdoptSuggestion(skillName: string, suggestion: Suggestion) {
+    const text = `${skillName}-修改意见: ${suggestion.problem_desc}\n期望: ${suggestion.expected_direction}`;
+    setInputRef.current?.(text);
+  }
+
   async function handleDevStudioJump(desc: string) {
     if (!selectedSkill) return;
     try {
@@ -2500,6 +2561,7 @@ export function SkillStudio({ convId }: { convId: number }) {
           onNew={handleNew}
           onImport={() => setShowImportModal(true)}
           onRefreshSkill={refreshSkill}
+          onAdoptSuggestion={handleAdoptSuggestion}
         />
 
         {showAssetEditor && selectedSkill ? (
@@ -2537,6 +2599,7 @@ export function SkillStudio({ convId }: { convId: number }) {
           onDevStudio={handleDevStudioJump}
           onFileSplitDone={() => { if (selectedSkill) refreshSkill(selectedSkill.id); }}
           clearRef={clearChatRef}
+          setInputRef={setInputRef}
         />
       </div>
 

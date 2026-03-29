@@ -7,11 +7,12 @@ import { ICONS, PixelIcon } from "@/components/pixel";
 import { PixelButton } from "@/components/pixel/PixelButton";
 import { PixelBadge } from "@/components/pixel/PixelBadge";
 import { useTheme } from "@/lib/theme";
+import { useAuth } from "@/lib/auth";
 import { apiFetch } from "@/lib/api";
 import type { SkillDetail, ToolEntry, Department } from "@/lib/types";
 import { SandboxTestModal } from "@/components/skill/SandboxTestModal";
+import { CommentsPanel } from "@/components/skill/CommentsPanel";
 
-type MainTab = "skill" | "tool" | "webapp";
 type ScopeOption = "company" | "department" | "personal";
 
 function SkillIcon({ size }: { size: number }) {
@@ -51,7 +52,30 @@ const TOOL_TYPE_COLOR: Record<string, "cyan" | "green" | "purple" | "gray"> = {
   mcp: "cyan", builtin: "green", http: "purple",
 };
 
-// ─── Web App Card ─────────────────────────────────────────────────────────────
+// ─── Types ──────────────────────────────────────────────────────────────────
+
+interface WorkspaceConfigItem {
+  id: number;
+  name: string;
+  description?: string;
+  status?: string;
+  scope?: string;
+  source: string;
+  mounted: boolean;
+  // tool fields
+  display_name?: string;
+  tool_type?: string;
+}
+
+interface WorkspaceConfig {
+  id: number;
+  user_id: number;
+  mounted_skills: WorkspaceConfigItem[];
+  mounted_tools: WorkspaceConfigItem[];
+  needs_prompt_refresh: boolean;
+  updated_at: string | null;
+}
+
 interface WebAppEntry {
   id: number;
   name: string;
@@ -72,6 +96,8 @@ const WEBAPP_STATUS_BADGE: Record<string, { color: "cyan" | "green" | "yellow" |
   reviewing: { color: "yellow", label: "审核中" },
   published: { color: "green", label: "已发布" },
 };
+
+// ─── Web App Publish Modal ──────────────────────────────────────────────────
 
 function WebAppPublishModal({
   appId,
@@ -377,7 +403,7 @@ function PublishScopeModal({
   );
 }
 
-// ─── Skill Card ───────────────────────────────────────────────────────────────
+// ─── Skill Card (Own) ─────────────────────────────────────────────────────────
 function MySkillCard({ skill, onRefresh }: { skill: SkillDetail; onRefresh: () => void }) {
   const [expanded, setExpanded] = useState(false);
   const [editing, setEditing] = useState(false);
@@ -389,6 +415,7 @@ function MySkillCard({ skill, onRefresh }: { skill: SkillDetail; onRefresh: () =
   const [showSandbox, setShowSandbox] = useState(false);
   const [showPublishModal, setShowPublishModal] = useState(false);
   const [detail, setDetail] = useState<SkillDetail | null>(null);
+  const [showComments, setShowComments] = useState(false);
 
   useEffect(() => {
     if (!editing) {
@@ -488,6 +515,7 @@ function MySkillCard({ skill, onRefresh }: { skill: SkillDetail; onRefresh: () =
               <span className="text-xs font-bold uppercase">{skill.name}</span>
               <PixelBadge color={badge.color}>{badge.label}</PixelBadge>
               {skill.current_version > 0 && <PixelBadge color="cyan">v{skill.current_version}</PixelBadge>}
+              {skill.scope && <PixelBadge color="gray">{SCOPE_LABEL[skill.scope] || skill.scope}</PixelBadge>}
             </div>
             <p className="text-[9px] text-gray-500 line-clamp-2">{skill.description || "无描述"}</p>
           </div>
@@ -511,6 +539,13 @@ function MySkillCard({ skill, onRefresh }: { skill: SkillDetail; onRefresh: () =
                   {deleting ? "删除中..." : "删除"}
                 </PixelButton>
               )}
+              <PixelButton
+                size="sm"
+                variant={showComments ? "primary" : "secondary"}
+                onClick={() => setShowComments((v) => !v)}
+              >
+                用户意见
+              </PixelButton>
               {deleteError && (
                 <span className="text-[9px] font-bold text-red-500 border border-red-300 bg-red-50 px-2 py-1">✕ {deleteError}</span>
               )}
@@ -521,6 +556,18 @@ function MySkillCard({ skill, onRefresh }: { skill: SkillDetail; onRefresh: () =
                 <div className="text-[10px] text-red-600">{detail.rejection_comment}</div>
               </div>
             )}
+
+            {showComments && (
+              <div className="mb-4 border-2 border-[#805AD5] bg-[#FAF5FF] p-3">
+                <div className="text-[9px] font-bold uppercase tracking-widest text-[#805AD5] mb-2">用户意见</div>
+                <CommentsPanel
+                  skillId={skill.id}
+                  onIterateDone={() => { onRefresh(); loadDetail(); }}
+                  hideIterate={false}
+                />
+              </div>
+            )}
+
             {editing ? (
               <div>
                 <div className="text-[9px] font-bold uppercase tracking-widest text-[#00A3C4] mb-1">System Prompt</div>
@@ -576,7 +623,7 @@ function MySkillCard({ skill, onRefresh }: { skill: SkillDetail; onRefresh: () =
   );
 }
 
-// ─── Tool Card ────────────────────────────────────────────────────────────────
+// ─── Tool Card (Own) ──────────────────────────────────────────────────────────
 function MyToolCard({ tool, onRefresh }: { tool: ToolEntry; onRefresh: () => void }) {
   const [deleting, setDeleting] = useState(false);
   const [showSandbox, setShowSandbox] = useState(false);
@@ -672,47 +719,73 @@ function MyToolCard({ tool, onRefresh }: { tool: ToolEntry; onRefresh: () => voi
   );
 }
 
-function SavedToolCard({ tool, onUnsave }: { tool: ToolEntry & { saved_at?: string }; onUnsave: (id: number) => void }) {
-  const [removing, setRemoving] = useState(false);
-  const typeColor = TOOL_TYPE_COLOR[tool.tool_type ?? ""] ?? "gray";
-  const typeLabel = TOOL_TYPE_LABEL[tool.tool_type ?? ""] ?? tool.tool_type ?? "未知";
-
-  async function handleUnsave() {
-    setRemoving(true);
-    try {
-      await apiFetch(`/tools/save-from-market/${tool.id}`, { method: "DELETE" });
-      onUnsave(tool.id);
-    } catch { /* ignore */ }
-    finally { setRemoving(false); }
-  }
-
+// ─── Mount Toggle Card (for dept/market items) ───────────────────────────────
+function MountCard({
+  item,
+  type,
+  mounted,
+  onToggle,
+}: {
+  item: WorkspaceConfigItem;
+  type: "skill" | "tool";
+  mounted: boolean;
+  onToggle: (id: number, mounted: boolean) => void;
+}) {
+  const name = type === "tool" ? (item.display_name || item.name) : item.name;
   return (
-    <div className="bg-white border-2 border-[#1A202C] p-4 flex items-start justify-between gap-3">
+    <div className={`border-2 p-3 flex items-center justify-between gap-3 transition-colors ${
+      mounted ? "border-[#00A3C4] bg-[#F0FDFA]" : "border-[#E2E8F0] bg-white"
+    }`}>
       <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2 flex-wrap mb-1">
-          <ToolIcon size={12} />
-          <span className="text-xs font-bold uppercase">{tool.display_name}</span>
-          <PixelBadge color={typeColor}>{typeLabel}</PixelBadge>
+        <div className="flex items-center gap-2 flex-wrap mb-0.5">
+          {type === "skill" ? <SkillIcon size={10} /> : <ToolIcon size={10} />}
+          <span className="text-[10px] font-bold uppercase truncate">{name}</span>
+          {item.status && (
+            <PixelBadge color={SKILL_STATUS_BADGE[item.status]?.color ?? "gray"}>
+              {SKILL_STATUS_BADGE[item.status]?.label ?? item.status}
+            </PixelBadge>
+          )}
+          {type === "tool" && item.tool_type && (
+            <PixelBadge color={TOOL_TYPE_COLOR[item.tool_type] ?? "gray"}>
+              {TOOL_TYPE_LABEL[item.tool_type] ?? item.tool_type}
+            </PixelBadge>
+          )}
         </div>
-        <p className="text-[9px] text-gray-500 line-clamp-2">{tool.description || "无描述"}</p>
+        {item.description && (
+          <p className="text-[8px] text-gray-500 line-clamp-1">{item.description}</p>
+        )}
       </div>
-      <PixelButton size="sm" variant="secondary" onClick={handleUnsave} disabled={removing}>
-        {removing ? "移除中..." : "移除"}
-      </PixelButton>
+      <button
+        onClick={() => onToggle(item.id, !mounted)}
+        className={`flex-shrink-0 w-10 h-5 rounded-full relative transition-colors ${
+          mounted ? "bg-[#00CC99]" : "bg-gray-300"
+        }`}
+      >
+        <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ${
+          mounted ? "left-5.5 translate-x-0" : "left-0.5"
+        }`} style={{ left: mounted ? "22px" : "2px" }} />
+      </button>
     </div>
   );
 }
 
 // ─── Section Group ────────────────────────────────────────────────────────────
-function SectionGroup({ label, count, children }: { label: string; count: number; children: React.ReactNode }) {
+function SectionGroup({ label, count, children, collapsible }: { label: string; count: number; children: React.ReactNode; collapsible?: boolean }) {
+  const [collapsed, setCollapsed] = useState(false);
   return (
     <div className="mb-6">
-      <div className="flex items-center gap-2 mb-2">
+      <div
+        className={`flex items-center gap-2 mb-2 ${collapsible ? "cursor-pointer select-none" : ""}`}
+        onClick={() => collapsible && setCollapsed((v) => !v)}
+      >
         <span className="text-[9px] font-bold uppercase tracking-widest text-[#00A3C4]">{label}</span>
         <span className="text-[9px] text-gray-400">({count})</span>
         <div className="flex-1 h-px bg-[#E2E8F0]" />
+        {collapsible && (
+          <span className="text-[9px] text-gray-400">{collapsed ? "▼" : "▲"}</span>
+        )}
       </div>
-      <div className="space-y-2">{children}</div>
+      {!collapsed && <div className="space-y-2">{children}</div>}
     </div>
   );
 }
@@ -784,11 +857,24 @@ function NewSkillForm({ onCreated }: { onCreated: () => void }) {
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
 export default function SkillsPage() {
-  const [tab, setTab] = useState<MainTab>("skill");
+  const { user } = useAuth();
+  const isAdmin = user?.role === "super_admin" || user?.role === "dept_admin";
 
-  // Skill state
+  // Workspace config state
+  const [config, setConfig] = useState<WorkspaceConfig | null>(null);
+  const [configLoading, setConfigLoading] = useState(true);
+  const [configDirty, setConfigDirty] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [publishing, setPublishing] = useState(false);
+  const [saveMsg, setSaveMsg] = useState<string | null>(null);
+
+  // Own skills/tools (all statuses)
   const [mySkills, setMySkills] = useState<SkillDetail[]>([]);
+  const [myTools, setMyTools] = useState<ToolEntry[]>([]);
   const [skillLoading, setSkillLoading] = useState(false);
+  const [toolLoading, setToolLoading] = useState(false);
+
+  // Upload state
   const [showNewSkillForm, setShowNewSkillForm] = useState(false);
   const [uploadingMd, setUploadingMd] = useState(false);
   const [uploadMdError, setUploadMdError] = useState<string | null>(null);
@@ -796,9 +882,6 @@ export default function SkillsPage() {
   const [uploadZipError, setUploadZipError] = useState<string | null>(null);
   const skillZipInputRef = useRef<HTMLInputElement>(null);
 
-  // Tool state
-  const [myTools, setMyTools] = useState<ToolEntry[]>([]);
-  const [toolLoading, setToolLoading] = useState(false);
   const [showMcpUpload, setShowMcpUpload] = useState(false);
   const [uploadTab, setUploadTab] = useState<"py" | "mcp">("py");
   const [uploadingPy, setUploadingPy] = useState(false);
@@ -819,27 +902,43 @@ export default function SkillsPage() {
   const [webApps, setWebApps] = useState<WebAppEntry[]>([]);
   const [webAppLoading, setWebAppLoading] = useState(false);
 
-  // ─── Skill fetchers ───────────────────────────────────────────────────────
+  // Local mount state (tracked separately for dirty checking)
+  const [mountedSkills, setMountedSkills] = useState<Map<number, WorkspaceConfigItem>>(new Map());
+  const [mountedTools, setMountedTools] = useState<Map<number, WorkspaceConfigItem>>(new Map());
+
+  // ─── Fetchers ──────────────────────────────────────────────────────────
+
+  const fetchConfig = useCallback(() => {
+    setConfigLoading(true);
+    apiFetch<WorkspaceConfig>("/workspace-config")
+      .then((c) => {
+        setConfig(c);
+        const sm = new Map<number, WorkspaceConfigItem>();
+        for (const s of c.mounted_skills) sm.set(s.id, s);
+        setMountedSkills(sm);
+        const tm = new Map<number, WorkspaceConfigItem>();
+        for (const t of c.mounted_tools) tm.set(t.id, t);
+        setMountedTools(tm);
+        setConfigDirty(false);
+      })
+      .catch(() => {})
+      .finally(() => setConfigLoading(false));
+  }, []);
+
   const fetchSkills = useCallback(() => {
     setSkillLoading(true);
     apiFetch<SkillDetail[]>("/skills?mine=true").catch(() => [] as SkillDetail[])
-      .then((mine) => {
-        // 只展示未发布的（草稿/审核中），已发布通过 # 调用，不需要在这里管理
-        setMySkills(mine.filter(s => s.status === "draft" || s.status === "reviewing"));
-      }).finally(() => setSkillLoading(false));
+      .then(setMySkills)
+      .finally(() => setSkillLoading(false));
   }, []);
 
-  // ─── Tool fetchers ────────────────────────────────────────────────────────
   const fetchTools = useCallback(() => {
     setToolLoading(true);
     apiFetch<ToolEntry[]>("/tools?mine=true").catch(() => [] as ToolEntry[])
-      .then((mine) => {
-        // 只展示未发布的（草稿/审核中）
-        setMyTools(mine.filter(t => t.status === "draft" || t.status === "reviewing"));
-      }).finally(() => setToolLoading(false));
+      .then(setMyTools)
+      .finally(() => setToolLoading(false));
   }, []);
 
-  // ─── Web App fetchers ─────────────────────────────────────────────────────
   const fetchWebApps = useCallback(() => {
     setWebAppLoading(true);
     apiFetch<WebAppEntry[]>("/web-apps").catch(() => [] as WebAppEntry[])
@@ -848,12 +947,92 @@ export default function SkillsPage() {
   }, []);
 
   useEffect(() => {
-    if (tab === "skill") fetchSkills();
-    else if (tab === "tool") fetchTools();
-    else fetchWebApps();
-  }, [tab, fetchSkills, fetchTools, fetchWebApps]);
+    fetchConfig();
+    fetchSkills();
+    fetchTools();
+    fetchWebApps();
+  }, [fetchConfig, fetchSkills, fetchTools, fetchWebApps]);
 
-  // ─── Skill uploads ────────────────────────────────────────────────────────
+  // ─── Mount toggle ──────────────────────────────────────────────────────
+
+  function toggleSkillMount(id: number, mounted: boolean) {
+    setMountedSkills((prev) => {
+      const next = new Map(prev);
+      const item = next.get(id);
+      if (item) next.set(id, { ...item, mounted });
+      return next;
+    });
+    setConfigDirty(true);
+  }
+
+  function toggleToolMount(id: number, mounted: boolean) {
+    setMountedTools((prev) => {
+      const next = new Map(prev);
+      const item = next.get(id);
+      if (item) next.set(id, { ...item, mounted });
+      return next;
+    });
+    setConfigDirty(true);
+  }
+
+  // ─── Save config ──────────────────────────────────────────────────────
+
+  async function handleSave() {
+    setSaving(true);
+    setSaveMsg(null);
+    try {
+      const skillItems = Array.from(mountedSkills.values()).map((s) => ({
+        id: s.id, source: s.source, mounted: s.mounted,
+      }));
+      const toolItems = Array.from(mountedTools.values()).map((t) => ({
+        id: t.id, source: t.source, mounted: t.mounted,
+      }));
+      await apiFetch("/workspace-config", {
+        method: "PUT",
+        body: JSON.stringify({ mounted_skills: skillItems, mounted_tools: toolItems }),
+      });
+      setSaveMsg("已保存");
+      setConfigDirty(false);
+      setTimeout(() => setSaveMsg(null), 2000);
+    } catch (err) {
+      setSaveMsg(err instanceof Error ? err.message : "保存失败");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handlePublishWorkspace(scope: "department" | "company") {
+    setPublishing(true);
+    setSaveMsg(null);
+    try {
+      // Save first
+      const skillItems = Array.from(mountedSkills.values()).map((s) => ({
+        id: s.id, source: s.source, mounted: s.mounted,
+      }));
+      const toolItems = Array.from(mountedTools.values()).map((t) => ({
+        id: t.id, source: t.source, mounted: t.mounted,
+      }));
+      await apiFetch("/workspace-config", {
+        method: "PUT",
+        body: JSON.stringify({ mounted_skills: skillItems, mounted_tools: toolItems }),
+      });
+      // Then publish
+      await apiFetch("/workspace-config/publish", {
+        method: "POST",
+        body: JSON.stringify({ scope }),
+      });
+      setSaveMsg(`已发布为${scope === "department" ? "部门" : "公司"}标准工作台`);
+      setConfigDirty(false);
+      setTimeout(() => setSaveMsg(null), 3000);
+    } catch (err) {
+      setSaveMsg(err instanceof Error ? err.message : "发布失败");
+    } finally {
+      setPublishing(false);
+    }
+  }
+
+  // ─── Skill uploads ────────────────────────────────────────────────────
+
   async function handleUploadMd(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -885,8 +1064,6 @@ export default function SkillsPage() {
         "/skills/upload-zip", { method: "POST", body: form }
       );
       const fileCount = res.source_files?.length ?? 0;
-      setUploadZipError(null);
-      // 显示成功提示（复用 error 状态显示绿色）
       setUploadZipError(`✓ ${res.action === "created" ? "新建" : "更新"} [${res.name}] v${res.version}${fileCount > 0 ? `，附属文件 ${fileCount} 个` : ""}`);
     } catch (err) {
       setUploadZipError(err instanceof Error ? err.message : "上传失败");
@@ -897,7 +1074,8 @@ export default function SkillsPage() {
     }
   }
 
-  // ─── Tool uploads ─────────────────────────────────────────────────────────
+  // ─── Tool uploads ─────────────────────────────────────────────────────
+
   async function handleUploadPy(file: File) {
     if (!file.name.endsWith(".py")) { setUploadPyError("只支持 .py 文件"); return; }
     setUploadingPy(true);
@@ -982,275 +1160,322 @@ export default function SkillsPage() {
     }
   }
 
-  // ─── Actions bar ──────────────────────────────────────────────────────────
-  const SkillActions = (
+  // ─── Derived data ─────────────────────────────────────────────────────
+
+  // Split config items by source
+  const deptSkills = Array.from(mountedSkills.values()).filter((s) => s.source === "dept");
+  const marketSkills = Array.from(mountedSkills.values()).filter((s) => s.source === "market");
+  const deptTools = Array.from(mountedTools.values()).filter((t) => t.source === "dept");
+  const marketTools = Array.from(mountedTools.values()).filter((t) => t.source === "market");
+
+  const isLoading = configLoading || skillLoading || toolLoading;
+
+  // ─── Actions bar ──────────────────────────────────────────────────────
+
+  const Actions = (
     <div className="flex items-center gap-2">
-      <label className="cursor-pointer">
-        <input type="file" accept=".md" className="hidden" onChange={handleUploadMd} />
-        <span className="inline-flex items-center border-2 border-[#1A202C] px-3 py-1 text-[10px] font-bold uppercase tracking-widest bg-white hover:bg-[#F0F4F8] transition-colors cursor-pointer">
-          {uploadingMd ? "上传中..." : "上传 .md"}
-        </span>
-      </label>
-      <label className="cursor-pointer">
-        <input
-          ref={skillZipInputRef}
-          type="file"
-          accept=".zip"
-          className="hidden"
-          onChange={(e) => { const f = e.target.files?.[0]; if (f) handleUploadZip(f); }}
-        />
-        <span className="inline-flex items-center border-2 border-[#1A202C] px-3 py-1 text-[10px] font-bold uppercase tracking-widest bg-white hover:bg-[#F0F4F8] transition-colors cursor-pointer">
-          {uploadingZip ? "上传中..." : "上传 .zip"}
-        </span>
-      </label>
-      <PixelButton variant="secondary" onClick={() => setShowNewSkillForm((v) => !v)}>
-        {showNewSkillForm ? "取消" : "+ 手动新建"}
-      </PixelButton>
-      <PixelButton onClick={() => { window.location.href = "/skill-studio"; }}>
-        + Skill Studio
+      <PixelButton variant="secondary" onClick={() => { window.location.href = "/app-market"; }}>
+        应用市场
       </PixelButton>
     </div>
   );
-
-  const ToolActions = (
-    <div className="flex items-center gap-2">
-      <PixelButton variant="secondary" onClick={() => { setShowMcpUpload(v => !v); setMcpZipResult(null); setMcpGenerated(null); setMcpSubmitMsg(null); setMcpZipError(null); }}>
-        {showMcpUpload ? "▾ 收起" : "+ 上传工具"}
-      </PixelButton>
-      <PixelButton onClick={() => { window.location.href = "/dev-studio"; }}>
-        + 工作台新建
-      </PixelButton>
-    </div>
-  );
-
-  const WebAppActions = (
-    <div className="flex items-center gap-2">
-      <PixelButton onClick={() => { window.location.href = "/dev-studio"; }}>
-        + 工作台新建
-      </PixelButton>
-    </div>
-  );
-
-  const isLoading = tab === "skill" ? skillLoading : tab === "tool" ? toolLoading : webAppLoading;
 
   return (
     <PageShell
-      title="Skills & Tools"
+      title="工作台配置"
       icon={ICONS.skills}
-      actions={tab === "skill" ? SkillActions : tab === "tool" ? ToolActions : WebAppActions}
+      actions={Actions}
     >
-      {/* 主 Tab */}
-      <div className="flex gap-1 mb-6">
-        <PixelButton
-          variant={tab === "skill" ? "primary" : "secondary"}
-          size="sm"
-          onClick={() => { setTab("skill"); setShowNewSkillForm(false); }}
-        >
-          Skill
-        </PixelButton>
-        <PixelButton
-          variant={tab === "tool" ? "primary" : "secondary"}
-          size="sm"
-          onClick={() => setTab("tool")}
-        >
-          工具
-        </PixelButton>
-        <PixelButton
-          variant={tab === "webapp" ? "primary" : "secondary"}
-          size="sm"
-          onClick={() => setTab("webapp")}
-        >
-          Web App
-        </PixelButton>
-      </div>
-
       {isLoading ? (
         <div className="flex items-center justify-center py-20">
           <div className="text-[10px] font-bold uppercase tracking-widest text-[#00A3C4] animate-pulse">Loading...</div>
         </div>
-      ) : tab === "skill" ? (
-        <>
-          {uploadMdError && (
-            <div className={`border-2 px-4 py-2 mb-3 text-[9px] font-bold ${uploadMdError.startsWith("✓") ? "border-[#00CC99] bg-[#F0FFF4] text-[#00CC99]" : "border-red-400 bg-red-50 text-red-500"}`}>
-              {uploadMdError.startsWith("✓") ? uploadMdError : `上传失败：${uploadMdError}`}
-            </div>
-          )}
-          {uploadZipError && (
-            <div className={`border-2 px-4 py-2 mb-3 text-[9px] font-bold ${uploadZipError.startsWith("✓") ? "border-[#00CC99] bg-[#F0FFF4] text-[#00CC99]" : "border-red-400 bg-red-50 text-red-500"}`}>
-              {uploadZipError.startsWith("✓") ? uploadZipError : `上传失败：${uploadZipError}`}
-            </div>
-          )}
-          {showNewSkillForm && (
-            <NewSkillForm onCreated={() => { setShowNewSkillForm(false); fetchSkills(); }} />
-          )}
-
-          {/* 我的未发布 Skill（草稿 + 审核中） */}
-          {mySkills.length > 0 && (
-            <SectionGroup label="待发布" count={mySkills.length}>
-              {mySkills.map((s) => <MySkillCard key={s.id} skill={s} onRefresh={fetchSkills} />)}
-            </SectionGroup>
-          )}
-
-          {mySkills.length === 0 && (
-            <div className="flex flex-col items-center justify-center py-20">
-              <div className="w-10 h-10 bg-[#CCF2FF] border-2 border-[#00A3C4] flex items-center justify-center mb-4">
-                <SkillIcon size={16} />
-              </div>
-              <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400">
-                暂无待发布 Skill，点击新建或上传 .md
-              </p>
-            </div>
-          )}
-        </>
-      ) : tab === "tool" ? (
-        <>
-          {/* 工具上传面板 */}
-          {showMcpUpload && (
-            <div className="mb-4 border-2 border-[#1A202C] bg-white">
-              {/* Tab bar */}
-              <div className="flex border-b-2 border-[#1A202C]">
-                {(["py", "mcp"] as const).map((t) => (
-                  <button key={t} onClick={() => setUploadTab(t)}
-                    className={`px-5 py-2.5 text-[9px] font-bold uppercase tracking-widest border-r-2 border-[#1A202C] last:border-r-0 transition-colors ${
-                      uploadTab === t ? "bg-[#1A202C] text-white" : "bg-[#EBF4F7] text-[#1A202C] hover:bg-[#D8EEF5]"
-                    }`}
-                  >
-                    {t === "py" ? "Python 脚本" : "MCP 服务"}
-                  </button>
-                ))}
-              </div>
-
-              <div className="p-4">
-                {/* ── Python 脚本 tab ── */}
-                {uploadTab === "py" && (
-                  <div>
-                    <div
-                      onClick={() => pyInputRef.current?.click()}
-                      className="border-2 border-dashed cursor-pointer flex flex-col items-center justify-center py-7 border-gray-300 hover:border-[#00A3C4] hover:bg-[#F0F4F8] transition-colors"
-                    >
-                      <input ref={pyInputRef} type="file" accept=".py" className="hidden"
-                        onChange={(e) => { const f = e.target.files?.[0]; if (f) handleUploadPy(f); e.target.value = ""; }} />
-                      {uploadingPy ? (
-                        <span className="text-[10px] font-bold uppercase tracking-widest text-[#00A3C4] animate-pulse">解析中...</span>
-                      ) : (
-                        <>
-                          <span className="text-2xl mb-2 opacity-40">🐍</span>
-                          <span className="text-[10px] font-bold uppercase tracking-widest text-gray-400">点击选择 .py 文件</span>
-                          <span className="text-[8px] text-gray-300 mt-1 font-mono">文件顶部需包含 # __le_desk_manifest__ 注释块</span>
-                        </>
-                      )}
-                    </div>
-                    {uploadPyError && <p className="mt-2 text-[8px] text-red-500 font-bold">✕ {uploadPyError}</p>}
-                  </div>
-                )}
-
-                {/* ── MCP 服务 tab ── */}
-                {uploadTab === "mcp" && (
-                  <div className="space-y-3">
-                    {/* Step 1 */}
-                    <div>
-                      <div className="text-[8px] font-bold uppercase tracking-widest text-gray-400 mb-1.5">Step 1 — 上传 .zip 服务包</div>
-                      <div onClick={() => mcpZipInputRef.current?.click()}
-                        className="border-2 border-dashed cursor-pointer flex items-center justify-center py-5 border-gray-300 hover:border-[#00A3C4] hover:bg-[#F0F4F8] transition-colors"
-                      >
-                        <input ref={mcpZipInputRef} type="file" accept=".zip" className="hidden"
-                          onChange={(e) => { const f = e.target.files?.[0]; if (f) handleMcpZipUpload(f); e.target.value = ""; }} />
-                        {mcpZipUploading ? (
-                          <span className="text-[10px] font-bold uppercase tracking-widest text-[#00A3C4] animate-pulse">解析中...</span>
-                        ) : mcpZipResult ? (
-                          <div className="flex items-center gap-2 text-[9px]">
-                            <span className="text-[#00CC99] font-bold">✓ {mcpZipResult.name}</span>
-                            <span className="text-gray-400 border border-gray-200 px-1.5 py-0.5">{mcpZipResult.project_type}</span>
-                          </div>
-                        ) : (
-                          <span className="text-[10px] font-bold uppercase tracking-widest text-gray-400">📦 点击选择 .zip 文件</span>
-                        )}
-                      </div>
-                      {mcpZipError && <p className="mt-1 text-[8px] text-red-500 font-bold">✕ {mcpZipError}</p>}
-                      {(mcpZipResult?.warnings ?? []).map((w, i) => <p key={i} className="mt-1 text-[8px] text-amber-600">⚠ {w}</p>)}
-                    </div>
-
-                    {/* Step 2 */}
-                    {mcpZipResult && (
-                      <div>
-                        <div className="text-[8px] font-bold uppercase tracking-widest text-gray-400 mb-1.5">Step 2 — 描述工具用途</div>
-                        <textarea rows={2} value={mcpDescription} onChange={(e) => setMcpDescription(e.target.value)}
-                          placeholder="这个工具做什么？访问哪些数据？需要什么权限？"
-                          className="w-full border-2 border-[#1A202C] px-2 py-1.5 text-[9px] resize-none focus:outline-none focus:border-[#00A3C4]"
-                        />
-                        <button onClick={handleMcpGenerate} disabled={mcpGenerating || !mcpDescription.trim()}
-                          className="mt-1.5 px-3 py-1 border-2 border-[#1A202C] text-[8px] font-bold uppercase tracking-widest bg-white hover:bg-[#F0F4F8] disabled:opacity-40 transition-colors"
-                        >
-                          {mcpGenerating ? "生成中..." : "✦ AI 生成配置"}
-                        </button>
-                        {mcpGenError && <p className="mt-1 text-[8px] text-red-500">{mcpGenError}</p>}
-                        {mcpGenerated && (
-                          <p className="mt-1.5 text-[8px] text-[#00CC99] font-bold">✓ {String(mcpGenerated.display_name ?? "")} — {String(mcpGenerated.description ?? "")}</p>
-                        )}
-                      </div>
-                    )}
-
-                    {/* Step 3 */}
-                    {mcpZipResult && mcpGenerated && (
-                      <div className="flex items-center gap-2 pt-1 border-t border-gray-100">
-                        <button onClick={handleMcpSubmit} disabled={mcpSubmitting}
-                          className="px-3 py-1 border-2 border-[#1A202C] bg-[#1A202C] text-white text-[8px] font-bold uppercase tracking-widest hover:bg-[#2D3748] disabled:opacity-40 transition-colors"
-                        >
-                          {mcpSubmitting ? "提交中..." : "提交审批"}
-                        </button>
-                        {mcpSubmitMsg && (
-                          <span className={`text-[8px] font-bold ${mcpSubmitMsg.startsWith("提交失败") ? "text-red-500" : "text-[#00CC99]"}`}>
-                            {mcpSubmitMsg}
-                          </span>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
-
-          {/* 我的未发布工具（草稿 + 审核中） */}
-          {myTools.length > 0 && (
-            <SectionGroup label="待发布" count={myTools.length}>
-              {myTools.map((t) => <MyToolCard key={t.id} tool={t} onRefresh={fetchTools} />)}
-            </SectionGroup>
-          )}
-
-          {myTools.length === 0 && (
-            <div className="flex flex-col items-center justify-center py-20">
-              <div className="w-10 h-10 bg-[#CCF2FF] border-2 border-[#00A3C4] flex items-center justify-center mb-4">
-                <ToolIcon size={16} />
-              </div>
-              <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400">
-                暂无工具，上传 .py 文件创建工具
-              </p>
-            </div>
-          )}
-        </>
       ) : (
-        /* ── Web App Tab ── */
         <>
-          {webApps.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-20">
-              <div className="w-10 h-10 bg-purple-100 border-2 border-purple-400 flex items-center justify-center mb-4">
-                <span className="text-purple-500 text-lg">🖥</span>
+          {/* ══ Section 1: 自己开发的 ══ */}
+          <SectionGroup label="自己开发的 Skill" count={mySkills.length} collapsible>
+            {/* 上传操作栏 */}
+            <div className="flex items-center gap-2 mb-2 flex-wrap">
+              <label className="cursor-pointer">
+                <input type="file" accept=".md" className="hidden" onChange={handleUploadMd} />
+                <span className="inline-flex items-center border-2 border-[#1A202C] px-3 py-1 text-[10px] font-bold uppercase tracking-widest bg-white hover:bg-[#F0F4F8] transition-colors cursor-pointer">
+                  {uploadingMd ? "上传中..." : "上传 .md"}
+                </span>
+              </label>
+              <label className="cursor-pointer">
+                <input
+                  ref={skillZipInputRef}
+                  type="file"
+                  accept=".zip"
+                  className="hidden"
+                  onChange={(e) => { const f = e.target.files?.[0]; if (f) handleUploadZip(f); }}
+                />
+                <span className="inline-flex items-center border-2 border-[#1A202C] px-3 py-1 text-[10px] font-bold uppercase tracking-widest bg-white hover:bg-[#F0F4F8] transition-colors cursor-pointer">
+                  {uploadingZip ? "上传中..." : "上传 .zip"}
+                </span>
+              </label>
+              <PixelButton variant="secondary" size="sm" onClick={() => setShowNewSkillForm((v) => !v)}>
+                {showNewSkillForm ? "取消" : "+ 手动新建"}
+              </PixelButton>
+              <PixelButton size="sm" onClick={() => { window.location.href = "/skill-studio"; }}>
+                + Skill Studio
+              </PixelButton>
+            </div>
+
+            {uploadMdError && (
+              <div className={`border-2 px-4 py-2 mb-3 text-[9px] font-bold ${uploadMdError.startsWith("✓") ? "border-[#00CC99] bg-[#F0FFF4] text-[#00CC99]" : "border-red-400 bg-red-50 text-red-500"}`}>
+                {uploadMdError.startsWith("✓") ? uploadMdError : `上传失败：${uploadMdError}`}
               </div>
-              <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400 mb-3">
-                尚无 Web App，前往工作台新建
-              </p>
+            )}
+            {uploadZipError && (
+              <div className={`border-2 px-4 py-2 mb-3 text-[9px] font-bold ${uploadZipError.startsWith("✓") ? "border-[#00CC99] bg-[#F0FFF4] text-[#00CC99]" : "border-red-400 bg-red-50 text-red-500"}`}>
+                {uploadZipError.startsWith("✓") ? uploadZipError : `上传失败：${uploadZipError}`}
+              </div>
+            )}
+
+            {showNewSkillForm && (
+              <NewSkillForm onCreated={() => { setShowNewSkillForm(false); fetchSkills(); }} />
+            )}
+
+            {mySkills.length > 0 ? (
+              mySkills.map((s) => <MySkillCard key={s.id} skill={s} onRefresh={fetchSkills} />)
+            ) : (
+              <div className="text-[10px] text-gray-400 text-center py-6">
+                暂无自己开发的 Skill，点击新建或上传 .md
+              </div>
+            )}
+          </SectionGroup>
+
+          <SectionGroup label="自己开发的工具" count={myTools.length} collapsible>
+            <div className="flex items-center gap-2 mb-2">
+              <PixelButton variant="secondary" size="sm" onClick={() => { setShowMcpUpload(v => !v); setMcpZipResult(null); setMcpGenerated(null); setMcpSubmitMsg(null); setMcpZipError(null); }}>
+                {showMcpUpload ? "▾ 收起" : "+ 上传工具"}
+              </PixelButton>
               <PixelButton size="sm" onClick={() => { window.location.href = "/dev-studio"; }}>
                 + 工作台新建
               </PixelButton>
             </div>
-          ) : (
-            <div className="space-y-2">
-              {webApps.map((app) => (
-                <WebAppCard key={app.id} app={app} onDelete={fetchWebApps} onRefresh={fetchWebApps} />
-              ))}
+
+            {showMcpUpload && (
+              <div className="mb-4 border-2 border-[#1A202C] bg-white">
+                <div className="flex border-b-2 border-[#1A202C]">
+                  {(["py", "mcp"] as const).map((t) => (
+                    <button key={t} onClick={() => setUploadTab(t)}
+                      className={`px-5 py-2.5 text-[9px] font-bold uppercase tracking-widest border-r-2 border-[#1A202C] last:border-r-0 transition-colors ${
+                        uploadTab === t ? "bg-[#1A202C] text-white" : "bg-[#EBF4F7] text-[#1A202C] hover:bg-[#D8EEF5]"
+                      }`}
+                    >
+                      {t === "py" ? "Python 脚本" : "MCP 服务"}
+                    </button>
+                  ))}
+                </div>
+                <div className="p-4">
+                  {uploadTab === "py" && (
+                    <div>
+                      <div
+                        onClick={() => pyInputRef.current?.click()}
+                        className="border-2 border-dashed cursor-pointer flex flex-col items-center justify-center py-7 border-gray-300 hover:border-[#00A3C4] hover:bg-[#F0F4F8] transition-colors"
+                      >
+                        <input ref={pyInputRef} type="file" accept=".py" className="hidden"
+                          onChange={(e) => { const f = e.target.files?.[0]; if (f) handleUploadPy(f); e.target.value = ""; }} />
+                        {uploadingPy ? (
+                          <span className="text-[10px] font-bold uppercase tracking-widest text-[#00A3C4] animate-pulse">解析中...</span>
+                        ) : (
+                          <>
+                            <span className="text-2xl mb-2 opacity-40">🐍</span>
+                            <span className="text-[10px] font-bold uppercase tracking-widest text-gray-400">点击选择 .py 文件</span>
+                            <span className="text-[8px] text-gray-300 mt-1 font-mono">文件顶部需包含 # __le_desk_manifest__ 注释块</span>
+                          </>
+                        )}
+                      </div>
+                      {uploadPyError && <p className="mt-2 text-[8px] text-red-500 font-bold">✕ {uploadPyError}</p>}
+                    </div>
+                  )}
+                  {uploadTab === "mcp" && (
+                    <div className="space-y-3">
+                      <div>
+                        <div className="text-[8px] font-bold uppercase tracking-widest text-gray-400 mb-1.5">Step 1 — 上传 .zip 服务包</div>
+                        <div onClick={() => mcpZipInputRef.current?.click()}
+                          className="border-2 border-dashed cursor-pointer flex items-center justify-center py-5 border-gray-300 hover:border-[#00A3C4] hover:bg-[#F0F4F8] transition-colors"
+                        >
+                          <input ref={mcpZipInputRef} type="file" accept=".zip" className="hidden"
+                            onChange={(e) => { const f = e.target.files?.[0]; if (f) handleMcpZipUpload(f); e.target.value = ""; }} />
+                          {mcpZipUploading ? (
+                            <span className="text-[10px] font-bold uppercase tracking-widest text-[#00A3C4] animate-pulse">解析中...</span>
+                          ) : mcpZipResult ? (
+                            <div className="flex items-center gap-2 text-[9px]">
+                              <span className="text-[#00CC99] font-bold">✓ {mcpZipResult.name}</span>
+                              <span className="text-gray-400 border border-gray-200 px-1.5 py-0.5">{mcpZipResult.project_type}</span>
+                            </div>
+                          ) : (
+                            <span className="text-[10px] font-bold uppercase tracking-widest text-gray-400">📦 点击选择 .zip 文件</span>
+                          )}
+                        </div>
+                        {mcpZipError && <p className="mt-1 text-[8px] text-red-500 font-bold">✕ {mcpZipError}</p>}
+                        {(mcpZipResult?.warnings ?? []).map((w, i) => <p key={i} className="mt-1 text-[8px] text-amber-600">⚠ {w}</p>)}
+                      </div>
+                      {mcpZipResult && (
+                        <div>
+                          <div className="text-[8px] font-bold uppercase tracking-widest text-gray-400 mb-1.5">Step 2 — 描述工具用途</div>
+                          <textarea rows={2} value={mcpDescription} onChange={(e) => setMcpDescription(e.target.value)}
+                            placeholder="这个工具做什么？访问哪些数据？需要什么权限？"
+                            className="w-full border-2 border-[#1A202C] px-2 py-1.5 text-[9px] resize-none focus:outline-none focus:border-[#00A3C4]"
+                          />
+                          <button onClick={handleMcpGenerate} disabled={mcpGenerating || !mcpDescription.trim()}
+                            className="mt-1.5 px-3 py-1 border-2 border-[#1A202C] text-[8px] font-bold uppercase tracking-widest bg-white hover:bg-[#F0F4F8] disabled:opacity-40 transition-colors"
+                          >
+                            {mcpGenerating ? "生成中..." : "✦ AI 生成配置"}
+                          </button>
+                          {mcpGenError && <p className="mt-1 text-[8px] text-red-500">{mcpGenError}</p>}
+                          {mcpGenerated && (
+                            <p className="mt-1.5 text-[8px] text-[#00CC99] font-bold">✓ {String(mcpGenerated.display_name ?? "")} — {String(mcpGenerated.description ?? "")}</p>
+                          )}
+                        </div>
+                      )}
+                      {mcpZipResult && mcpGenerated && (
+                        <div className="flex items-center gap-2 pt-1 border-t border-gray-100">
+                          <button onClick={handleMcpSubmit} disabled={mcpSubmitting}
+                            className="px-3 py-1 border-2 border-[#1A202C] bg-[#1A202C] text-white text-[8px] font-bold uppercase tracking-widest hover:bg-[#2D3748] disabled:opacity-40 transition-colors"
+                          >
+                            {mcpSubmitting ? "提交中..." : "提交审批"}
+                          </button>
+                          {mcpSubmitMsg && (
+                            <span className={`text-[8px] font-bold ${mcpSubmitMsg.startsWith("提交失败") ? "text-red-500" : "text-[#00CC99]"}`}>
+                              {mcpSubmitMsg}
+                            </span>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {myTools.length > 0 ? (
+              myTools.map((t) => <MyToolCard key={t.id} tool={t} onRefresh={fetchTools} />)
+            ) : (
+              <div className="text-[10px] text-gray-400 text-center py-6">
+                暂无工具，上传 .py 文件或使用工作台新建
+              </div>
+            )}
+          </SectionGroup>
+
+          <SectionGroup label="Web App" count={webApps.length} collapsible>
+            <div className="flex items-center gap-2 mb-2">
+              <PixelButton size="sm" onClick={() => { window.location.href = "/dev-studio"; }}>
+                + 工作台新建
+              </PixelButton>
             </div>
+            {webApps.length > 0 ? (
+              webApps.map((app) => (
+                <WebAppCard key={app.id} app={app} onDelete={fetchWebApps} onRefresh={fetchWebApps} />
+              ))
+            ) : (
+              <div className="text-[10px] text-gray-400 text-center py-6">
+                尚无 Web App，前往工作台新建
+              </div>
+            )}
+          </SectionGroup>
+
+          {/* ══ Section 2: 部门管理员发布的 ══ */}
+          {(deptSkills.length > 0 || deptTools.length > 0) && (
+            <>
+              {deptSkills.length > 0 && (
+                <SectionGroup label="部门发布的 Skill" count={deptSkills.length} collapsible>
+                  {deptSkills.map((s) => (
+                    <MountCard
+                      key={s.id}
+                      item={s}
+                      type="skill"
+                      mounted={s.mounted}
+                      onToggle={toggleSkillMount}
+                    />
+                  ))}
+                </SectionGroup>
+              )}
+              {deptTools.length > 0 && (
+                <SectionGroup label="部门发布的工具" count={deptTools.length} collapsible>
+                  {deptTools.map((t) => (
+                    <MountCard
+                      key={t.id}
+                      item={t}
+                      type="tool"
+                      mounted={t.mounted}
+                      onToggle={toggleToolMount}
+                    />
+                  ))}
+                </SectionGroup>
+              )}
+            </>
           )}
+
+          {/* ══ Section 3: 从应用市场选的 ══ */}
+          {(marketSkills.length > 0 || marketTools.length > 0) && (
+            <>
+              {marketSkills.length > 0 && (
+                <SectionGroup label="市场安装的 Skill" count={marketSkills.length} collapsible>
+                  {marketSkills.map((s) => (
+                    <MountCard
+                      key={s.id}
+                      item={s}
+                      type="skill"
+                      mounted={s.mounted}
+                      onToggle={toggleSkillMount}
+                    />
+                  ))}
+                </SectionGroup>
+              )}
+              {marketTools.length > 0 && (
+                <SectionGroup label="市场安装的工具" count={marketTools.length} collapsible>
+                  {marketTools.map((t) => (
+                    <MountCard
+                      key={t.id}
+                      item={t}
+                      type="tool"
+                      mounted={t.mounted}
+                      onToggle={toggleToolMount}
+                    />
+                  ))}
+                </SectionGroup>
+              )}
+            </>
+          )}
+
+          {/* ══ 底部操作栏 ══ */}
+          <div className="sticky bottom-0 bg-[#F0F4F8] border-t-2 border-[#1A202C] px-4 py-3 -mx-4 mt-4 flex items-center gap-3">
+            <PixelButton onClick={handleSave} disabled={saving || !configDirty}>
+              {saving ? "保存中..." : "保存配置"}
+            </PixelButton>
+            {isAdmin && (
+              <>
+                <PixelButton
+                  variant="secondary"
+                  onClick={() => handlePublishWorkspace("department")}
+                  disabled={publishing}
+                >
+                  {publishing ? "发布中..." : "发布为部门标准"}
+                </PixelButton>
+                {user?.role === "super_admin" && (
+                  <PixelButton
+                    variant="secondary"
+                    onClick={() => handlePublishWorkspace("company")}
+                    disabled={publishing}
+                  >
+                    发布为公司标准
+                  </PixelButton>
+                )}
+              </>
+            )}
+            {saveMsg && (
+              <span className={`text-[9px] font-bold ${saveMsg.includes("失败") ? "text-red-500" : "text-[#00CC99]"}`}>
+                {saveMsg}
+              </span>
+            )}
+            <span className="ml-auto text-[8px] text-gray-400">
+              挂载：{Array.from(mountedSkills.values()).filter((s) => s.mounted).length} Skill + {Array.from(mountedTools.values()).filter((t) => t.mounted).length} 工具
+            </span>
+          </div>
         </>
       )}
     </PageShell>
