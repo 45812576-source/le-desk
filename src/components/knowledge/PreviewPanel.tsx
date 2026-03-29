@@ -1,10 +1,11 @@
 "use client";
 
 import { useEffect, useRef, useState, useCallback } from "react";
-import { Eye, Download, Save, Cloud, CloudOff, Lock } from "lucide-react";
+import { Eye, Download, Save, Cloud, CloudOff, Lock, Send, Clock } from "lucide-react";
 import { PixelIcon, ICONS, PixelBadge } from "@/components/pixel";
 import { useTheme } from "@/lib/theme";
-import type { KnowledgeDetail, User } from "@/lib/types";
+import type { EditPermissionCheck, KnowledgeDetail, User } from "@/lib/types";
+import { apiFetch } from "@/lib/api";
 import { RichEditor } from "@/components/knowledge/RichEditor";
 import DocumentViewer from "@/components/knowledge/DocumentViewer";
 
@@ -89,24 +90,28 @@ export default function PreviewPanel({
   const saveTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
   const entryIdRef = useRef<number | null>(null);
 
+  // API-based permission state
+  const [permCheck, setPermCheck] = useState<EditPermissionCheck | null>(null);
+  const [permLoading, setPermLoading] = useState(false);
+  const [requestingEdit, setRequestingEdit] = useState(false);
+
   // Determine if this entry uses RichEditor (cloud doc) or native viewer
   const ext = (entry?.file_ext || "").toLowerCase();
   const isMediaFile = entry?.oss_key && MEDIA_EXTS.has(ext);
 
-  // Permission check: can the current user edit this entry?
-  const canEdit = (() => {
-    if (!currentUser || !entry) return false;
-    if (currentUser.role === "super_admin") return true;
-    if (entry.created_by === currentUser.id) return true;
-    if (currentUser.role === "dept_admin" && currentUser.department_id != null) {
-      // dept_admin can edit entries in their department
-      // Note: entry doesn't expose department_id to frontend directly,
-      // but entries created by same-department users are implicitly in the same dept.
-      // Backend will enforce the real check; frontend allows attempt.
-      return true;
-    }
-    return false;
-  })();
+  // Fetch edit permission from backend when entry changes
+  useEffect(() => {
+    if (!entry) { setPermCheck(null); return; }
+    let cancelled = false;
+    setPermLoading(true);
+    apiFetch<EditPermissionCheck>(`/knowledge/${entry.id}/edit-permission`)
+      .then((data) => { if (!cancelled) setPermCheck(data); })
+      .catch(() => { if (!cancelled) setPermCheck(null); })
+      .finally(() => { if (!cancelled) setPermLoading(false); });
+    return () => { cancelled = true; };
+  }, [entry?.id]);
+
+  const canEdit = permCheck?.can_edit ?? false;
 
   // Init content on entry switch
   useEffect(() => {
@@ -217,10 +222,41 @@ export default function PreviewPanel({
           </h2>
         )}
 
-        {/* Save status indicator / read-only badge */}
+        {/* Save status indicator / read-only badge / request edit */}
         {!isMediaFile && (
-          <div className="flex items-center gap-1 text-[10px]">
-            {!canEdit && <><Lock size={12} className="text-gray-400" /><span className="text-gray-400">只读</span></>}
+          <div className="flex items-center gap-1.5 text-[10px]">
+            {!canEdit && !permCheck?.pending_request && (
+              <>
+                <Lock size={12} className="text-gray-400" />
+                <span className="text-gray-400">只读</span>
+                {!permCheck?.is_owner && !permLoading && (
+                  <button
+                    disabled={requestingEdit}
+                    onClick={async () => {
+                      if (!entry) return;
+                      setRequestingEdit(true);
+                      try {
+                        await apiFetch(`/knowledge/${entry.id}/request-edit`, { method: "POST" });
+                        // Refresh permission state
+                        const updated = await apiFetch<EditPermissionCheck>(`/knowledge/${entry.id}/edit-permission`);
+                        setPermCheck(updated);
+                      } catch { /* ignore */ }
+                      setRequestingEdit(false);
+                    }}
+                    className="ml-1 flex items-center gap-1 px-2 py-0.5 rounded-md bg-[#00D1FF]/10 text-[#00A3C4] hover:bg-[#00D1FF]/20 transition-colors font-medium"
+                  >
+                    <Send size={10} />
+                    {requestingEdit ? "申请中…" : "申请编辑权限"}
+                  </button>
+                )}
+              </>
+            )}
+            {!canEdit && permCheck?.pending_request && (
+              <span className="flex items-center gap-1 text-amber-500">
+                <Clock size={12} className="animate-pulse" />
+                审批中…
+              </span>
+            )}
             {canEdit && saveState === "saved" && <><Cloud size={12} className="text-green-400" /><span className="text-gray-400">已保存</span></>}
             {canEdit && saveState === "saving" && <><Cloud size={12} className="text-[#00D1FF] animate-pulse" /><span className="text-gray-400">保存中…</span></>}
             {canEdit && saveState === "dirty" && (

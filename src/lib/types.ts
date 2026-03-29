@@ -157,6 +157,37 @@ export interface ConfirmationItem {
   current_value?: unknown;
 }
 
+// --- 审批相关 ---
+export interface ApprovalAction {
+  id: number;
+  actor_id: number;
+  actor_name: string | null;
+  action: "approve" | "reject" | "add_conditions";
+  comment: string | null;
+  created_at: string | null;
+}
+
+export interface ApprovalRequest {
+  id: number;
+  request_type: string;
+  target_id: number | null;
+  target_type: string | null;
+  target_detail: Record<string, unknown>;
+  requester_id: number;
+  requester_name: string | null;
+  status: "pending" | "approved" | "rejected" | "conditions";
+  stage: string | null;
+  conditions: unknown[];
+  created_at: string | null;
+  actions: ApprovalAction[];
+}
+
+export interface EditPermissionCheck {
+  can_edit: boolean;
+  is_owner: boolean;
+  pending_request: { id: number; created_at: string | null } | null;
+}
+
 // --- Skill admin types ---
 export interface SkillDetail {
   id: number;

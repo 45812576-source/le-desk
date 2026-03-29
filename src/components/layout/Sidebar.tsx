@@ -8,7 +8,7 @@ import { PixelIcon, ICONS } from "@/components/pixel";
 import { useTheme } from "@/lib/theme";
 import {
   MessageSquare, FolderKanban, CheckSquare, Code2,
-  BookOpen, Zap, Table2, Rss,
+  BookOpen, Zap, Table2, Rss, FileCheck2,
   ClipboardCheck, ShieldCheck, LayoutDashboard,
   Bot, Wrench, Store, Key, Globe2, AppWindow,
   ShieldAlert, Lock, EyeOff, FileJson,
@@ -37,6 +37,7 @@ const LUCIDE_ICONS: Record<string, React.ElementType> = {
   "/app-market":              AppWindow,
   "/admin/mcp-tokens":        Key,
   "/admin/intel":             Globe2,
+  "/approvals":               FileCheck2,
   "/admin/approvals":         ShieldCheck,
   "/admin/skill-policies":    ShieldAlert,
   "/admin/mask-config":       EyeOff,
@@ -189,18 +190,17 @@ export function Sidebar({ user, taskPending = 0, onLogout }: SidebarProps) {
   const isAdmin = user.role === "super_admin" || user.role === "dept_admin";
   const isSuperAdmin = user.role === "super_admin";
 
-  // 拉取待审批数量（管理员才需要）
+  // 拉取待审批数量（所有用户都可能收到文档编辑权限审批）
   useEffect(() => {
-    if (!isAdmin) return;
     function fetchCount() {
       apiFetch<{ count: number }>("/approvals/pending-count")
         .then((d) => setApprovalPending(d.count ?? 0))
         .catch(() => {});
     }
     fetchCount();
-    const timer = setInterval(fetchCount, 60000); // 每分钟刷新
+    const timer = setInterval(fetchCount, 60000);
     return () => clearInterval(timer);
-  }, [isAdmin]);
+  }, []);
 
   function toggleSidebar() {
     const next = !collapsed;
@@ -269,6 +269,7 @@ export function Sidebar({ user, taskPending = 0, onLogout }: SidebarProps) {
             <NavItem href="/chat" label="对话" icon={ICONS.chat} {...navItemProps} />
             <NavItem href="/projects" label="项目" icon={ICONS.project} {...navItemProps} />
             <NavItem href="/tasks" label="待办中心" icon={ICONS.tasks} {...navItemProps} badge={taskPending} />
+            <NavItem href="/approvals" label="审批管理" icon={ICONS.approvals} {...navItemProps} badge={approvalPending || undefined} />
             <NavItem href="/dev-studio" label="工具开发" icon={ICONS.devStudio} {...navItemProps} />
           </NavGroup>
 
