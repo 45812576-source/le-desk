@@ -276,47 +276,29 @@ export function Sidebar({ user, taskPending = 0, onLogout }: SidebarProps) {
           <NavGroup label="知识管理" storageKey="nav_group_knowledge" collapsed={collapsed} isLab={isLab}>
             <NavItem href="/knowledge" label="我的知识" icon={ICONS.knowledgeMy} {...navItemProps} />
             <NavItem href="/skills" label="Skills & Tools" icon={ICONS.skills} {...navItemProps} />
-            <NavItem href="/app-market" label="应用市场" icon={ICONS.skills} {...navItemProps} />
             <NavItem href="/data" label="数据表" icon={ICONS.data} {...navItemProps} />
-            <NavItem href="/intel" label="行业情报" icon={ICONS.intel} {...navItemProps} />
           </NavGroup>
 
           {isAdmin && (
-            <>
-              <NavGroup label="内容管理" storageKey="nav_group_admin_content" collapsed={collapsed} isLab={isLab}>
-                <NavItem href="/admin/knowledge" label="知识审核" icon={ICONS.review} {...navItemProps} />
-                <NavItem href="/admin/skills" label="Skill管理" icon={ICONS.skillsAdmin} {...navItemProps} />
-                <NavItem href="/admin/business-tables" label="业务表管理" icon={ICONS.bizTable} {...navItemProps} />
-                <NavItem href="/admin/workspaces" label="工作台管理" icon={ICONS.workspaceAdmin} {...navItemProps} />
-              </NavGroup>
+            <NavGroup label="权限安全" storageKey="nav_group_admin_perm" collapsed={collapsed} isLab={isLab}>
+              <NavItem href="/admin/knowledge" label="知识审核" icon={ICONS.review} {...navItemProps} />
+              <NavItem href="/admin/skills" label="Skill管理" icon={ICONS.skillsAdmin} {...navItemProps} />
+              <NavItem href="/admin/approvals" label="审批管理" icon={ICONS.approvals} badge={approvalPending || undefined} {...navItemProps} />
+              {isSuperAdmin && (
+                <NavItem href="/admin/user-permissions" label="用户权限" icon={ICONS.users} {...navItemProps} />
+              )}
+            </NavGroup>
+          )}
 
-              <NavGroup label="AI 配置" storageKey="nav_group_admin_ai" collapsed={collapsed} isLab={isLab}>
-                <NavItem href="/admin/models" label="模型配置" icon={ICONS.models} {...navItemProps} />
-                <NavItem href="/admin/model-grants" label="模型授权" icon={ICONS.models} {...navItemProps} />
-                <NavItem href="/admin/tools" label="工具管理" icon={ICONS.tools} {...navItemProps} />
-                <NavItem href="/admin/skill-market" label="外部市场" icon={ICONS.skillMarket} {...navItemProps} />
-                <NavItem href="/admin/mcp-tokens" label="MCP Token" icon={ICONS.mcpToken} {...navItemProps} />
-                <NavItem href="/admin/intel" label="情报管理" icon={ICONS.intelAdmin} {...navItemProps} />
-              </NavGroup>
-
-              <NavGroup label="权限安全" storageKey="nav_group_admin_perm" collapsed={collapsed} isLab={isLab}>
-                <NavItem href="/admin/approvals" label="审批管理" icon={ICONS.approvals} badge={approvalPending || undefined} {...navItemProps} />
-                {isSuperAdmin && (
-                  <NavItem href="/admin/user-permissions" label="用户权限" icon={ICONS.users} {...navItemProps} />
-                )}
-                <NavItem href="/admin/skill-policies" label="Skill策略" icon={ICONS.skillPolicy} {...navItemProps} />
-                <NavItem href="/admin/mask-config" label="脱敏配置" icon={ICONS.maskConfig} {...navItemProps} />
-                <NavItem href="/admin/output-schemas" label="输出Schema" icon={ICONS.outputSchema} {...navItemProps} />
-              </NavGroup>
-
-              <NavGroup label="系统运营" storageKey="nav_group_admin_ops" collapsed={collapsed} isLab={isLab}>
-                <NavItem href="/admin/contributions" label="贡献排行" icon={ICONS.contrib} {...navItemProps} />
-                <NavItem href="/admin/audit" label="操作审计" icon={ICONS.audit} {...navItemProps} />
-                {isSuperAdmin && (
-                  <NavItem href="/admin/users" label="用户管理" icon={ICONS.users} {...navItemProps} />
-                )}
-              </NavGroup>
-            </>
+          {isSuperAdmin && (
+            <NavGroup label="系统运营" storageKey="nav_group_admin_ops" collapsed={collapsed} isLab={isLab}>
+              <NavItem href="/admin/workspaces" label="工作台管理" icon={ICONS.workspaceAdmin} {...navItemProps} />
+              <NavItem href="/admin/models" label="模型配置" icon={ICONS.models} {...navItemProps} />
+              <NavItem href="/admin/model-grants" label="模型授权" icon={ICONS.models} {...navItemProps} />
+              <NavItem href="/admin/contributions" label="贡献排行" icon={ICONS.contrib} {...navItemProps} />
+              <NavItem href="/admin/audit" label="操作审计" icon={ICONS.audit} {...navItemProps} />
+              <NavItem href="/admin/users" label="用户管理" icon={ICONS.users} {...navItemProps} />
+            </NavGroup>
           )}
         </nav>
       </div>

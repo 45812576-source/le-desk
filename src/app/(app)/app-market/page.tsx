@@ -1,15 +1,16 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { Search, Zap, Wrench } from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
+import { Search, Zap, Wrench, Download } from "lucide-react";
 import { PageShell } from "@/components/layout/PageShell";
 import { ICONS, PixelIcon } from "@/components/pixel";
 import { PixelButton } from "@/components/pixel/PixelButton";
 import { PixelBadge } from "@/components/pixel/PixelBadge";
 import { PixelSelect } from "@/components/pixel/PixelSelect";
 import { useTheme } from "@/lib/theme";
+import { useAuth } from "@/lib/auth";
 import { apiFetch } from "@/lib/api";
-import type { SkillDetail, Department } from "@/lib/types";
+import type { SkillDetail, Department, McpSource } from "@/lib/types";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 interface AppEntry {
@@ -400,9 +401,214 @@ function ToolAndWebAppTab() {
   );
 }
 
+// ─── Import External Skill Modal ─────────────────────────────────────────────
+
+interface RemoteSkill {
+  id: string;
+  name: string;
+  description: string;
+}
+
+function ImportExternalSkillModal({ onClose }: { onClose: () => void }) {
+  const [sources, setSources] = useState<McpSource[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [selectedSource, setSelectedSource] = useState<number | null>(null);
+  const [remoteSkills, setRemoteSkills] = useState<RemoteSkill[]>([]);
+  const [searchQ, setSearchQ] = useState("");
+  const [searching, setSearching] = useState(false);
+  const [importing, setImporting] = useState<string | null>(null);
+  const [githubUrl, setGithubUrl] = useState("");
+  const [githubImporting, setGithubImporting] = useState(false);
+  const [githubResult, setGithubResult] = useState<{ ok: boolean; msg: string } | null>(null);
+  const [batchResult, setBatchResult] = useState<{ imported: number; skipped: number; errors: number; results: { name?: string; raw_url?: string; status: string; reason?: string }[] } | null>(null);
+  const [batchImporting, setBatchImporting] = useState(false);
+
+  const fetchSources = useCallback(() => {
+    setLoading(true);
+    apiFetch<McpSource[]>("/skill-market/sources")
+      .then(setSources)
+      .catch(() => setSources([]))
+      .finally(() => setLoading(false));
+  }, []);
+
+  useEffect(() => { fetchSources(); }, [fetchSources]);
+
+  async function handleSearch() {
+    if (!selectedSource) return;
+    setSearching(true);
+    try {
+      const params = new URLSearchParams({ source_id: String(selectedSource) });
+      if (searchQ) params.set("q", searchQ);
+      const data = await apiFetch<RemoteSkill[]>(`/skill-market/search?${params}`);
+      setRemoteSkills(Array.isArray(data) ? data : []);
+    } catch { setRemoteSkills([]); }
+    finally { setSearching(false); }
+  }
+
+  async function handleImport(upstreamId: string) {
+    if (!selectedSource) return;
+    setImporting(upstreamId);
+    try {
+      await apiFetch("/skill-market/import", {
+        method: "POST",
+        body: JSON.stringify({ source_id: selectedSource, upstream_id: upstreamId }),
+      });
+      setRemoteSkills((prev) => prev.filter((s) => s.id !== upstreamId));
+    } catch { /* ignore */ }
+    finally { setImporting(null); }
+  }
+
+  async function handleGithubImport() {
+    if (!githubUrl.trim() || githubImporting) return;
+    setGithubImporting(true);
+    setGithubResult(null);
+    try {
+      const data = await apiFetch<{ id: number; name: string }>(
+        "/skill-market/import-github",
+        { method: "POST", body: JSON.stringify({ github_url: githubUrl.trim() }) }
+      );
+      setGithubResult({ ok: true, msg: `已导入「${data.name}」(id=${data.id})，状态为草稿，请前往 Skill 管理发布` });
+      setGithubUrl("");
+    } catch (e: unknown) {
+      setGithubResult({ ok: false, msg: e instanceof Error ? e.message : String(e) });
+    } finally { setGithubImporting(false); }
+  }
+
+  async function handleBatchImport() {
+    if (!githubUrl.trim() || batchImporting) return;
+    setBatchImporting(true);
+    setBatchResult(null);
+    setGithubResult(null);
+    try {
+      const data = await apiFetch<{ imported: number; skipped: number; errors: number; results: { name?: string; raw_url?: string; status: string; reason?: string }[] }>(
+        "/skill-market/import-github-batch",
+        { method: "POST", body: JSON.stringify({ github_url: githubUrl.trim() }) }
+      );
+      setBatchResult(data);
+    } catch (e: unknown) {
+      setGithubResult({ ok: false, msg: e instanceof Error ? e.message : String(e) });
+    } finally { setBatchImporting(false); }
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center" onClick={onClose}>
+      <div className="bg-white border-2 border-[#1A202C] w-[720px] max-h-[80vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+        {/* Header */}
+        <div className="flex items-center justify-between px-5 py-3 border-b-2 border-[#1A202C] bg-[#EBF4F7] flex-shrink-0">
+          <span className="text-[11px] font-bold uppercase tracking-widest text-[#00A3C4]">导入外部 Skill</span>
+          <button onClick={onClose} className="text-gray-400 hover:text-[#1A202C] text-sm font-bold px-1">✕</button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-5 space-y-5">
+          {/* GitHub 导入 */}
+          <div className="border-2 border-[#1A202C] bg-white p-4">
+            <div className="text-[10px] font-bold uppercase tracking-widest text-[#00A3C4] mb-3">从 GitHub 导入</div>
+            <div className="flex gap-2 items-center">
+              <input
+                type="text"
+                placeholder="https://github.com/owner/repo/tree/main/skill-name"
+                value={githubUrl}
+                onChange={(e) => { setGithubUrl(e.target.value); setGithubResult(null); setBatchResult(null); }}
+                onKeyDown={(e) => e.key === "Enter" && handleGithubImport()}
+                className="flex-1 border-2 border-[#1A202C] px-3 py-1.5 text-xs font-bold focus:outline-none focus:border-[#00D1FF]"
+              />
+              <PixelButton size="sm" onClick={handleGithubImport} disabled={!githubUrl.trim() || githubImporting || batchImporting}>
+                {githubImporting ? "导入中..." : "导入单个"}
+              </PixelButton>
+              <PixelButton size="sm" variant="secondary" onClick={handleBatchImport} disabled={!githubUrl.trim() || githubImporting || batchImporting}>
+                {batchImporting ? "批量导入中..." : "批量导入"}
+              </PixelButton>
+            </div>
+            <p className="text-[9px] text-gray-400 mt-1.5">
+              「导入单个」：URL 指向具体 skill 文件夹 &nbsp;|&nbsp; 「批量导入」：URL 指向含多个 skill 的父文件夹
+            </p>
+            {githubResult && (
+              <div className={`mt-2 px-3 py-2 border-2 text-[10px] font-bold ${
+                githubResult.ok ? "border-[#00CC99] bg-[#00CC99]/10 text-[#00664D]" : "border-red-400 bg-red-50 text-red-700"
+              }`}>{githubResult.msg}</div>
+            )}
+            {batchResult && (
+              <div className="mt-2 border-2 border-[#1A202C]">
+                <div className="flex gap-4 px-3 py-2 bg-gray-50 border-b border-gray-200 text-[10px] font-bold">
+                  <span className="text-[#00CC99]">✓ 已导入 {batchResult.imported}</span>
+                  <span className="text-gray-400">跳过 {batchResult.skipped}</span>
+                  {batchResult.errors > 0 && <span className="text-red-500">失败 {batchResult.errors}</span>}
+                </div>
+                <div className="max-h-32 overflow-y-auto">
+                  {batchResult.results.map((r, i) => (
+                    <div key={i} className={`flex items-center gap-2 px-3 py-1 border-b border-gray-100 last:border-0 text-[10px] ${
+                      r.status === "ok" ? "text-[#1A202C]" : r.status === "skipped" ? "text-gray-400" : "text-red-500"
+                    }`}>
+                      <span className="shrink-0">{r.status === "ok" ? "✓" : r.status === "skipped" ? "—" : "✗"}</span>
+                      <span className="font-bold truncate">{r.name ?? r.raw_url ?? "?"}</span>
+                      {r.reason && <span className="text-gray-400 ml-auto shrink-0">{r.reason}</span>}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* MCP Source 导入 */}
+          <div className="border-2 border-[#1A202C] bg-white p-4">
+            <div className="text-[10px] font-bold uppercase tracking-widest text-[#00A3C4] mb-3">从 MCP 数据源导入</div>
+            <div className="flex items-center gap-3 mb-3">
+              <PixelSelect
+                value={selectedSource ?? ""}
+                onChange={(e) => setSelectedSource(Number(e.target.value) || null)}
+                className="w-48"
+              >
+                <option value="">选择数据源...</option>
+                {sources.map((s) => (
+                  <option key={s.id} value={s.id}>{s.name}</option>
+                ))}
+              </PixelSelect>
+              <input
+                type="text"
+                placeholder="搜索 Skill..."
+                value={searchQ}
+                onChange={(e) => setSearchQ(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && handleSearch()}
+                className="border-2 border-[#1A202C] px-3 py-1.5 text-xs font-bold w-48 focus:outline-none focus:border-[#00D1FF]"
+              />
+              <PixelButton size="sm" onClick={handleSearch} disabled={!selectedSource || searching}>
+                {searching ? "搜索中..." : "搜索"}
+              </PixelButton>
+            </div>
+            {loading ? (
+              <div className="text-[10px] text-[#00A3C4] font-bold animate-pulse py-4 text-center">Loading...</div>
+            ) : remoteSkills.length > 0 ? (
+              <div className="space-y-2 max-h-48 overflow-y-auto">
+                {remoteSkills.map((rs) => (
+                  <div key={rs.id} className="border border-gray-200 p-2 flex items-center justify-between gap-2">
+                    <div className="flex-1 min-w-0">
+                      <span className="text-[11px] font-bold">{rs.name}</span>
+                      <p className="text-[9px] text-gray-500 truncate">{rs.description}</p>
+                    </div>
+                    <PixelButton size="sm" onClick={() => handleImport(rs.id)} disabled={importing === rs.id}>
+                      {importing === rs.id ? "导入中..." : "导入"}
+                    </PixelButton>
+                  </div>
+                ))}
+              </div>
+            ) : sources.length > 0 ? (
+              <div className="text-[10px] text-gray-400 text-center py-4">选择数据源后点击搜索</div>
+            ) : (
+              <div className="text-[10px] text-gray-400 text-center py-4">暂无外部数据源</div>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Main Page ────────────────────────────────────────────────────────────────
 export default function AppMarketPage() {
   const [tab, setTab] = useState<"skill" | "tool">("skill");
+  const { user } = useAuth();
+  const isAdmin = user?.role === "super_admin" || user?.role === "dept_admin";
+  const [showImport, setShowImport] = useState(false);
 
   return (
     <PageShell title="应用市场" icon={ICONS.devStudio}>
@@ -428,9 +634,20 @@ export default function AppMarketPage() {
         >
           工具 & Web App
         </button>
+        {isAdmin && (
+          <button
+            onClick={() => setShowImport(true)}
+            className="ml-auto flex items-center gap-1.5 px-4 py-2 text-[9px] font-bold uppercase tracking-widest border-2 border-[#00A3C4] text-[#00A3C4] hover:bg-[#00A3C4] hover:text-white transition-colors"
+          >
+            <Download size={12} />
+            导入外部 Skill
+          </button>
+        )}
       </div>
 
       {tab === "skill" ? <SkillTab /> : <ToolAndWebAppTab />}
+
+      {showImport && <ImportExternalSkillModal onClose={() => setShowImport(false)} />}
     </PageShell>
   );
 }
