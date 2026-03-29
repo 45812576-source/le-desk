@@ -20,6 +20,11 @@ interface ApprovalAction {
   created_at: string;
 }
 
+interface SkillSourceFile {
+  filename: string;
+  category: string;
+}
+
 interface SkillDetail {
   name: string;
   description: string;
@@ -27,6 +32,7 @@ interface SkillDetail {
   mode: string;
   system_prompt: string;
   change_note: string;
+  source_files: SkillSourceFile[];
 }
 
 interface WebAppApprovalDetail {
@@ -157,6 +163,26 @@ export default function AdminApprovalsPage() {
   const [comment, setComment] = useState("");
   const [conditions, setConditions] = useState("");
   const [sandboxItem, setSandboxItem] = useState<{ id: number; name: string } | null>(null);
+  const [fileContents, setFileContents] = useState<Record<string, string>>({});
+  const [fileLoading, setFileLoading] = useState<string | null>(null);
+
+  async function loadFileContent(skillId: number, filename: string) {
+    const key = `${skillId}:${filename}`;
+    if (fileContents[key] !== undefined) {
+      // toggle collapse
+      setFileContents((prev) => { const next = { ...prev }; delete next[key]; return next; });
+      return;
+    }
+    setFileLoading(key);
+    try {
+      const data = await apiFetch<{ content: string }>(`/skills/${skillId}/files/${encodeURIComponent(filename)}`);
+      setFileContents((prev) => ({ ...prev, [key]: data.content }));
+    } catch {
+      setFileContents((prev) => ({ ...prev, [key]: "加载失败" }));
+    } finally {
+      setFileLoading(null);
+    }
+  }
 
   const fetchData = useCallback(() => {
     Promise.resolve().then(() => setLoading(true));
@@ -321,6 +347,49 @@ export default function AdminApprovalsPage() {
                                   <pre className="text-[9px] text-foreground whitespace-pre-wrap leading-relaxed font-sans bg-muted border border-border px-3 py-2 max-h-48 overflow-y-auto">
                                     {d.system_prompt}
                                   </pre>
+                                </div>
+                              )}
+                              {/* 附属文件包 */}
+                              {d.source_files && d.source_files.length > 0 && (
+                                <div>
+                                  <div className="text-[9px] font-bold uppercase tracking-widest text-[#6B46C1] mb-1">
+                                    附属文件 ({d.source_files.length})
+                                  </div>
+                                  <div className="space-y-1">
+                                    {d.source_files.map((f) => {
+                                      const key = `${item.target_id}:${f.filename}`;
+                                      const catColor: Record<string, string> = {
+                                        example: "border-[#00CC99] text-[#00CC99] bg-green-50",
+                                        "knowledge-base": "border-[#00A3C4] text-[#00A3C4] bg-cyan-50",
+                                        reference: "border-[#B7791F] text-[#B7791F] bg-amber-50",
+                                        template: "border-[#6B46C1] text-[#6B46C1] bg-purple-50",
+                                      };
+                                      return (
+                                        <div key={f.filename}>
+                                          <button
+                                            onClick={() => item.target_id && loadFileContent(item.target_id, f.filename)}
+                                            className="flex items-center gap-2 w-full text-left px-2 py-1 border border-border bg-card hover:bg-muted/50 transition-colors"
+                                          >
+                                            <span className="text-[9px] font-mono font-bold text-foreground">{f.filename}</span>
+                                            <span className={`text-[7px] font-bold px-1.5 py-0.5 border ${catColor[f.category] || "border-gray-300 text-gray-400 bg-gray-50"}`}>
+                                              {f.category}
+                                            </span>
+                                            {fileLoading === key && (
+                                              <span className="text-[7px] text-[#00A3C4] animate-pulse ml-auto">Loading...</span>
+                                            )}
+                                            <span className="ml-auto text-[8px] text-gray-400">
+                                              {fileContents[key] !== undefined ? "▼" : "▶"}
+                                            </span>
+                                          </button>
+                                          {fileContents[key] !== undefined && (
+                                            <pre className="text-[8px] text-foreground whitespace-pre-wrap leading-relaxed font-mono bg-muted border border-t-0 border-border px-3 py-2 max-h-48 overflow-y-auto">
+                                              {fileContents[key]}
+                                            </pre>
+                                          )}
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
                                 </div>
                               )}
                             </div>
