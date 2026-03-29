@@ -262,6 +262,16 @@ export interface ModelConfig {
   is_default: boolean;
 }
 
+export interface ModelSlot {
+  slot_key: string;
+  name: string;
+  category: string;
+  desc: string;
+  fallback: string;
+  model_config_id: number | null;
+  model_name: string | null;
+}
+
 export interface ToolManifestDataSource {
   key: string;
   type: "registered_table" | "uploaded_file" | "chat_context";
