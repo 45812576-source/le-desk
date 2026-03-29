@@ -9,9 +9,8 @@ import { useTheme } from "@/lib/theme";
 import {
   MessageSquare, FolderKanban, CheckSquare, Code2,
   BookOpen, Zap, Table2, Rss, FileCheck2,
-  ClipboardCheck, ShieldCheck, LayoutDashboard,
-  Bot, Wrench, Store, Key, Globe2, AppWindow,
-  ShieldAlert, Lock, EyeOff, FileJson,
+  LayoutDashboard,
+  Bot, Wrench, Store, Globe2, AppWindow,
   BarChart2, ScrollText, Users,
   Settings, LogOut, ChevronDown, ChevronRight,
 } from "lucide-react";
@@ -26,22 +25,14 @@ const LUCIDE_ICONS: Record<string, React.ElementType> = {
   "/skills":                  Zap,
   "/data":                    Table2,
   "/intel":                   Rss,
-  "/admin/knowledge":         ClipboardCheck,
-  "/admin/skills":            Zap,
   "/admin/business-tables":   Table2,
+  "/admin/assets":            Bot,
   "/admin/workspaces":        LayoutDashboard,
-  "/admin/models":            Bot,
-  "/admin/model-grants":      Lock,
   "/admin/tools":             Wrench,
   "/admin/skill-market":      Store,
   "/app-market":              AppWindow,
-  "/admin/mcp-tokens":        Key,
   "/admin/intel":             Globe2,
   "/approvals":               FileCheck2,
-  "/admin/approvals":         ShieldCheck,
-  "/admin/skill-policies":    ShieldAlert,
-  "/admin/mask-config":       EyeOff,
-  "/admin/output-schemas":    FileJson,
   "/admin/contributions":     BarChart2,
   "/admin/audit":             ScrollText,
   "/admin/users":             Users,
@@ -187,7 +178,6 @@ export function Sidebar({ user, taskPending = 0, onLogout }: SidebarProps) {
 
   const [approvalPending, setApprovalPending] = useState(0);
 
-  const isAdmin = user.role === "super_admin" || user.role === "dept_admin";
   const isSuperAdmin = user.role === "super_admin";
 
   // 拉取待审批数量（所有用户都可能收到文档编辑权限审批）
@@ -279,13 +269,7 @@ export function Sidebar({ user, taskPending = 0, onLogout }: SidebarProps) {
           </NavGroup>
 
           <NavGroup label="权限安全" storageKey="nav_group_admin_perm" collapsed={collapsed} isLab={isLab}>
-            <NavItem href="/admin/approvals" label="审批管理" icon={ICONS.approvals} badge={approvalPending || undefined} {...navItemProps} />
-            {isAdmin && (
-              <>
-                <NavItem href="/admin/knowledge" label="知识审核" icon={ICONS.review} {...navItemProps} />
-                <NavItem href="/admin/skills" label="Skill管理" icon={ICONS.skillsAdmin} {...navItemProps} />
-              </>
-            )}
+            <NavItem href="/approvals" label="审批管理" icon={ICONS.approvals} badge={approvalPending || undefined} {...navItemProps} />
             {isSuperAdmin && (
               <NavItem href="/admin/user-permissions" label="用户权限" icon={ICONS.users} {...navItemProps} />
             )}
@@ -293,9 +277,8 @@ export function Sidebar({ user, taskPending = 0, onLogout }: SidebarProps) {
 
           {isSuperAdmin && (
             <NavGroup label="系统运营" storageKey="nav_group_admin_ops" collapsed={collapsed} isLab={isLab}>
+              <NavItem href="/admin/assets" label="AI 资产管理" icon={ICONS.skillsAdmin} {...navItemProps} />
               <NavItem href="/admin/workspaces" label="工作台管理" icon={ICONS.workspaceAdmin} {...navItemProps} />
-              <NavItem href="/admin/models" label="模型配置" icon={ICONS.models} {...navItemProps} />
-              <NavItem href="/admin/model-grants" label="模型授权" icon={ICONS.models} {...navItemProps} />
               <NavItem href="/admin/contributions" label="贡献排行" icon={ICONS.contrib} {...navItemProps} />
               <NavItem href="/admin/audit" label="操作审计" icon={ICONS.audit} {...navItemProps} />
               <NavItem href="/admin/users" label="用户管理" icon={ICONS.users} {...navItemProps} />
