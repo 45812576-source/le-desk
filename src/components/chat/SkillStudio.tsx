@@ -8,6 +8,7 @@ import { apiFetch, getToken } from "@/lib/api";
 import type { SkillDetail, SkillVersion, BoundTool } from "@/lib/types";
 import { useTheme } from "@/lib/theme";
 import { ICONS, PixelIcon } from "@/components/pixel";
+import { ImportSkillModal } from "@/components/skill/ImportSkillModal";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -275,6 +276,7 @@ function SkillList({
   selectedFile,
   onSelectFile,
   onNew,
+  onImport,
   onRefreshSkill,
 }: {
   skills: SkillDetail[];
@@ -282,6 +284,7 @@ function SkillList({
   selectedFile: SelectedFile | null;
   onSelectFile: (f: SelectedFile) => void;
   onNew: () => void;
+  onImport: () => void;
   onRefreshSkill: (skillId: number) => void;
 }) {
   const [expanded, setExpanded] = useState<Set<number>>(new Set());
@@ -643,7 +646,10 @@ function SkillList({
     <div className="flex flex-col h-full border-r-2 border-[#1A202C] bg-[#EBF4F7] w-52 flex-shrink-0">
       <div className="px-3 py-2.5 border-b-2 border-[#1A202C] flex items-center justify-between">
         <span className="text-[9px] font-bold uppercase tracking-widest text-[#00A3C4]">Skills</span>
-        <PixelButton size="sm" onClick={onNew}>+ 新建</PixelButton>
+        <div className="flex items-center gap-1">
+          <PixelButton size="sm" variant="secondary" onClick={onImport}>导入</PixelButton>
+          <PixelButton size="sm" onClick={onNew}>+ 新建</PixelButton>
+        </div>
       </div>
       <div className="flex-1 overflow-y-auto">
         {loading ? (
@@ -2360,6 +2366,7 @@ export function SkillStudio({ convId }: { convId: number }) {
   const [skillsLoading, setSkillsLoading] = useState(true);
   const [selectedFile, setSelectedFile] = useState<SelectedFile | null>(null);
   const [isNew, setIsNew] = useState(false);
+  const [showImportModal, setShowImportModal] = useState(false);
 
   const [prompt, setPrompt] = useState("");
   const [savedPrompt, setSavedPrompt] = useState("");  // last persisted version for dirty tracking
@@ -2491,6 +2498,7 @@ export function SkillStudio({ convId }: { convId: number }) {
             setIsNew(false);
           }}
           onNew={handleNew}
+          onImport={() => setShowImportModal(true)}
           onRefreshSkill={refreshSkill}
         />
 
@@ -2531,6 +2539,17 @@ export function SkillStudio({ convId }: { convId: number }) {
           clearRef={clearChatRef}
         />
       </div>
+
+      {/* Import modal */}
+      {showImportModal && (
+        <ImportSkillModal
+          onImported={(skill) => {
+            setShowImportModal(false);
+            handleSaved(skill as SkillDetail);
+          }}
+          onCancel={() => setShowImportModal(false)}
+        />
+      )}
     </div>
   );
 }
