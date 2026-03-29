@@ -611,7 +611,11 @@ export default function AppMarketPage() {
   const [showImport, setShowImport] = useState(false);
 
   return (
-    <PageShell title="应用市场" icon={ICONS.devStudio}>
+    <PageShell title="应用市场" icon={ICONS.devStudio} actions={
+      <PixelButton variant="secondary" onClick={() => { window.location.href = "/skills"; }}>
+        ← 工作台配置
+      </PixelButton>
+    }>
       {/* Tab bar */}
       <div className="flex gap-1 mb-6">
         <button
