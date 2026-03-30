@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { apiFetch } from "@/lib/api";
 import { PixelButton } from "@/components/pixel/PixelButton";
 import { PixelBadge } from "@/components/pixel/PixelBadge";
@@ -28,16 +28,14 @@ function TransferTableModal({ onClose }: { onClose: () => void }) {
     apiFetch<BusinessTableItem[]>("/business-tables")
       .then((data) => {
         setTables(data);
-        if (data.length > 0) setSelectedTable(data[0].table_name);
+        if (data.length > 0) {
+          setSelectedTable(data[0].table_name);
+          setFilename(`${data[0].table_name}.csv`);
+        }
       })
       .catch(() => setError("加载数据表列表失败"))
       .finally(() => setLoading(false));
   }, []);
-
-  // 自动填充文件名
-  useEffect(() => {
-    if (selectedTable) setFilename(`${selectedTable}.${format}`);
-  }, [selectedTable, format]);
 
   async function handleTransfer() {
     if (!selectedTable) return;
@@ -82,7 +80,7 @@ function TransferTableModal({ onClose }: { onClose: () => void }) {
               <div className="text-[9px] font-bold uppercase tracking-widest text-gray-400 mb-1">选择数据表</div>
               <select
                 value={selectedTable}
-                onChange={(e) => setSelectedTable(e.target.value)}
+                onChange={(e) => { setSelectedTable(e.target.value); setFilename(`${e.target.value}.${format}`); }}
                 className="w-full border-2 border-[#1A202C] px-3 py-1.5 text-xs font-bold focus:outline-none focus:border-[#00A3C4] bg-white"
               >
                 {tables.map((t) => (
@@ -101,7 +99,7 @@ function TransferTableModal({ onClose }: { onClose: () => void }) {
                   <button
                     key={f}
                     type="button"
-                    onClick={() => setFormat(f)}
+                    onClick={() => { setFormat(f); setFilename(`${selectedTable}.${f}`); }}
                     className={`px-3 py-1 text-[9px] font-bold uppercase tracking-widest border-2 transition-colors ${
                       format === f
                         ? "border-[#00A3C4] bg-[#00A3C4]/10 text-[#00A3C4]"
@@ -244,13 +242,11 @@ function SaveModal({
   const [displayName, setDisplayName] = useState("");
   const [description, setDescription] = useState("");
   const [systemPrompt, setSystemPrompt] = useState("");
-  const [isPublic, setIsPublic] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [latestFiles, setLatestFiles] = useState<LatestFile[]>([]);
   const [loadingFiles, setLoadingFiles] = useState(true);
   const [selectedFile, setSelectedFile] = useState<string>("");
-  const [htmlContent, setHtmlContent] = useState("");
 
   // webapp 专用：workdir 文件夹选择 + 分析状态
   const [workdirBase, setWorkdirBase] = useState("");
@@ -278,7 +274,7 @@ function SaveModal({
 
   // 加载最近产出文件（tool/skill 模式）
   useEffect(() => {
-    if (mode === "webapp") { setLoadingFiles(false); return; }
+    if (mode === "webapp") return;
     setLoadingFiles(true);
     apiFetch<LatestFile[]>("/dev-studio/latest-output?limit=10")
       .then((files) => {
@@ -723,15 +719,15 @@ function WorkdirPanel({ onClose, onWorkdirChange }: { onClose: () => void; onWor
   const [deleteBusy, setDeleteBusy] = useState(false);
   const [dragSrc, setDragSrc] = useState<string | null>(null);
 
-  function loadTree() {
+  const loadTree = useCallback(() => {
     setLoading(true);
     setError("");
     apiFetch<{ tree: TreeNode[] }>("/dev-studio/workdir/tree")
       .then((res) => setTree(res.tree))
       .catch(() => setError("加载失败"))
       .finally(() => setLoading(false));
-  }
-  useEffect(() => { loadTree(); }, []);
+  }, []);
+  useEffect(() => { loadTree(); }, [loadTree]);
 
   async function handleMkdir() {
     if (!mkdirPath.trim()) return;
@@ -969,7 +965,7 @@ const RESTRICTED_MODELS = ["lemondata/gpt-5.4"];
 
 type Status = "loading" | "ready" | "error";
 
-export function DevStudio({ convId: _convId, workspaceId, fromSkillId }: { convId: number; workspaceId?: number; fromSkillId?: number }) {
+export function DevStudio({ workspaceId, fromSkillId }: { convId: number; workspaceId?: number; fromSkillId?: number }) {
   const { theme } = useTheme();
   const [status, setStatus] = useState<Status>("loading");
   const [opencodeUrl, setOpencodeUrl] = useState<string | null>(null);
@@ -978,8 +974,6 @@ export function DevStudio({ convId: _convId, workspaceId, fromSkillId }: { convI
   const [restarting, setRestarting] = useState(false);
   const [saveMode, setSaveMode] = useState<SaveMode | null>(null);
   const [saveSuccess, setSaveSuccess] = useState<string | null>(null);
-  const [saveShareUrl, setSaveShareUrl] = useState<string | null>(null);
-  const [savePreviewUrl, setSavePreviewUrl] = useState<string | null>(null);
   const [webApps, setWebApps] = useState<{ id: number; name: string; preview_url: string; share_url: string | null; created_at: string }[]>([]);
   const [showWebApps, setShowWebApps] = useState(false);
   const [grantedModels, setGrantedModels] = useState<string[]>([]);
@@ -1023,9 +1017,10 @@ export function DevStudio({ convId: _convId, workspaceId, fromSkillId }: { convI
     }
 
     connect();
+    const retryTimer = retryRef.current;
     return () => {
       cancelled = true;
-      if (retryRef.current) clearTimeout(retryRef.current);
+      if (retryTimer) clearTimeout(retryTimer);
     };
   }, []);
 
@@ -1074,8 +1069,6 @@ export function DevStudio({ convId: _convId, workspaceId, fromSkillId }: { convI
   async function handleSaveSuccess(data: { name: string; toolId?: number; shareUrl?: string; previewUrl?: string }) {
     setSaveMode(null);
     setSaveSuccess(`已发布：${data.name}`);
-    setSaveShareUrl(data.shareUrl ?? null);
-    setSavePreviewUrl(data.previewUrl ?? null);
     setShowWebApps(true);
     fetchWebApps();
 
@@ -1088,7 +1081,7 @@ export function DevStudio({ convId: _convId, workspaceId, fromSkillId }: { convI
     }
 
     if (!fromSkillId) {
-      setTimeout(() => { setSaveSuccess(null); setSaveShareUrl(null); setSavePreviewUrl(null); }, 5000);
+      setTimeout(() => { setSaveSuccess(null); }, 5000);
     }
   }
 

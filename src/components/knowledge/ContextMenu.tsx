@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import { Pencil, FolderInput, Download, Trash2, Copy } from "lucide-react";
+import { Pencil, Download, Trash2, Copy } from "lucide-react";
 import type { KnowledgeDetail } from "@/lib/types";
 
 interface ContextMenuProps {

@@ -179,6 +179,7 @@ export interface ApprovalRequest {
   status: "pending" | "approved" | "rejected" | "conditions";
   stage: string | null;
   conditions: unknown[];
+  security_scan_result?: Record<string, unknown> | null;
   created_at: string | null;
   actions: ApprovalAction[];
 }

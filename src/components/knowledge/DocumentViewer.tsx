@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useId, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
@@ -36,7 +36,7 @@ interface DocumentViewerProps {
   onContentChange?: (content: string) => void;
 }
 
-export default function DocumentViewer({ entry, onContentChange }: DocumentViewerProps) {
+export default function DocumentViewer({ entry }: DocumentViewerProps) {
   const ext = (entry.file_ext || "").toLowerCase();
   const hasOssFile = !!entry.oss_key;
 
@@ -182,6 +182,7 @@ function ImageLightbox({ url, alt, onClose }: { url: string; alt: string; onClos
         <button onClick={(e) => { e.stopPropagation(); setScale((s) => Math.min(s + 0.25, 4)); }} className="p-2 bg-white/20 hover:bg-white/30 text-white rounded-full"><ZoomIn size={16} /></button>
         <button onClick={onClose} className="p-2 bg-white/20 hover:bg-white/30 text-white rounded-full"><X size={16} /></button>
       </div>
+      {/* eslint-disable-next-line @next/next/no-img-element -- lightbox overlay, no optimization needed */}
       <img
         src={url}
         alt={alt}
@@ -209,6 +210,7 @@ function ImageViewer({ entry }: { entry: KnowledgeDetail }) {
   return (
     <div className="p-4 flex justify-center">
       {lightbox && <ImageLightbox url={url} alt={entry.title} onClose={() => setLightbox(false)} />}
+      {/* eslint-disable-next-line @next/next/no-img-element -- dynamic blob URL from backend */}
       <img
         src={url}
         alt={entry.title}
@@ -225,12 +227,18 @@ function PdfViewer({ entry }: { entry: KnowledgeDetail }) {
   const [retryKey, setRetryKey] = useState(0);
 
   useEffect(() => {
-    setUrl("");
-    setError("");
-    fetch(`/api/proxy/knowledge/${entry.id}/file-url`)
-      .then(r => r.json())
-      .then(data => setUrl(data.url))
-      .catch(e => setError(e.message));
+    async function loadPdf() {
+      setUrl("");
+      setError("");
+      try {
+        const r = await fetch(`/api/proxy/knowledge/${entry.id}/file-url`);
+        const data = await r.json();
+        setUrl(data.url);
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "加载失败");
+      }
+    }
+    loadPdf();
   }, [entry.id, retryKey]);
 
   if (error) {
@@ -318,7 +326,7 @@ function VideoViewer({ entry }: { entry: KnowledgeDetail }) {
 }
 
 function OnlyOfficeViewer({ entry }: { entry: KnowledgeDetail }) {
-  const [config, setConfig] = useState<any>(null);
+  const [config, setConfig] = useState<Record<string, unknown> | null>(null);
   const [onlyofficeUrl, setOnlyofficeUrl] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
@@ -338,8 +346,8 @@ function OnlyOfficeViewer({ entry }: { entry: KnowledgeDetail }) {
           setOnlyofficeUrl(data.onlyoffice_url);
           setLoading(false);
         }
-      } catch (e: any) {
-        if (!cancelled) { setError(e.message); setLoading(false); }
+      } catch (e) {
+        if (!cancelled) { setError(e instanceof Error ? e.message : "加载失败"); setLoading(false); }
       }
     }
     loadConfig();
@@ -367,16 +375,18 @@ function OnlyOfficeViewer({ entry }: { entry: KnowledgeDetail }) {
   );
 }
 
-function OnlyOfficeIframe({ config, onlyofficeUrl }: { config: any; onlyofficeUrl: string }) {
-  const containerId = `onlyoffice-editor-${Date.now()}`;
+function OnlyOfficeIframe({ config, onlyofficeUrl }: { config: Record<string, unknown> | null; onlyofficeUrl: string }) {
+  const reactId = useId();
+  const containerId = `onlyoffice-editor-${reactId}`;
 
   useEffect(() => {
     const scriptId = "onlyoffice-api-script";
     let script = document.getElementById(scriptId) as HTMLScriptElement | null;
 
+    const win = window as unknown as Record<string, { DocEditor: new (id: string, cfg: Record<string, unknown>) => unknown }>;
     const initEditor = () => {
-      if (typeof (window as any).DocsAPI === "undefined") return;
-      new (window as any).DocsAPI.DocEditor(containerId, {
+      if (typeof win.DocsAPI === "undefined") return;
+      new win.DocsAPI.DocEditor(containerId, {
         ...config,
         width: "100%",
         height: "100%",

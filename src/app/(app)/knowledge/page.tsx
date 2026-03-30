@@ -2,10 +2,9 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Upload } from "lucide-react";
-import { PixelIcon, ICONS } from "@/components/pixel";
+import { ICONS } from "@/components/pixel";
 import { PixelButton } from "@/components/pixel/PixelButton";
 import { ThemedPageIcon } from "@/components/layout/PageShell";
-import { useTheme } from "@/lib/theme";
 import { useAuth } from "@/lib/auth";
 import { apiFetch } from "@/lib/api";
 import type { KnowledgeDetail } from "@/lib/types";
@@ -20,7 +19,7 @@ import SkeletonLoader from "@/components/knowledge/SkeletonLoader";
 import ContextMenu from "@/components/knowledge/ContextMenu";
 import DropZone from "@/components/knowledge/DropZone";
 import UploadProgress, { type UploadingFile } from "@/components/knowledge/UploadProgress";
-import RecentFiles, { addRecentFile, getRecentIds } from "@/components/knowledge/RecentFiles";
+import RecentFiles, { addRecentFile } from "@/components/knowledge/RecentFiles";
 
 type Tab = "files" | "search";
 type TreeMode = "user" | "rag";
@@ -104,7 +103,7 @@ function FileManagerTab() {
 
   // Context menu state
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; entry: KnowledgeDetail } | null>(null);
-  const [renamingId, setRenamingId] = useState<number | null>(null);
+  const [, setRenamingId] = useState<number | null>(null);
 
   // Lasso selection
   const treeRef = useRef<HTMLDivElement>(null);
@@ -239,7 +238,7 @@ function FileManagerTab() {
   }
 
   async function handleUpdateContent(id: number, content: string, contentHtml?: string): Promise<void> {
-    const body: any = { content };
+    const body: Record<string, string> = { content };
     if (contentHtml !== undefined) body.content_html = contentHtml;
     await apiFetch(`/knowledge/${id}`, { method: "PATCH", body: JSON.stringify(body) });
     setSelectedEntry((prev) => prev?.id === id ? { ...prev, content, content_html: contentHtml ?? prev.content_html } : prev);

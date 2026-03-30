@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, useCallback } from "react";
-import { Eye, Download, Save, Cloud, CloudOff, Lock, Send, Clock } from "lucide-react";
+import { Eye, Download, Cloud, CloudOff, Lock, Send, Clock } from "lucide-react";
 import { PixelIcon, ICONS, PixelBadge } from "@/components/pixel";
 import { useTheme } from "@/lib/theme";
 import type { EditPermissionCheck, KnowledgeDetail, User } from "@/lib/types";
@@ -74,6 +74,7 @@ interface PreviewPanelProps {
 
 export default function PreviewPanel({
   entry,
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   currentUser,
   onUpdateContent,
   onDelete,
@@ -95,13 +96,18 @@ export default function PreviewPanel({
   const [permLoading, setPermLoading] = useState(false);
   const [requestingEdit, setRequestingEdit] = useState(false);
 
+  const entryId = entry?.id ?? null;
+
   // Determine if this entry uses RichEditor (cloud doc) or native viewer
   const ext = (entry?.file_ext || "").toLowerCase();
   const isMediaFile = entry?.oss_key && MEDIA_EXTS.has(ext);
 
   // Fetch edit permission from backend when entry changes
   useEffect(() => {
-    if (!entry) { setPermCheck(null); return; }
+    if (!entry) {
+      setPermCheck(null); // eslint-disable-line react-hooks/set-state-in-effect -- reset on null entry
+      return;
+    }
     let cancelled = false;
     setPermLoading(true);
     apiFetch<EditPermissionCheck>(`/knowledge/${entry.id}/edit-permission`)
@@ -109,13 +115,13 @@ export default function PreviewPanel({
       .catch(() => { if (!cancelled) setPermCheck(null); })
       .finally(() => { if (!cancelled) setPermLoading(false); });
     return () => { cancelled = true; };
-  }, [entry?.id]);
+  }, [entry, entryId]);
 
   const canEdit = permCheck?.can_edit ?? false;
 
   // Init content on entry switch
   useEffect(() => {
-    setEditingTitle(false);
+    setEditingTitle(false); // eslint-disable-line react-hooks/set-state-in-effect -- synchronize local state with entry prop
     setTitleVal(entry?.title ?? "");
     setSaveState("saved");
     entryIdRef.current = entry?.id ?? null;
@@ -124,7 +130,7 @@ export default function PreviewPanel({
     setHtmlVal(html);
     // Clear any pending auto-save from previous entry
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
-  }, [entry?.id]);
+  }, [entry, entryId]);
 
   // Auto-save with debounce
   const doSave = useCallback(async (id: number, html: string) => {

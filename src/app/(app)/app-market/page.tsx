@@ -279,7 +279,6 @@ function ToolAndWebAppTab() {
   const [search, setSearch] = useState("");
 
   useEffect(() => {
-    setLoading(true);
     Promise.all([
       apiFetch<ToolEntry[]>("/tools?scope=company").catch(() => [] as ToolEntry[]),
       apiFetch<AppEntry[]>("/web-apps/market").catch(() => [] as AppEntry[]),

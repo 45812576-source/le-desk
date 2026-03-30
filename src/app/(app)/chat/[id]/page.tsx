@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useSearchParams } from "next/navigation";
 import { apiFetch } from "@/lib/api";
 import { useChatStore, subscribeConvStream, getConvStreamSnapshot } from "@/lib/chat-store";
@@ -182,7 +182,8 @@ export default function ChatDetailPage() {
   const wsHint = searchParams.get("ws");
 
   // Store state — messages via zustand, stream state via out-of-store subscription
-  const messages = useChatStore((s) => s.messagesMap.get(convId)) ?? [];
+  const storeMessages = useChatStore((s) => s.messagesMap.get(convId));
+  const messages = useMemo(() => storeMessages ?? [], [storeMessages]);
   const [convStream, setConvStream] = useState(() => getConvStreamSnapshot(convId));
   useEffect(() => {
     setConvStream(getConvStreamSnapshot(convId));
@@ -289,7 +290,7 @@ export default function ChatDetailPage() {
       }
     };
     loadWorkspace();
-  }, [convId]);
+  }, [convId, wsHint]);
 
   // Auto-scroll
   useEffect(() => {

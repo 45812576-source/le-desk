@@ -810,7 +810,7 @@ function LineNumberedEditor({ value, onChange, disabled, placeholder }: {
 
 function DiffViewer({ oldText, newText }: { oldText: string; newText: string }) {
   const diff = diffLines(oldText, newText);
-  let newNum = 0, oldNum = 0;
+  let newNum = 0;
   const LINE_H = 20;
 
   return (
@@ -818,13 +818,12 @@ function DiffViewer({ oldText, newText }: { oldText: string; newText: string }) 
       {diff.map((line, i) => {
         let bgClass = "", textClass = "text-[#1A202C]", indClass = "text-gray-200", ind = " ", lineNum = "";
         if (line.type === "unchanged") {
-          oldNum++; newNum++;
+          newNum++;
           lineNum = String(newNum);
         } else if (line.type === "added") {
           newNum++;
           bgClass = "bg-green-50"; textClass = "text-green-900"; indClass = "text-green-600 font-bold"; ind = "+"; lineNum = String(newNum);
         } else {
-          oldNum++;
           bgClass = "bg-red-50"; textClass = "text-red-700"; indClass = "text-red-500 font-bold"; ind = "−"; lineNum = "";
         }
         return (
@@ -1041,7 +1040,7 @@ function PromptEditor({
   const [preflightRunning, setPreflightRunning] = useState(false);
   const [preflightStage, setPreflightStage] = useState<string | null>(null);
   const [showKbConfirm, setShowKbConfirm] = useState<PreflightGate["items"] | null>(null);
-  const [submitting, setSubmitting] = useState(false);
+  const [, setSubmitting] = useState(false);
 
   const isReadOnly = skill?.status === "published" || skill?.status === "archived";
   const hasDiff = diffBase !== null && diffBase !== prompt;
@@ -2027,7 +2026,6 @@ function StudioChat({
       };
     }
     return () => { if (clearRef) clearRef.current = null; };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [clearRef, _storageKey]);
 
   // 注册 setInput 回调给父组件（用于意见采纳填充）
@@ -2050,7 +2048,6 @@ function StudioChat({
     setPendingDraft(null);
     setPendingSummary(null);
     setPendingFileSplit(null);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [_storageKey]);
 
   // 每次 messages 变化时同步到 localStorage
@@ -2328,7 +2325,7 @@ function StudioChat({
           <div className="flex items-center justify-center h-full">
             <p className="text-[9px] text-gray-400 font-bold uppercase text-center">
               描述你想创建或修改的 Skill<br />
-              <span className="text-gray-300 normal-case font-normal">说"帮我测试"可以触发测试</span>
+              <span className="text-gray-300 normal-case font-normal">说&ldquo;帮我测试&rdquo;可以触发测试</span>
             </p>
           </div>
         )}
@@ -2514,6 +2511,7 @@ export function SkillStudio({ convId }: { convId: number }) {
     return [...skills, ...globalSkills].filter((s) => { if (seen.has(s.id)) return false; seen.add(s.id); return true; });
   })();
 
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- fetchSkills is a stable callback that fetches data
   useEffect(() => { fetchSkills(); }, [fetchSkills]);
 
   function handleNew() {

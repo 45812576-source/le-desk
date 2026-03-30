@@ -35,35 +35,35 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [state, setState] = useState<AuthState>({ user: null, token: null, loading: true });
 
   useEffect(() => {
-    const saved = localStorage.getItem("token");
-    if (!saved) {
-      setState({ user: null, token: null, loading: false });
-      return;
-    }
+    async function initAuth() {
+      const saved = localStorage.getItem("token");
+      if (!saved) {
+        setState({ user: null, token: null, loading: false });
+        return;
+      }
 
-    // Apply cached user immediately so UI renders without waiting for network
-    const cached = getCachedUser();
-    if (cached) {
-      setState({ user: cached, token: saved, loading: true });
-    }
+      // Apply cached user immediately so UI renders without waiting for network
+      const cached = getCachedUser();
+      if (cached) {
+        setState({ user: cached, token: saved, loading: true });
+      }
 
-    // Validate token in background
-    fetch("/api/proxy/auth/me", {
-      headers: { Authorization: `Bearer ${saved}` },
-    })
-      .then((res) => {
+      // Validate token in background
+      try {
+        const res = await fetch("/api/proxy/auth/me", {
+          headers: { Authorization: `Bearer ${saved}` },
+        });
         if (!res.ok) throw new Error("invalid");
-        return res.json();
-      })
-      .then((user: User) => {
+        const user: User = await res.json();
         localStorage.setItem("cached_user", JSON.stringify(user));
         setState({ user, token: saved, loading: false });
-      })
-      .catch(() => {
+      } catch {
         localStorage.removeItem("token");
         localStorage.removeItem("cached_user");
         setState({ user: null, token: null, loading: false });
-      });
+      }
+    }
+    initAuth();
   }, []);
 
   const login = useCallback(async (username: string, password: string) => {
