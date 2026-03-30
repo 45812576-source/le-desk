@@ -19,6 +19,24 @@ const VISIBILITY_COLOR: Record<string, string> = {
   stats: "bg-gray-100 text-gray-600 border-gray-300",
 };
 
+const ACCESS_SCOPE_LABEL: Record<string, string> = {
+  self: "仅自己",
+  users: "指定人员",
+  roles: "指定角色",
+  departments: "指定部门",
+  projects: "指定项目组",
+  company: "全公司",
+};
+
+const ACCESS_SCOPE_COLOR: Record<string, string> = {
+  self: "bg-red-50 text-red-600 border-red-200",
+  users: "bg-orange-50 text-orange-600 border-orange-200",
+  roles: "bg-purple-50 text-purple-600 border-purple-200",
+  departments: "bg-blue-50 text-blue-600 border-blue-200",
+  projects: "bg-teal-50 text-teal-600 border-teal-200",
+  company: "bg-green-50 text-green-600 border-green-200",
+};
+
 function matchTable(bt: BusinessTable, q: string): boolean {
   const s = q.toLowerCase();
   if (bt.display_name.toLowerCase().includes(s)) return true;
@@ -139,7 +157,51 @@ export default function AdminBusinessTablesPage() {
                       </div>
                     </div>
 
-                    {/* Section 2: Visibility / Ownership rule */}
+                    {/* Section 2: Access scope (new 6-level) */}
+                    <div>
+                      <div className="text-[10px] font-bold uppercase tracking-widest text-[#00A3C4] mb-2">
+                        访问权限
+                      </div>
+                      {(() => {
+                        const vr = bt.validation_rules as Record<string, unknown> | undefined;
+                        const scope = (vr?.access_scope as string) ?? "self";
+                        const userCount = (vr?.access_user_ids as number[] | undefined)?.length ?? 0;
+                        const roleIds = (vr?.access_role_ids as string[] | undefined) ?? [];
+                        const deptCount = (vr?.access_department_ids as number[] | undefined)?.length ?? 0;
+                        const projectCount = (vr?.access_project_ids as number[] | undefined)?.length ?? 0;
+                        const skillViews = (vr?.skill_data_views as { view_id: string }[] | undefined) ?? [];
+                        return (
+                          <div className="flex flex-wrap gap-3 items-center text-[10px]">
+                            <span
+                              className={`inline-block border px-2 py-0.5 font-bold text-[9px] uppercase tracking-wider ${
+                                ACCESS_SCOPE_COLOR[scope] ?? ACCESS_SCOPE_COLOR.self
+                              }`}
+                            >
+                              {ACCESS_SCOPE_LABEL[scope] ?? scope}
+                            </span>
+                            {scope === "users" && userCount > 0 && (
+                              <span className="text-gray-500">{userCount} 人</span>
+                            )}
+                            {scope === "roles" && roleIds.length > 0 && (
+                              <span className="text-gray-500">{roleIds.join("、")}</span>
+                            )}
+                            {scope === "departments" && deptCount > 0 && (
+                              <span className="text-gray-500">{deptCount} 个部门</span>
+                            )}
+                            {scope === "projects" && projectCount > 0 && (
+                              <span className="text-gray-500">{projectCount} 个项目组</span>
+                            )}
+                            {skillViews.length > 0 && (
+                              <span className="text-gray-400 text-[9px]">
+                                {skillViews.length} 个 Skill 数据视图
+                              </span>
+                            )}
+                          </div>
+                        );
+                      })()}
+                    </div>
+
+                    {/* Section 2b: Visibility / Ownership rule (legacy) */}
                     <div>
                       <div className="text-[10px] font-bold uppercase tracking-widest text-[#00A3C4] mb-2">
                         数据可见范围

@@ -24,6 +24,17 @@ interface Column {
 }
 
 type ScopeValue = "all" | "department" | "private";
+type AccessScope = "self" | "users" | "roles" | "departments" | "projects" | "company";
+
+// Forward declaration for validation_rules typing
+interface SkillDataViewBase {
+  view_id: string;
+  view_name: string;
+  skill_id: number;
+  skill_name: string;
+  allowed_fields: string[];
+  row_filters: { field: string; op: string; value: string }[];
+}
 
 type FieldType = "text" | "number" | "select" | "multi_select" | "date" | "person" | "url" | "checkbox" | "email" | "phone";
 
@@ -66,7 +77,16 @@ interface BusinessTable {
     bitable_table_id?: string;
     last_synced_at?: number;
     field_meta?: FieldMeta[];
+    // 六级访问权限
+    access_scope?: AccessScope;
+    access_user_ids?: number[];
+    access_role_ids?: string[];
+    access_department_ids?: number[];
+    access_project_ids?: number[];
+    // Skill 数据视图
+    skill_data_views?: SkillDataViewBase[];
   };
+  referenced_skills?: string[];
   created_at: string;
 }
 
@@ -80,13 +100,6 @@ interface ProbeResult {
   table_name: string;
   columns: Column[];
   preview_rows: Record<string, unknown>[];
-}
-
-interface Folder {
-  id: number;           // negative = local-only until saved; positive = stored in validation_rules
-  name: string;
-  parent_id: number | null;
-  sort_order: number;
 }
 
 // ─── Cell value formatter ─────────────────────────────────────────────────────
@@ -723,7 +736,197 @@ function BitableResyncButton({ table, onDone }: { table: BusinessTable; onDone: 
   );
 }
 
-// ─── Scope selector sub-component ────────────────────────────────────────────
+// ─── Access Scope selector (6-level) ─────────────────────────────────────────
+function AccessScopeSelector({
+  label,
+  accessScope,
+  userIds,
+  roleIds,
+  deptIds,
+  projectIds,
+  departments,
+  users,
+  projects,
+  onChange,
+}: {
+  label: string;
+  accessScope: AccessScope;
+  userIds: number[];
+  roleIds: string[];
+  deptIds: number[];
+  projectIds: number[];
+  departments: Department[];
+  users: UserRow[];
+  projects: ProjectGroup[];
+  onChange: (patch: {
+    access_scope: AccessScope;
+    access_user_ids?: number[];
+    access_role_ids?: string[];
+    access_department_ids?: number[];
+    access_project_ids?: number[];
+  }) => void;
+}) {
+  const [userSearch, setUserSearch] = useState("");
+
+  const SCOPE_OPTS: { value: AccessScope; label: string; desc: string }[] = [
+    { value: "self", label: "仅自己", desc: "仅创建者和超管可见" },
+    { value: "users", label: "指定人员", desc: "多选指定用户可见" },
+    { value: "roles", label: "指定角色", desc: "指定岗位角色可见" },
+    { value: "departments", label: "指定部门", desc: "仅选中部门成员可见" },
+    { value: "projects", label: "指定项目组", desc: "指定项目组成员可见" },
+    { value: "company", label: "全公司", desc: "所有人可见" },
+  ];
+
+  function toggleUser(id: number) {
+    const next = userIds.includes(id) ? userIds.filter((u) => u !== id) : [...userIds, id];
+    onChange({ access_scope: "users", access_user_ids: next });
+  }
+
+  function toggleRole(role: string) {
+    const next = roleIds.includes(role) ? roleIds.filter((r) => r !== role) : [...roleIds, role];
+    onChange({ access_scope: "roles", access_role_ids: next });
+  }
+
+  function toggleDept(id: number) {
+    const next = deptIds.includes(id) ? deptIds.filter((d) => d !== id) : [...deptIds, id];
+    onChange({ access_scope: "departments", access_department_ids: next });
+  }
+
+  function toggleProject(id: number) {
+    const next = projectIds.includes(id) ? projectIds.filter((p) => p !== id) : [...projectIds, id];
+    onChange({ access_scope: "projects", access_project_ids: next });
+  }
+
+  function handleScopeChange(s: AccessScope) {
+    const patch: Parameters<typeof onChange>[0] = { access_scope: s };
+    if (s === "users") patch.access_user_ids = userIds;
+    else if (s === "roles") patch.access_role_ids = roleIds;
+    else if (s === "departments") patch.access_department_ids = deptIds;
+    else if (s === "projects") patch.access_project_ids = projectIds;
+    onChange(patch);
+  }
+
+  const filteredUsers = userSearch
+    ? users.filter((u) => u.display_name.includes(userSearch) || u.username.includes(userSearch))
+    : users;
+
+  return (
+    <div>
+      <div className="text-[9px] font-bold uppercase tracking-widest text-gray-500 mb-1.5">{label}</div>
+      <div className="flex flex-wrap gap-1.5 mb-2">
+        {SCOPE_OPTS.map((o) => (
+          <button
+            key={o.value}
+            title={o.desc}
+            onClick={() => handleScopeChange(o.value)}
+            className={`px-2.5 py-1 border-2 text-[9px] font-bold uppercase tracking-wide transition-colors ${
+              accessScope === o.value
+                ? "border-[#1A202C] bg-[#1A202C] text-white"
+                : "border-[#1A202C] bg-white text-[#1A202C] hover:bg-[#F0F4F8]"
+            }`}
+          >
+            {o.label}
+          </button>
+        ))}
+      </div>
+
+      {/* 指定人员 */}
+      {accessScope === "users" && (
+        <div className="space-y-1.5">
+          <input
+            type="text"
+            value={userSearch}
+            onChange={(e) => setUserSearch(e.target.value)}
+            placeholder="搜索用户..."
+            className="w-full border-2 border-gray-200 px-2 py-1 text-[10px] font-mono focus:outline-none focus:border-[#00D1FF]"
+          />
+          <div className="flex flex-wrap gap-1 max-h-32 overflow-y-auto">
+            {filteredUsers.map((u) => (
+              <button
+                key={u.id}
+                onClick={() => toggleUser(u.id)}
+                className={`px-2 py-0.5 border-2 text-[9px] font-bold transition-colors ${
+                  userIds.includes(u.id)
+                    ? "border-[#00A3C4] bg-[#CCF2FF] text-[#1A202C]"
+                    : "border-gray-300 bg-white text-gray-500 hover:border-[#00A3C4]"
+                }`}
+              >
+                {userIds.includes(u.id) ? "✓ " : ""}{u.display_name}
+              </button>
+            ))}
+            {filteredUsers.length === 0 && (
+              <span className="text-[9px] text-gray-400">无匹配用户</span>
+            )}
+          </div>
+          {userIds.length > 0 && (
+            <div className="text-[8px] text-gray-400">已选 {userIds.length} 人</div>
+          )}
+        </div>
+      )}
+
+      {/* 指定角色 */}
+      {accessScope === "roles" && (
+        <div className="flex flex-wrap gap-1">
+          {ROLE_OPTIONS.map((r) => (
+            <button
+              key={r.value}
+              onClick={() => toggleRole(r.value)}
+              className={`px-2 py-0.5 border-2 text-[9px] font-bold transition-colors ${
+                roleIds.includes(r.value)
+                  ? "border-[#00A3C4] bg-[#CCF2FF] text-[#1A202C]"
+                  : "border-gray-300 bg-white text-gray-500 hover:border-[#00A3C4]"
+              }`}
+            >
+              {roleIds.includes(r.value) ? "✓ " : ""}{r.label}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* 指定部门 */}
+      {accessScope === "departments" && departments.length > 0 && (
+        <div className="flex flex-wrap gap-1">
+          {departments.map((d) => (
+            <button
+              key={d.id}
+              onClick={() => toggleDept(d.id)}
+              className={`px-2 py-0.5 border-2 text-[9px] font-bold transition-colors ${
+                deptIds.includes(d.id)
+                  ? "border-[#00A3C4] bg-[#CCF2FF] text-[#1A202C]"
+                  : "border-gray-300 bg-white text-gray-500 hover:border-[#00A3C4]"
+              }`}
+            >
+              {deptIds.includes(d.id) ? "✓ " : ""}{d.name}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* 指定项目组 */}
+      {accessScope === "projects" && (
+        <div className="flex flex-wrap gap-1">
+          {projects.length > 0 ? projects.map((p) => (
+            <button
+              key={p.id}
+              onClick={() => toggleProject(p.id)}
+              className={`px-2 py-0.5 border-2 text-[9px] font-bold transition-colors ${
+                projectIds.includes(p.id)
+                  ? "border-[#00A3C4] bg-[#CCF2FF] text-[#1A202C]"
+                  : "border-gray-300 bg-white text-gray-500 hover:border-[#00A3C4]"
+              }`}
+            >
+              {projectIds.includes(p.id) ? "✓ " : ""}{p.name}
+            </button>
+          )) : (
+            <span className="text-[9px] text-gray-400">暂无项目组</span>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Legacy wrapper for backward compatibility (column_scope / row_scope)
 function ScopeSelector({
   label,
   scope,
@@ -817,6 +1020,36 @@ interface TableView {
   created_by: number | null;
 }
 
+interface SkillDataView {
+  view_id: string;
+  view_name: string;
+  skill_id: number;
+  skill_name: string;
+  allowed_fields: string[];
+  row_filters: ViewFilter[];
+}
+
+interface UserRow {
+  id: number;
+  username: string;
+  display_name: string;
+  role: string;
+  department_id: number | null;
+}
+
+const ROLE_OPTIONS: { value: string; label: string }[] = [
+  { value: "sales", label: "商务" },
+  { value: "planner", label: "策划" },
+  { value: "finance", label: "财务" },
+  { value: "hr", label: "HR" },
+  { value: "management", label: "管理层" },
+];
+
+interface ProjectGroup {
+  id: number;
+  name: string;
+}
+
 const OP_LABELS: Record<string, string> = {
   eq: "等于", ne: "不等于", gt: "大于", gte: "大于等于",
   lt: "小于", lte: "小于等于", contains: "包含", starts: "开头是", ends: "结尾是",
@@ -841,9 +1074,15 @@ function ViewBar({
   const [newViewName, setNewViewName] = useState("");
 
   const activeView = views.find((v) => v.id === activeViewId) ?? null;
-  const [localConfig, setLocalConfig] = useState<TableViewConfig>(
-    activeView?.config ?? { filters: [], sorts: [], group_by: "", hidden_columns: [], column_widths: {} }
-  );
+  const defaultConfig: TableViewConfig = { filters: [], sorts: [], group_by: "", hidden_columns: [], column_widths: {} };
+  const [localConfigOverride, setLocalConfigOverride] = useState<{ viewId: number | null; config: TableViewConfig } | null>(null);
+  const localConfig = localConfigOverride?.viewId === activeViewId
+    ? localConfigOverride.config
+    : (activeView?.config ?? defaultConfig);
+
+  function setLocalConfig(cfg: TableViewConfig) {
+    setLocalConfigOverride({ viewId: activeViewId, config: cfg });
+  }
 
   const loadViews = useCallback(() => {
     apiFetch<TableView[]>(`/business-tables/${tableId}/views`)
@@ -852,11 +1091,6 @@ function ViewBar({
   }, [tableId]);
 
   useEffect(() => { loadViews(); }, [loadViews]);
-
-  useEffect(() => {
-    const cfg = activeView?.config ?? { filters: [], sorts: [], group_by: "", hidden_columns: [], column_widths: {} };
-    setLocalConfig(cfg);
-  }, [activeViewId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function handleCreateView() {
     if (!newViewName.trim()) return;
@@ -1052,10 +1286,16 @@ function EditableCell({
   readOnly?: boolean;
 }) {
   const [editing, setEditing] = useState(false);
-  const [val, setVal] = useState(formatCellValue(value));
+  const [editVal, setEditVal] = useState<{ source: unknown; text: string }>({ source: value, text: formatCellValue(value) });
   const inputRef = useRef<HTMLInputElement | HTMLSelectElement>(null);
 
-  useEffect(() => { setVal(formatCellValue(value)); }, [value]);
+  // Reset edit value when the prop changes (instead of setState in effect)
+  if (editVal.source !== value) {
+    setEditVal({ source: value, text: formatCellValue(value) });
+  }
+  const val = editVal.text;
+  const setVal = (text: string) => setEditVal({ source: value, text });
+
   useEffect(() => { if (editing) (inputRef.current as HTMLElement | null)?.focus(); }, [editing]);
 
   if (readOnly) {
@@ -1204,6 +1444,259 @@ function AddColumnModal({ tableId, onDone, onClose }: { tableId: number; onDone:
   );
 }
 
+// ─── Skill Data View Panel ────────────────────────────────────────────────────
+function SkillDataViewPanel({
+  tableId,
+  columns,
+  referencedSkills,
+  views,
+  onSave,
+}: {
+  tableId: number;
+  columns: string[];
+  referencedSkills: string[];
+  views: SkillDataView[];
+  onSave: (views: SkillDataView[]) => void;
+}) {
+  const [expandedViewId, setExpandedViewId] = useState<string | null>(null);
+  const [addingForSkill, setAddingForSkill] = useState<string | null>(null);
+  const [newViewName, setNewViewName] = useState("");
+
+  function addView(skillName: string) {
+    if (!newViewName.trim()) return;
+    const newView: SkillDataView = {
+      view_id: `sdv_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      view_name: newViewName.trim(),
+      skill_id: 0,
+      skill_name: skillName,
+      allowed_fields: [...columns],
+      row_filters: [],
+    };
+    onSave([...views, newView]);
+    setAddingForSkill(null);
+    setNewViewName("");
+    setExpandedViewId(newView.view_id);
+  }
+
+  function deleteView(viewId: string) {
+    if (!confirm("确认删除此数据视图？")) return;
+    onSave(views.filter((v) => v.view_id !== viewId));
+    if (expandedViewId === viewId) setExpandedViewId(null);
+  }
+
+  function updateView(viewId: string, patch: Partial<SkillDataView>) {
+    onSave(views.map((v) => v.view_id === viewId ? { ...v, ...patch } : v));
+  }
+
+  function toggleField(viewId: string, field: string) {
+    const view = views.find((v) => v.view_id === viewId);
+    if (!view) return;
+    const next = view.allowed_fields.includes(field)
+      ? view.allowed_fields.filter((f) => f !== field)
+      : [...view.allowed_fields, field];
+    updateView(viewId, { allowed_fields: next });
+  }
+
+  function addFilter(viewId: string) {
+    const view = views.find((v) => v.view_id === viewId);
+    if (!view) return;
+    updateView(viewId, {
+      row_filters: [...view.row_filters, { field: columns[0] ?? "", op: "eq", value: "" }],
+    });
+  }
+
+  function updateFilter(viewId: string, idx: number, patch: Partial<ViewFilter>) {
+    const view = views.find((v) => v.view_id === viewId);
+    if (!view) return;
+    const filters = view.row_filters.map((f, i) => i === idx ? { ...f, ...patch } : f);
+    updateView(viewId, { row_filters: filters });
+  }
+
+  function removeFilter(viewId: string, idx: number) {
+    const view = views.find((v) => v.view_id === viewId);
+    if (!view) return;
+    updateView(viewId, { row_filters: view.row_filters.filter((_, i) => i !== idx) });
+  }
+
+  // Group views by skill
+  const viewsBySkill: Record<string, SkillDataView[]> = {};
+  for (const v of views) {
+    (viewsBySkill[v.skill_name] ??= []).push(v);
+  }
+
+  return (
+    <div className="px-5 py-3 border-b border-gray-200 flex-shrink-0">
+      <div className="text-[9px] font-bold uppercase tracking-widest text-[#00A3C4] mb-3">— Skill 数据视图</div>
+      <div className="text-[8px] text-gray-400 mb-3">每个视图限定 Skill 可使用的字段和行范围（白名单模式）</div>
+
+      {referencedSkills.length === 0 && views.length === 0 ? (
+        <span className="text-[9px] text-gray-400">暂无 Skill 引用此表</span>
+      ) : (
+        <div className="space-y-3">
+          {referencedSkills.map((skillName) => {
+            const skillViews = viewsBySkill[skillName] ?? [];
+            return (
+              <div key={skillName} className="border-2 border-gray-200">
+                <div className="px-3 py-2 bg-[#EBF4F7] border-b border-gray-200 flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] font-bold">{skillName}</span>
+                    <span className="text-[8px] text-gray-400">{skillViews.length} 个视图</span>
+                  </div>
+                  <button
+                    onClick={() => { setAddingForSkill(skillName); setNewViewName(""); }}
+                    className="text-[9px] font-bold text-[#00A3C4] hover:text-[#008BA3]"
+                  >
+                    + 新增视图
+                  </button>
+                </div>
+
+                {addingForSkill === skillName && (
+                  <div className="px-3 py-2 border-b border-gray-100 flex items-center gap-2 bg-[#F0FBFF]">
+                    <input
+                      value={newViewName}
+                      onChange={(e) => setNewViewName(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === "Enter") addView(skillName); if (e.key === "Escape") setAddingForSkill(null); }}
+                      placeholder="视图名称，如「客户基本信息」"
+                      autoFocus
+                      className="flex-1 border border-[#00D1FF] text-[10px] px-2 py-1 focus:outline-none"
+                    />
+                    <button onClick={() => addView(skillName)} className="text-[9px] font-bold text-[#00A3C4]">✓</button>
+                    <button onClick={() => setAddingForSkill(null)} className="text-[9px] text-gray-400">✕</button>
+                  </div>
+                )}
+
+                {skillViews.length === 0 && addingForSkill !== skillName && (
+                  <div className="px-3 py-2 text-[9px] text-gray-400">
+                    未配置视图，该 Skill 无法使用此表数据
+                  </div>
+                )}
+
+                {skillViews.map((sv) => {
+                  const isExpanded = expandedViewId === sv.view_id;
+                  return (
+                    <div key={sv.view_id} className="border-b border-gray-100 last:border-0">
+                      <div
+                        className="px-3 py-2 flex items-center justify-between cursor-pointer hover:bg-[#F8FBFD]"
+                        onClick={() => setExpandedViewId(isExpanded ? null : sv.view_id)}
+                      >
+                        <div className="flex items-center gap-2">
+                          <span className="text-[9px] text-gray-400">{isExpanded ? "▾" : "▸"}</span>
+                          <span className="text-[10px] font-bold">{sv.view_name}</span>
+                          <span className="text-[8px] text-gray-400">
+                            {sv.allowed_fields.length}/{columns.length} 列
+                            {sv.row_filters.length > 0 && ` · ${sv.row_filters.length} 筛选`}
+                          </span>
+                        </div>
+                        <button
+                          onClick={(e) => { e.stopPropagation(); deleteView(sv.view_id); }}
+                          className="text-[9px] text-gray-300 hover:text-red-400"
+                        >✕</button>
+                      </div>
+
+                      {isExpanded && (
+                        <div className="px-3 pb-3 space-y-3 bg-[#FAFCFD]">
+                          <div>
+                            <div className="text-[9px] font-bold text-gray-500 mb-1.5">允许使用的列</div>
+                            <div className="flex flex-wrap gap-1">
+                              {columns.map((col) => {
+                                const allowed = sv.allowed_fields.includes(col);
+                                return (
+                                  <button
+                                    key={col}
+                                    onClick={() => toggleField(sv.view_id, col)}
+                                    className={`px-2 py-0.5 border-2 text-[9px] font-bold transition-colors ${
+                                      allowed
+                                        ? "border-[#00A3C4] bg-[#CCF2FF] text-[#1A202C]"
+                                        : "border-gray-200 text-gray-300 bg-gray-50"
+                                    }`}
+                                  >
+                                    {allowed ? "✓ " : ""}{col}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                            <div className="flex gap-2 mt-1">
+                              <button
+                                onClick={() => updateView(sv.view_id, { allowed_fields: [...columns] })}
+                                className="text-[8px] text-[#00A3C4] hover:underline"
+                              >全选</button>
+                              <button
+                                onClick={() => updateView(sv.view_id, { allowed_fields: [] })}
+                                className="text-[8px] text-gray-400 hover:underline"
+                              >全不选</button>
+                            </div>
+                          </div>
+
+                          <div>
+                            <div className="text-[9px] font-bold text-gray-500 mb-1.5">行级筛选条件</div>
+                            {sv.row_filters.map((f, i) => (
+                              <div key={i} className="flex items-center gap-2 mb-1">
+                                <select
+                                  value={f.field}
+                                  onChange={(e) => updateFilter(sv.view_id, i, { field: e.target.value })}
+                                  className="border border-gray-200 text-[9px] px-1.5 py-0.5 bg-white focus:outline-none focus:border-[#00D1FF]"
+                                >
+                                  {columns.map((c) => <option key={c} value={c}>{c}</option>)}
+                                </select>
+                                <select
+                                  value={f.op}
+                                  onChange={(e) => updateFilter(sv.view_id, i, { op: e.target.value as ViewFilter["op"] })}
+                                  className="border border-gray-200 text-[9px] px-1.5 py-0.5 bg-white focus:outline-none focus:border-[#00D1FF]"
+                                >
+                                  {Object.entries(OP_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+                                </select>
+                                <input
+                                  value={f.value}
+                                  onChange={(e) => updateFilter(sv.view_id, i, { value: e.target.value })}
+                                  placeholder="值"
+                                  className="border border-gray-200 text-[9px] px-1.5 py-0.5 focus:outline-none focus:border-[#00D1FF] w-28"
+                                />
+                                <button
+                                  onClick={() => removeFilter(sv.view_id, i)}
+                                  className="text-[9px] text-gray-300 hover:text-red-400"
+                                >✕</button>
+                              </div>
+                            ))}
+                            <button
+                              onClick={() => addFilter(sv.view_id)}
+                              className="text-[9px] font-bold text-[#00A3C4] hover:text-[#008BA3]"
+                            >+ 添加条件</button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            );
+          })}
+
+          {/* Views for skills no longer referenced */}
+          {Object.keys(viewsBySkill)
+            .filter((sk) => !referencedSkills.includes(sk))
+            .map((skillName) => (
+              <div key={skillName} className="border-2 border-gray-200 opacity-60">
+                <div className="px-3 py-2 bg-gray-50 border-b border-gray-200 flex items-center gap-2">
+                  <span className="text-[10px] font-bold text-gray-500">{skillName}</span>
+                  <span className="text-[8px] text-red-400">（已取消引用）</span>
+                </div>
+                {(viewsBySkill[skillName] ?? []).map((sv) => (
+                  <div key={sv.view_id} className="px-3 py-1.5 flex items-center justify-between border-b border-gray-100 last:border-0">
+                    <span className="text-[10px] text-gray-500">{sv.view_name}</span>
+                    <button
+                      onClick={() => deleteView(sv.view_id)}
+                      className="text-[9px] text-gray-300 hover:text-red-400"
+                    >✕</button>
+                  </div>
+                ))}
+              </div>
+            ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Preview panel ────────────────────────────────────────────────────────────
 const READONLY_COLS = new Set(["id", "created_at", "updated_at", "_record_id", "_synced_at"]);
 
@@ -1225,7 +1718,13 @@ function TablePreview({
   const [loadingRows, setLoadingRows] = useState(false);
   const [rowsError, setRowsError] = useState("");
   const [editingName, setEditingName] = useState(false);
-  const [nameVal, setNameVal] = useState(table.display_name);
+  const [nameState, setNameState] = useState({ tableId: table.id, displayName: table.display_name, val: table.display_name });
+  // Sync nameVal when table prop changes (instead of setState in effect)
+  if (nameState.tableId !== table.id || nameState.displayName !== table.display_name) {
+    setNameState({ tableId: table.id, displayName: table.display_name, val: table.display_name });
+  }
+  const nameVal = nameState.val;
+  const setNameVal = (v: string) => setNameState((prev) => ({ ...prev, val: v }));
   const nameInputRef = useRef<HTMLInputElement>(null);
   const [showSettings, setShowSettings] = useState(false);
   const [addingRow, setAddingRow] = useState(false);
@@ -1241,14 +1740,37 @@ function TablePreview({
   const rowScope: ScopeValue = table.validation_rules?.row_scope ?? "private";
   const rowDeptIds = table.validation_rules?.row_department_ids ?? [];
 
+  // New 6-level access scope
+  const tableAccessScope: AccessScope = (table.validation_rules?.access_scope as AccessScope) ?? "self";
+  const tableAccessUserIds: number[] = (table.validation_rules?.access_user_ids as number[]) ?? [];
+  const tableAccessRoleIds: string[] = (table.validation_rules?.access_role_ids as string[]) ?? [];
+  const tableAccessDeptIds: number[] = (table.validation_rules?.access_department_ids as number[]) ?? [];
+  const tableAccessProjectIds: number[] = (table.validation_rules?.access_project_ids as number[]) ?? [];
+
+  // Users & projects for access scope selector
+  const [allUsers, setAllUsers] = useState<UserRow[]>([]);
+  const [allProjects, setAllProjects] = useState<ProjectGroup[]>([]);
+
+  useEffect(() => {
+    apiFetch<UserRow[]>("/admin/users")
+      .then(setAllUsers)
+      .catch(() => setAllUsers([]));
+    apiFetch<ProjectGroup[]>("/admin/projects")
+      .then(setAllProjects)
+      .catch(() => setAllProjects([]));
+  }, []);
+
+  // Skill data views
+  const skillDataViews: SkillDataView[] = (table.validation_rules?.skill_data_views as SkillDataView[]) ?? [];
+  const referencedSkills: string[] = table.referenced_skills ?? [];
+
   // Is this a blank (user-created) table — has field_meta
   const isEditable = fieldMeta.length > 0 || table.table_name.startsWith("usr_");
 
   const loadRows = useCallback((viewId?: number | null) => {
-    const vid = viewId !== undefined ? viewId : activeViewId;
     setLoadingRows(true);
     setRowsError("");
-    const qs = vid ? `?page=1&page_size=100&view_id=${vid}` : "?page=1&page_size=100";
+    const qs = viewId ? `?page=1&page_size=100&view_id=${viewId}` : "?page=1&page_size=100";
     apiFetch<{ columns: string[]; rows: Record<string, unknown>[] }>(
       `/data/${table.table_name}/rows${qs}`
     )
@@ -1268,8 +1790,7 @@ function TablePreview({
     loadRows(viewId);
   }
 
-  useEffect(() => { Promise.resolve().then(() => setNameVal(table.display_name)); }, [table.id, table.display_name]);
-  useEffect(() => { loadRows(); }, [loadRows]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { loadRows(); }, [loadRows]);
   useEffect(() => { if (editingName) nameInputRef.current?.focus(); }, [editingName]);
 
   // Close context menu on outside click
@@ -1414,11 +1935,28 @@ function TablePreview({
         </button>
       </div>
 
-      {/* ── 访问范围 + 字段管理（可折叠）── */}
+      {/* ── 访问范围 + 字段管理 + Skill 数据视图（可折叠）── */}
       {showSettings && (
         <>
+          {/* 数据表访问权限（六级） */}
           <div className="px-5 py-3 border-b-2 border-[#1A202C] flex-shrink-0 bg-[#FAFCFD]">
-            <div className="text-[9px] font-bold uppercase tracking-widest text-[#00A3C4] mb-3">— 访问范围</div>
+            <div className="text-[9px] font-bold uppercase tracking-widest text-[#00A3C4] mb-3">— 数据表访问权限</div>
+            <div className="mb-4">
+              <AccessScopeSelector
+                label="谁可以访问这张表"
+                accessScope={tableAccessScope}
+                userIds={tableAccessUserIds}
+                roleIds={tableAccessRoleIds}
+                deptIds={tableAccessDeptIds}
+                projectIds={tableAccessProjectIds}
+                departments={departments}
+                users={allUsers}
+                projects={allProjects}
+                onChange={(patch) => onScopeChange(table.id, patch)}
+              />
+              <div className="text-[8px] text-gray-400 mt-2">超管始终可见</div>
+            </div>
+            <div className="text-[9px] font-bold uppercase tracking-widest text-[#00A3C4] mb-3">— 列/行可见范围（细粒度）</div>
             <div className="grid grid-cols-2 gap-x-8 gap-y-3">
               <ScopeSelector
                 label="列数据可见范围"
@@ -1436,6 +1974,8 @@ function TablePreview({
               />
             </div>
           </div>
+
+          {/* 列字段管理 */}
           <div className="px-5 py-3 border-b border-gray-200 flex-shrink-0">
             <div className="text-[9px] font-bold uppercase tracking-widest text-gray-400 mb-2">
               列字段管理<span className="text-gray-300 ml-1 normal-case">（点击隐藏）</span>
@@ -1470,6 +2010,15 @@ function TablePreview({
               })}
             </div>
           </div>
+
+          {/* Skill 数据视图 */}
+          <SkillDataViewPanel
+            tableId={table.id}
+            columns={cols.length > 0 ? cols : table.columns.map((c) => c.name)}
+            referencedSkills={referencedSkills}
+            views={skillDataViews}
+            onSave={(views) => onScopeChange(table.id, { skill_data_views: views })}
+          />
         </>
       )}
 
@@ -1831,7 +2380,9 @@ function FolderNode({
 function ManageTab() {
   const [allTables, setAllTables] = useState<BusinessTable[]>([]);
   const [folders, setFolders] = useState<VirtualFolder[]>([]);
-  const [selectedTable, setSelectedTable] = useState<BusinessTable | null>(null);
+  const [selectedTableId, setSelectedTableId] = useState<number | null>(null);
+  const selectedTable = selectedTableId !== null ? (allTables.find((t) => t.id === selectedTableId) ?? null) : null;
+  const setSelectedTable = (t: BusinessTable | null) => setSelectedTableId(t?.id ?? null);
   const [loading, setLoading] = useState(true);
   const [departments, setDepartments] = useState<Department[]>([]);
   const [draggingTableId, setDraggingTableId] = useState<number | null>(null);
@@ -1858,14 +2409,6 @@ function ManageTab() {
       .then((d) => setDepartments(Array.isArray(d) ? d : []))
       .catch(() => setDepartments([]));
   }, [fetchTables]);
-
-  // Keep selectedTable in sync after refetch
-  useEffect(() => {
-    if (selectedTable) {
-      const updated = allTables.find((t) => t.id === selectedTable.id);
-      if (updated) setSelectedTable(updated);
-    }
-  }, [allTables]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function handleRenameTable(id: number, name: string) {
     await apiFetch(`/business-tables/${id}`, {

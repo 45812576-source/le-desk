@@ -594,14 +594,7 @@ function SkillDetail({
       ) : null}
 
       {/* System Prompt */}
-      {detail.system_prompt ? (
-        <div>
-          <div className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider mb-1">System Prompt</div>
-          <pre className="text-[10px] text-foreground whitespace-pre-wrap leading-relaxed font-mono bg-background border border-border rounded px-3 py-2 max-h-48 overflow-y-auto">
-            {String(detail.system_prompt)}
-          </pre>
-        </div>
-      ) : null}
+      <SystemPromptBlock value={detail.system_prompt} />
 
       {/* Source files */}
       {sourceFiles.length > 0 && (
