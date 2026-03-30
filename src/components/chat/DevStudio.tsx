@@ -173,6 +173,8 @@ interface LatestFile {
   content: string;
   tool: string;
   session_title: string;
+  exists_on_disk?: boolean;
+  category?: string;
 }
 
 function DirPicker({
@@ -581,7 +583,7 @@ function ToolRequestBanner({ fromSkillId }: { fromSkillId: number }) {
   const [collapsed, setCollapsed] = useState(false);
 
   useEffect(() => {
-    apiFetch<{ content: string }>("/dev-studio/read-file?path=TOOL_REQUEST.md")
+    apiFetch<{ content: string }>("/dev-studio/read-file?path=inbox/TOOL_REQUEST.md")
       .then((d) => setContent(d.content))
       .catch(() => setContent(null));
   }, [fromSkillId]);
@@ -718,6 +720,8 @@ function WorkdirPanel({ onClose, onWorkdirChange }: { onClose: () => void; onWor
   const [deleteTarget, setDeleteTarget] = useState<TreeNode | null>(null);
   const [deleteBusy, setDeleteBusy] = useState(false);
   const [dragSrc, setDragSrc] = useState<string | null>(null);
+  const [latestFiles, setLatestFiles] = useState<LatestFile[]>([]);
+  const [latestLoading, setLatestLoading] = useState(true);
 
   const loadTree = useCallback(() => {
     setLoading(true);
@@ -728,6 +732,15 @@ function WorkdirPanel({ onClose, onWorkdirChange }: { onClose: () => void; onWor
       .finally(() => setLoading(false));
   }, []);
   useEffect(() => { loadTree(); }, [loadTree]);
+
+  // 加载最近会话改动
+  useEffect(() => {
+    setLatestLoading(true);
+    apiFetch<LatestFile[]>("/dev-studio/latest-output?limit=10")
+      .then((files) => setLatestFiles(files))
+      .catch(() => {})
+      .finally(() => setLatestLoading(false));
+  }, []);
 
   async function handleMkdir() {
     if (!mkdirPath.trim()) return;
@@ -808,23 +821,57 @@ function WorkdirPanel({ onClose, onWorkdirChange }: { onClose: () => void; onWor
           <button onClick={onClose} className="text-[9px] text-gray-400 hover:text-gray-700 font-bold">✕ 关闭</button>
         </div>
 
-        <div className="flex-1 overflow-y-auto min-h-0 py-1">
-          {loading ? (
-            <div className="text-[9px] text-gray-400 animate-pulse px-4 py-4">加载中...</div>
-          ) : tree.length === 0 ? (
-            <div className="text-[9px] text-gray-400 px-4 py-4">工作区暂无文件</div>
-          ) : (
-            tree.map((node) => (
-              <TreeNodeRow key={node.path} node={node} depth={0}
-                onRename={(n) => { setRenameTarget(n); setRenameDst(n.path); }}
-                onDelete={(n) => setDeleteTarget(n)}
-                onDownload={handleDownload}
-                dragSrc={dragSrc}
-                onDragStart={setDragSrc}
-                onDropFolder={handleDropToFolder}
-              />
-            ))
-          )}
+        <div className="flex-1 overflow-y-auto min-h-0">
+          {/* 工作区文件 */}
+          <div className="px-3 pt-2 pb-1">
+            <div className="text-[9px] font-bold uppercase tracking-widest text-[#00A3C4] mb-1">工作区文件</div>
+          </div>
+          <div className="py-1">
+            {loading ? (
+              <div className="text-[9px] text-gray-400 animate-pulse px-4 py-4">加载中...</div>
+            ) : tree.length === 0 ? (
+              <div className="text-[9px] text-gray-400 px-4 py-4">工作区暂无文件</div>
+            ) : (
+              tree.map((node) => (
+                <TreeNodeRow key={node.path} node={node} depth={0}
+                  onRename={(n) => { setRenameTarget(n); setRenameDst(n.path); }}
+                  onDelete={(n) => setDeleteTarget(n)}
+                  onDownload={handleDownload}
+                  dragSrc={dragSrc}
+                  onDragStart={setDragSrc}
+                  onDropFolder={handleDropToFolder}
+                />
+              ))
+            )}
+          </div>
+
+          {/* 最近会话改动 */}
+          <div className="border-t border-gray-200 mt-1">
+            <div className="px-3 pt-2 pb-1">
+              <div className="text-[9px] font-bold uppercase tracking-widest text-[#6B46C1]">最近会话改动</div>
+              <div className="text-[8px] text-gray-400 mt-0.5">仅表示 OpenCode 最近 session 的写入/编辑记录，不代表全部文件</div>
+            </div>
+            <div className="px-3 pb-2">
+              {latestLoading ? (
+                <div className="text-[9px] text-gray-400 animate-pulse py-2">加载中...</div>
+              ) : latestFiles.length === 0 ? (
+                <div className="text-[9px] text-gray-400 py-2">暂无最近改动</div>
+              ) : (
+                <div className="flex flex-col gap-1">
+                  {latestFiles.map((f) => (
+                    <div key={f.path} className="flex items-center gap-2 px-2 py-1 text-[9px] border border-gray-100 hover:border-gray-300 transition-colors">
+                      <span className="font-mono font-bold text-[#1A202C] truncate flex-1">{f.filename}</span>
+                      <span className="text-gray-400 text-[8px]">{f.tool}</span>
+                      {f.session_title && <span className="text-gray-300 text-[8px] truncate max-w-[120px]">{f.session_title}</span>}
+                      {f.exists_on_disk === false && (
+                        <span className="text-[8px] font-bold text-red-400 border border-red-200 px-1">已删除</span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
         </div>
 
         <div className="flex-shrink-0 border-t border-gray-200 px-3 py-2 flex gap-2 items-center">
@@ -977,6 +1024,8 @@ export function DevStudio({ workspaceId, fromSkillId }: { convId: number; worksp
   const [webApps, setWebApps] = useState<{ id: number; name: string; preview_url: string; share_url: string | null; created_at: string }[]>([]);
   const [showWebApps, setShowWebApps] = useState(false);
   const [grantedModels, setGrantedModels] = useState<string[]>([]);
+  const [restrictedToastShown, setRestrictedToastShown] = useState(false);
+  const [restrictedToastVisible, setRestrictedToastVisible] = useState(false);
   const [showTransfer, setShowTransfer] = useState(false);
   const [showWorkdir, setShowWorkdir] = useState(false);
   const [showUploadPicker, setShowUploadPicker] = useState(false);
@@ -991,6 +1040,18 @@ export function DevStudio({ workspaceId, fromSkillId }: { convId: number; worksp
       .then((data) => setGrantedModels(data.model_keys))
       .catch(() => {});
   }, []);
+
+  // 无权限用户首次进入时弹一次 toast 提示，不再持续遮挡
+  useEffect(() => {
+    if (grantedModels.length === 0) return; // 还未加载完
+    const hasRestricted = RESTRICTED_MODELS.some((k) => !grantedModels.includes(k));
+    if (hasRestricted && !restrictedToastShown) {
+      setRestrictedToastShown(true);
+      setRestrictedToastVisible(true);
+      const timer = setTimeout(() => setRestrictedToastVisible(false), 6000);
+      return () => clearTimeout(timer);
+    }
+  }, [grantedModels, restrictedToastShown]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1205,21 +1266,25 @@ export function DevStudio({ workspaceId, fromSkillId }: { convId: number; worksp
               sandbox="allow-scripts allow-same-origin allow-forms allow-downloads allow-modals"
               style={{ colorScheme: theme === "dark" ? "dark" : "light" }}
             />
-            {/* 受限模型遮罩：无权用户看到提示，有权用户不显示 */}
-            {RESTRICTED_MODELS.some((k) => !grantedModels.includes(k)) && (
-              <div className="absolute bottom-0 right-0 m-3 z-10 bg-white border-2 border-[#1A202C] px-4 py-3 max-w-xs shadow-lg">
-                <div className="text-[9px] font-bold uppercase tracking-widest text-[#D97706] mb-1 flex items-center gap-1.5">
-                  <span className="w-2 h-2 bg-[#D97706] inline-block" />
-                  受限模型
-                </div>
-                <p className="text-[9px] text-gray-500 leading-relaxed">
-                  <span className="font-bold text-[#1A202C]">GPT-5.4</span> 需要管理员授权后才可使用。请联系超级管理员开通权限。
-                </p>
-              </div>
-            )}
+            {/* 受限模型：不再显示持续遮罩，改为一次性 toast（见下方 RestrictedModelToast） */}
           </>
         )}
       </div>
+
+      {/* 受限模型一次性 toast */}
+      {restrictedToastVisible && (
+        <div className="flex-shrink-0 bg-amber-50 border-t-2 border-[#D97706] px-4 py-2 flex items-center justify-between">
+          <span className="text-[9px] text-[#D97706] font-bold">
+            GPT-5.4 为受限模型，当前账号未开通权限，请联系超级管理员。
+          </span>
+          <button
+            onClick={() => setRestrictedToastVisible(false)}
+            className="text-[9px] text-[#D97706] hover:text-[#92400E] font-bold ml-3"
+          >
+            ✕
+          </button>
+        </div>
+      )}
 
       {/* Upload result */}
       {uploadMsg && (
