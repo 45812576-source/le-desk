@@ -587,6 +587,70 @@ export interface ProjectReport {
 
 // ─── 交互式沙盒测试 ─────────────────────────────────────────────────────────
 
+// ─── Skill Memo types ─────────────────────────────────────────────────────────
+
+export interface SkillPersistentNotice {
+  id: string;
+  type: "missing_structure" | "test_failure" | "feedback_followup";
+  title: string;
+  message: string;
+  blocking: boolean;
+  status: "active" | "resolved";
+  related_task_ids: string[];
+}
+
+export interface SkillMemoTask {
+  id: string;
+  title: string;
+  type: string;
+  status: "todo" | "in_progress" | "done" | "skipped";
+  priority: "high" | "medium" | "low";
+  description: string;
+  target_files: string[];
+  acceptance_rule: { mode: string };
+  depends_on: string[];
+  result_summary?: string | null;
+}
+
+export interface SkillMemoTestRecord {
+  id: string;
+  source: "preflight" | "sandbox" | "manual";
+  version: number;
+  status: "passed" | "failed";
+  summary: string;
+  details: Record<string, unknown>;
+  created_at: string;
+  followup_task_ids: string[];
+}
+
+export interface SkillMemo {
+  skill_id: number;
+  scenario_type: "import_remediation" | "new_skill_creation" | "published_iteration";
+  lifecycle_stage: "analysis" | "planning" | "editing" | "awaiting_test" | "testing" | "fixing" | "ready_to_submit" | "completed";
+  status_summary: string;
+  goal_summary: string | null;
+  persistent_notices: SkillPersistentNotice[];
+  current_task: SkillMemoTask | null;
+  next_task: SkillMemoTask | null;
+  memo: Record<string, unknown>;
+  latest_test: SkillMemoTestRecord | null;
+}
+
+export interface StudioMemoStatusEvent {
+  lifecycle_stage: string;
+  status_summary: string;
+  has_open_todos: boolean;
+  can_test: boolean;
+}
+
+export interface StudioEditorTargetEvent {
+  mode: "open_or_create";
+  file_type: "asset" | "prompt";
+  filename: string;
+}
+
+// ─── 交互式沙盒测试 ─────────────────────────────────────────────────────────
+
 export interface SandboxInputSlot {
   slot_key: string;
   label: string;

@@ -5,11 +5,12 @@ import { ChevronDown, ChevronRight, File, FileCode, Upload, Trash2, Zap, BookOpe
 import { PixelButton } from "@/components/pixel/PixelButton";
 import { PixelBadge } from "@/components/pixel/PixelBadge";
 import { apiFetch, getToken } from "@/lib/api";
-import type { SkillDetail, SkillVersion, BoundTool } from "@/lib/types";
+import type { SkillDetail, SkillVersion, BoundTool, SkillMemo } from "@/lib/types";
 import { useTheme } from "@/lib/theme";
 import { ICONS, PixelIcon } from "@/components/pixel";
 import { ImportSkillModal } from "@/components/skill/ImportSkillModal";
 import { CommentsPanel, type Suggestion } from "@/components/skill/CommentsPanel";
+import { SkillMemoPanel } from "@/components/skill/SkillMemoPanel";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -848,10 +849,12 @@ function AssetFileEditor({
   skill,
   filename,
   onDeleted,
+  onFileSaved,
 }: {
   skill: SkillDetail;
   filename: string;
   onDeleted: () => void;
+  onFileSaved?: (filename: string, contentSize: number) => void;
 }) {
   const [content, setContent] = useState("");
   const [loading, setLoading] = useState(true);
@@ -887,6 +890,7 @@ function AssetFileEditor({
       setMsg("✓ 已保存");
       setDiffBase(content);
       setShowDiff(false);
+      onFileSaved?.(filename, new Blob([content]).size);
     } catch (err) {
       setMsg(err instanceof Error ? err.message : "保存失败");
     } finally { setSaving(false); }
@@ -1006,6 +1010,7 @@ function PromptEditor({
   onPromptChange,
   onSaved,
   onFork,
+  onFileSaved,
 }: {
   skill: SkillDetail | null;
   isNew: boolean;
@@ -1016,6 +1021,7 @@ function PromptEditor({
   onPromptChange: (p: string) => void;
   onSaved: (skill: SkillDetail) => void;
   onFork: () => void;
+  onFileSaved?: (filename: string, contentSize: number) => void;
 }) {
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
@@ -1150,6 +1156,7 @@ function PromptEditor({
         const d = await apiFetch<SkillDetail>(`/skills/${skill.id}`);
         setVersions(d.versions ?? []);
         onSaved(d);
+        onFileSaved?.("SKILL.md", new Blob([prompt]).size);
       }
     } catch (err) {
       setSaveMsg(err instanceof Error ? err.message : "保存失败");
@@ -1966,11 +1973,14 @@ function StudioChat({
   currentPrompt,
   editorIsDirty,
   allSkills,
+  memo,
   onApplyDraft,
   onNewSession,
   onToolBound,
   onDevStudio,
   onFileSplitDone,
+  onMemoRefresh,
+  onEditorTarget,
   clearRef,
   setInputRef,
 }: {
@@ -1979,11 +1989,14 @@ function StudioChat({
   currentPrompt: string;
   editorIsDirty: boolean;
   allSkills: SkillDetail[];
+  memo: SkillMemo | null;
   onApplyDraft: (draft: StudioDraft) => void;
   onNewSession: () => void;
   onToolBound: () => void;
   onDevStudio: (desc: string) => void;
   onFileSplitDone: () => void;
+  onMemoRefresh: () => void;
+  onEditorTarget: (fileType: string, filename: string) => void;
   clearRef?: { current: (() => void) | null };
   setInputRef?: { current: ((text: string) => void) | null };
 }) {
@@ -2003,6 +2016,29 @@ function StudioChat({
   const [pendingToolSuggestion, setPendingToolSuggestion] = useState<StudioToolSuggestion | null>(null);
   const [pendingFileSplit, setPendingFileSplit] = useState<StudioFileSplit | null>(null);
   const [splitting, setSplitting] = useState(false);
+
+  // ── Memo action handlers ──
+  async function handleMemoStartTask(taskId: string) {
+    if (!skillId) return;
+    try {
+      await apiFetch(`/skills/${skillId}/memo/tasks/${taskId}/start`, {
+        method: "POST",
+        body: JSON.stringify({ source: "studio_chat" }),
+      });
+      onMemoRefresh();
+    } catch { /* ignore */ }
+  }
+
+  async function handleMemoDirectTest() {
+    if (!skillId) return;
+    try {
+      await apiFetch(`/skills/${skillId}/memo/direct-test`, {
+        method: "POST",
+        body: JSON.stringify({ source: "persistent_notice" }),
+      });
+      onMemoRefresh();
+    } catch { /* ignore */ }
+  }
 
   const [hashQuery, setHashQuery] = useState<string | null>(null);
   const [hashActiveIdx, setHashActiveIdx] = useState(0);
@@ -2200,6 +2236,30 @@ function StudioChat({
                 setPendingToolSuggestion(data as StudioToolSuggestion);
               } else if (curEvt === "studio_file_split") {
                 setPendingFileSplit(data as StudioFileSplit);
+              } else if (curEvt === "studio_memo_status" || curEvt === "studio_task_focus" || curEvt === "studio_persistent_notices") {
+                // Memo-related SSE events — refresh memo state from backend
+                onMemoRefresh();
+              } else if (curEvt === "studio_editor_target") {
+                // AI requests to open/create a specific file
+                const target = data as { file_type?: string; filename?: string };
+                if (target.filename) {
+                  onEditorTarget(target.file_type || "asset", target.filename);
+                }
+              } else if (curEvt === "studio_context_rollup") {
+                // Task completed — compress related chat context
+                const rollup = data as { task_id?: string; summary?: string };
+                if (rollup.summary && skillId) {
+                  // Replace older messages with rollup summary
+                  setMessages((prev) => {
+                    if (prev.length <= 2) return prev;
+                    const kept = prev.slice(-2);
+                    return [
+                      { role: "assistant" as const, text: `[${rollup.summary}]` },
+                      ...kept,
+                    ];
+                  });
+                  onMemoRefresh();
+                }
               } else if (curEvt === "error") {
                 const errMsg = data.message || "服务端错误";
                 setMessages((prev) => prev.map((m, i) =>
@@ -2319,9 +2379,18 @@ function StudioChat({
         </button>
       </div>
 
+      {/* Memo panel: persistent notices + current task + latest test */}
+      {memo && (
+        <SkillMemoPanel
+          memo={memo}
+          onStartTask={handleMemoStartTask}
+          onDirectTest={handleMemoDirectTest}
+        />
+      )}
+
       {/* Messages */}
       <div ref={scrollRef} className="flex-1 overflow-y-auto p-3 space-y-3">
-        {messages.length === 0 && !streaming && (
+        {messages.length === 0 && !streaming && !memo && (
           <div className="flex items-center justify-center h-full">
             <p className="text-[9px] text-gray-400 font-bold uppercase text-center">
               描述你想创建或修改的 Skill<br />
@@ -2469,6 +2538,7 @@ export function SkillStudio({ convId }: { convId: number }) {
   const [selectedFile, setSelectedFile] = useState<SelectedFile | null>(null);
   const [isNew, setIsNew] = useState(false);
   const [showImportModal, setShowImportModal] = useState(false);
+  const [memo, setMemo] = useState<SkillMemo | null>(null);
 
   const [prompt, setPrompt] = useState("");
   const [savedPrompt, setSavedPrompt] = useState("");  // last persisted version for dirty tracking
@@ -2483,6 +2553,58 @@ export function SkillStudio({ convId }: { convId: number }) {
   const selectedSkill = selectedFile
     ? (skills.find((s) => s.id === selectedFile.skillId) ?? null)
     : null;
+
+  // ── Memo: fetch when selected skill changes ──
+  const fetchMemo = useCallback((skillId: number) => {
+    apiFetch<SkillMemo>(`/skills/${skillId}/memo`)
+      .then((data) => {
+        // Backend returns { skill_id, memo: null } when no memo exists
+        if (data && data.lifecycle_stage) {
+          setMemo(data);
+        } else {
+          setMemo(null);
+        }
+      })
+      .catch(() => setMemo(null));
+  }, []);
+
+  useEffect(() => {
+    if (selectedFile?.skillId) {
+      fetchMemo(selectedFile.skillId);
+    } else {
+      setMemo(null);
+    }
+  }, [selectedFile?.skillId, fetchMemo]);
+
+  const handleMemoRefresh = useCallback(() => {
+    if (selectedFile?.skillId) fetchMemo(selectedFile.skillId);
+  }, [selectedFile?.skillId, fetchMemo]);
+
+  // ── Memo: complete-from-save after file save ──
+  async function handleFileSaved(filename: string, contentSize: number) {
+    if (!selectedFile?.skillId || !memo?.current_task) return;
+    try {
+      const result = await apiFetch<{ ok: boolean; task_completed?: boolean }>(`/skills/${selectedFile.skillId}/memo/tasks/${memo.current_task.id}/complete-from-save`, {
+        method: "POST",
+        body: JSON.stringify({
+          filename,
+          file_type: filename === "SKILL.md" ? "prompt" : "asset",
+          content_size: contentSize,
+        }),
+      });
+      if (result.ok) handleMemoRefresh();
+    } catch { /* ignore — memo may not exist for this skill */ }
+  }
+
+  // ── Memo: editor target switching ──
+  function handleEditorTarget(fileType: string, filename: string) {
+    if (!selectedFile?.skillId) return;
+    if (fileType === "prompt" || filename === "SKILL.md") {
+      setSelectedFile({ skillId: selectedFile.skillId, fileType: "prompt" });
+    } else {
+      setSelectedFile({ skillId: selectedFile.skillId, fileType: "asset", filename });
+    }
+  }
 
   const fetchSkills = useCallback(() => {
     setSkillsLoading(true);
@@ -2597,6 +2719,18 @@ export function SkillStudio({ convId }: { convId: number }) {
   function handleAdoptSuggestion(skillName: string, suggestion: Suggestion) {
     const text = `${skillName}-修改意见: ${suggestion.problem_desc}\n期望: ${suggestion.expected_direction}`;
     setInputRef.current?.(text);
+    // Also register in memo if skill has one
+    if (selectedSkill) {
+      apiFetch(`/skills/${selectedSkill.id}/memo/adopt-feedback`, {
+        method: "POST",
+        body: JSON.stringify({
+          source_type: "comment",
+          source_id: (suggestion as unknown as { id?: number }).id ?? 0,
+          summary: `${suggestion.problem_desc} → ${suggestion.expected_direction}`,
+          task_blueprint: {},
+        }),
+      }).then(() => handleMemoRefresh()).catch(() => {});
+    }
   }
 
   async function handleDevStudioJump(desc: string) {
@@ -2669,6 +2803,7 @@ export function SkillStudio({ convId }: { convId: number }) {
               refreshSkill(selectedSkill.id);
               setSelectedFile({ skillId: selectedSkill.id, fileType: "prompt" });
             }}
+            onFileSaved={handleFileSaved}
           />
         ) : (
           <PromptEditor
@@ -2681,6 +2816,7 @@ export function SkillStudio({ convId }: { convId: number }) {
             onPromptChange={setPrompt}
             onSaved={handleSaved}
             onFork={handleFork}
+            onFileSaved={handleFileSaved}
           />
         )}
 
@@ -2690,11 +2826,14 @@ export function SkillStudio({ convId }: { convId: number }) {
           currentPrompt={prompt}
           editorIsDirty={editorIsDirty}
           allSkills={allPublishedSkills}
+          memo={memo}
           onApplyDraft={handleApplyDraft}
           onNewSession={handleNewSession}
           onToolBound={() => { if (selectedSkill) refreshSkill(selectedSkill.id); }}
           onDevStudio={handleDevStudioJump}
           onFileSplitDone={() => { if (selectedSkill) refreshSkill(selectedSkill.id); }}
+          onMemoRefresh={handleMemoRefresh}
+          onEditorTarget={handleEditorTarget}
           clearRef={clearChatRef}
           setInputRef={setInputRef}
         />
@@ -2706,6 +2845,14 @@ export function SkillStudio({ convId }: { convId: number }) {
           onImported={(skill) => {
             setShowImportModal(false);
             handleSaved(skill as SkillDetail);
+            // Trigger memo analyze-import for the imported skill
+            const imported = skill as SkillDetail;
+            apiFetch(`/skills/${imported.id}/memo/analyze-import`, {
+              method: "POST",
+              body: JSON.stringify({ trigger: "import_zip" }),
+            }).then(() => {
+              if (imported.id) fetchMemo(imported.id);
+            }).catch(() => {});
           }}
           onCancel={() => setShowImportModal(false)}
         />
