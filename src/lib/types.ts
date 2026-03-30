@@ -115,6 +115,9 @@ export interface Workspace {
   welcome_message: string;
   sort_order: number;
   workspace_type?: "chat" | "opencode" | "sandbox" | "skill_studio";
+  is_preset?: boolean;
+  recommended_by?: number | null;
+  for_department_id?: number | null;
 }
 
 export interface TaskItem {

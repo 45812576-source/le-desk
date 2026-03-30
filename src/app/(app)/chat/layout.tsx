@@ -184,7 +184,7 @@ function WorkspacePicker({
   // 管理员推荐的工作台
   const recommendedWs = workspaces.filter(
     (w) => w.workspace_type !== "opencode" && w.workspace_type !== "sandbox" && w.workspace_type !== "skill_studio"
-      && (w as unknown as Record<string, unknown>).recommended_by
+      && w.recommended_by
   );
 
   return (
