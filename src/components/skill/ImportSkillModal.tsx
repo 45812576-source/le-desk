@@ -187,10 +187,10 @@ export function ImportSkillModal({ onImported, onCancel }: ImportSkillModalProps
                       <>
                         <Upload size={20} className="text-gray-300 mx-auto mb-2" />
                         <p className="text-[9px] text-gray-400 font-bold">
-                          点击选择 .md 或 .txt 文件
+                          点击选择 .md / .txt / .zip 文件
                         </p>
                         <p className="text-[8px] text-gray-300 mt-1">
-                          支持 Claude Code SKILL.md、自定义 markdown 等各种格式
+                          支持 Claude Code SKILL.md、自定义 markdown、导出的 zip 包
                         </p>
                       </>
                     )}
@@ -198,7 +198,7 @@ export function ImportSkillModal({ onImported, onCancel }: ImportSkillModalProps
                   <input
                     ref={fileRef}
                     type="file"
-                    accept=".md,.txt,.markdown"
+                    accept=".md,.txt,.markdown,.zip"
                     className="hidden"
                     onChange={(e) => {
                       const f = e.target.files?.[0];
