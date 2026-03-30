@@ -96,8 +96,26 @@ export async function GET(
     Location.prototype.reload = function() {};
   } catch(e) {}
 
-  // patch window.open：拦截一切新 tab/窗口，用 history.pushState 做 SPA 内导航
-  // 注意：不能用 location.href，那会触发整页刷新
+  // 辅助：判断 URL 是否指向文件下载（opencode 的文件/artifact 路径）
+  var _DOWNLOAD_RE = /\/(file|files|artifact|artifacts|download|workdir)\b/i;
+  function _isDownloadUrl(url) {
+    if (_DOWNLOAD_RE.test(url)) return true;
+    // 带有明确 download query 参数的也算下载
+    try { if (new URL(url, location.origin).searchParams.has("download")) return true; } catch(e) {}
+    return false;
+  }
+  // 辅助：通过隐藏 <a download> 触发浏览器真实下载
+  function _triggerDownload(url) {
+    var a = document.createElement("a");
+    a.href = url.startsWith("/") ? _addPort("/api/opencode-rpc" + url) : url;
+    a.download = "";
+    a.style.display = "none";
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(function() { document.body.removeChild(a); }, 200);
+  }
+
+  // patch window.open：拦截新 tab/窗口做 SPA 内导航，但放行下载链接
   var _origOpen = window.open;
   window.open = function(url, target, features) {
     if (url && typeof url === "string") {
@@ -107,13 +125,17 @@ export async function GET(
       } else if (/^https?:\/\/(?:127\.0\.0\.1|localhost)(:\d+)?/.test(url)) {
         path = url.replace(/^https?:\/\/(?:127\.0\.0\.1|localhost)(:\d+)?/, "") || "/";
       }
+      // 下载链接：走真实下载，不做 pushState
+      if (_isDownloadUrl(path)) {
+        _triggerDownload(path);
+        return null;
+      }
       if (path.startsWith("/")) {
-        // SPA 内部跳转：pushState 静默切换，不触发页面刷新
         history.pushState(null, "", _addPort(path));
         return null;
       }
     }
-    // 完全外部链接：同样 pushState（留在 iframe 内，不开新窗口）
+    // 完全外部链接：pushState 留在 iframe 内
     if (url && typeof url === "string") {
       history.pushState(null, "", url);
       return null;
@@ -121,19 +143,36 @@ export async function GET(
     return _origOpen.call(this, url, target, features);
   };
 
-  // 拦截 target="_blank" 链接点击（OpenCode 内可能用 <a target="_blank"> 触发新窗口）
+  // 拦截 target="_blank" 链接点击，但放行 download 属性和下载链接
   document.addEventListener("click", function(e) {
     var el = e.target;
     while (el && el !== document) {
-      if (el.tagName === "A" && el.getAttribute("target") === "_blank") {
-        e.preventDefault();
-        e.stopPropagation();
+      if (el.tagName === "A") {
         var href = el.getAttribute("href");
-        if (href) {
-          // pushState 代替 location.href，避免整页重载
-          history.pushState(null, "", href.startsWith("/") ? _addPort(href) : href);
+        // 带 download 属性的 <a> 标签：放行，让浏览器原生处理下载
+        if (el.hasAttribute("download")) {
+          // 仅重写路径让它走代理
+          if (href && href.startsWith("/") && !href.startsWith("/api/")) {
+            el.href = _addPort("/api/opencode-rpc" + href);
+          }
+          return; // 不阻止默认行为
         }
-        return;
+        // target="_blank" 且指向下载路径：触发下载
+        if (el.getAttribute("target") === "_blank" && href && _isDownloadUrl(href)) {
+          e.preventDefault();
+          e.stopPropagation();
+          _triggerDownload(href);
+          return;
+        }
+        // 其他 target="_blank"：pushState 做 SPA 内导航
+        if (el.getAttribute("target") === "_blank") {
+          e.preventDefault();
+          e.stopPropagation();
+          if (href) {
+            history.pushState(null, "", href.startsWith("/") ? _addPort(href) : href);
+          }
+          return;
+        }
       }
       el = el.parentElement;
     }
