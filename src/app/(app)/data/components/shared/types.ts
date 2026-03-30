@@ -167,9 +167,148 @@ export interface WikiTable {
   name: string;
 }
 
-// ─── Virtual folder ──────────────────────────────────────────────────────────
+// ─── Virtual folder (legacy) ─────────────────────────────────────────────────
 export interface VirtualFolder {
   id: number;       // positive = from validation_rules.folder_id convention; we use local map
   name: string;
   parent_id: number | null;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Data Assets API types (enriched layer)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+export interface DataAssetFolder {
+  id: number;
+  name: string;
+  parent_id: number | null;
+  workspace_scope: string;
+  sort_order: number;
+  is_archived: boolean;
+  children: DataAssetFolder[];
+}
+
+export interface RiskWarning {
+  code: string;
+  message: string;
+}
+
+export interface BoundSkill {
+  skill_id: number;
+  skill_name: string;
+  view_id?: number | null;
+  view_name?: string | null;
+  source: "legacy" | "binding";
+}
+
+export interface DataAssetTable {
+  id: number;
+  table_name: string;
+  display_name: string;
+  description: string;
+  folder_id: number | null;
+  source_type: string;
+  sync_status: string;
+  last_synced_at: string | null;
+  record_count: number | null;
+  field_count: number;
+  bound_skills: BoundSkill[];
+  risk_warnings: RiskWarning[];
+  is_archived: boolean;
+  created_at: string | null;
+}
+
+export interface TableFieldDetail {
+  id: number | null;
+  field_name: string;
+  display_name: string | null;
+  physical_column_name: string | null;
+  field_type: string;
+  source_field_type: string | null;
+  is_nullable: boolean;
+  is_system: boolean;
+  is_filterable: boolean;
+  is_groupable: boolean;
+  is_sortable: boolean;
+  enum_values: string[];
+  enum_source: string | null;
+  sample_values: string[];
+  distinct_count: number | null;
+  null_ratio: number | null;
+  description: string;
+}
+
+export interface AccessPolicy {
+  access_scope: string;
+  access_user_ids: number[];
+  access_role_ids: string[];
+  access_department_ids: number[];
+  access_project_ids: number[];
+  row_scope: string;
+  row_department_ids: number[];
+  column_scope: string;
+  column_department_ids: number[];
+  hidden_fields: string[];
+}
+
+export interface TableViewDetail {
+  id: number;
+  name: string;
+  view_type: string;
+  view_purpose: string | null;
+  visibility_scope: string;
+  is_default: boolean;
+  is_system: boolean;
+  config: TableViewConfig;
+  created_by: number | null;
+}
+
+export interface SkillBindingDetail {
+  skill_id: number;
+  skill_name: string;
+  binding_id: number | null;
+  view_id: number | null;
+  view_name: string | null;
+  binding_type: string | null;
+  alias: string | null;
+  status: "healthy" | "legacy_unbound";
+}
+
+export interface SyncJobDetail {
+  id: number;
+  job_type: string;
+  status: string;
+  error_type: string | null;
+  error_message: string | null;
+  started_at: string | null;
+  finished_at: string | null;
+  trigger_source: string | null;
+  stats: Record<string, unknown>;
+}
+
+export interface TableDetail {
+  id: number;
+  table_name: string;
+  display_name: string;
+  description: string;
+  folder_id: number | null;
+  source_type: string;
+  source_ref: Record<string, string>;
+  sync_status: string;
+  sync_error: string | null;
+  last_synced_at: string | null;
+  field_profile_status: string;
+  field_profile_error: string | null;
+  record_count: number | null;
+  is_archived: boolean;
+  owner_id: number | null;
+  department_id: number | null;
+  created_at: string | null;
+  updated_at: string | null;
+  fields: TableFieldDetail[];
+  access_policy: AccessPolicy;
+  views: TableViewDetail[];
+  bindings: SkillBindingDetail[];
+  recent_sync_jobs: SyncJobDetail[];
+  risk_warnings: RiskWarning[];
 }
