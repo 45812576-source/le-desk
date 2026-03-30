@@ -5,7 +5,7 @@ import { useCallback, useEffect, useState } from "react";
 import { apiFetch } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import type { ApprovalRequest } from "@/lib/types";
-import { Check, X, Clock, FileText, Send, Inbox, ChevronDown, ChevronRight, Play, Shield, AlertTriangle } from "lucide-react";
+import { Check, X, Clock, FileText, Send, Inbox, ChevronDown, ChevronRight, Play, Shield, AlertTriangle, Package, Users, FlaskConical, Database, Tag, Wrench } from "lucide-react";
 import { SandboxTestModal } from "@/components/skill/SandboxTestModal";
 
 type MainTab = "incoming" | "outgoing" | "all";
@@ -57,6 +57,35 @@ const CAT_COLOR: Record<string, string> = {
   reference: "bg-amber-100 text-amber-700",
   template: "bg-purple-100 text-purple-700",
 };
+
+const SCOPE_LABEL: Record<string, string> = {
+  self_only: "仅创建者",
+  same_role: "同岗位",
+  cross_role: "跨岗位",
+  org_wide: "全员",
+};
+
+const RISK_COLOR: Record<string, string> = {
+  high: "bg-red-100 text-red-700",
+  medium: "bg-amber-100 text-amber-700",
+  low: "bg-green-100 text-green-700",
+};
+
+const FILE_CAT_ORDER = ["tool", "knowledge-base", "example", "template", "reference"];
+
+function CollapsibleSection({ title, icon, children, defaultOpen = true }: { title: string; icon: React.ReactNode; children: React.ReactNode; defaultOpen?: boolean }) {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <div className="border border-border rounded-lg overflow-hidden">
+      <button onClick={() => setOpen(!open)} className="flex items-center gap-2 w-full px-3 py-2 bg-muted/50 hover:bg-muted transition-colors text-left">
+        {open ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+        {icon}
+        <span className="text-[10px] font-medium text-foreground uppercase tracking-wider">{title}</span>
+      </button>
+      {open && <div className="px-3 py-2 space-y-2">{children}</div>}
+    </div>
+  );
+}
 
 interface AdminApprovalResponse {
   total: number;
@@ -507,6 +536,7 @@ function ApprovalCard({
           fileLoading={fileLoading}
           onLoadFile={onLoadFile}
           onSandbox={onSandbox}
+          securityScanResult={r.security_scan_result}
         />
       )}
       {expanded && isTool && (
@@ -554,6 +584,7 @@ function SkillDetail({
   fileLoading,
   onLoadFile,
   onSandbox,
+  securityScanResult,
 }: {
   detail: Record<string, unknown>;
   targetId: number | null;
@@ -562,77 +593,252 @@ function SkillDetail({
   fileLoading: string | null;
   onLoadFile: (skillId: number, filename: string) => void;
   onSandbox: (item: { id: number; name: string }) => void;
+  securityScanResult?: Record<string, unknown> | null;
 }) {
   const sourceFiles = (detail.source_files || []) as { filename: string; category: string }[];
+  const knowledgeTags = (detail.knowledge_tags || []) as string[];
+  const dataQueries = (detail.data_queries || []) as { query_name: string; query_type: string; table_name: string; description?: string }[];
+  const boundTools = (detail.bound_tools || []) as { id: number; name: string; display_name: string; tool_type: string }[];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const scanResult = (securityScanResult || {}) as Record<string, any>;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const suggestedPolicy = (scanResult.suggested_policy || null) as { publish_scope?: string; risk_level?: string; default_data_scope?: Record<string, string>; role_overrides?: { position_name: string; callable: boolean; data_scope: string }[]; mask_overrides?: { field: string; action: string; position_name: string }[] } | null;
+  const sandboxSessionId = scanResult.sandbox_test_session_id as number | undefined;
+
+  // Fetch sandbox report
+  const [sandboxReport, setSandboxReport] = useState<Record<string, unknown> | null>(null);
+  const [reportLoading, setReportLoading] = useState(false);
+  useEffect(() => {
+    if (!sandboxSessionId) return;
+    setReportLoading(true);
+    apiFetch(`/sandbox/interactive/${sandboxSessionId}/report`)
+      .then((r) => setSandboxReport(r as Record<string, unknown>))
+      .catch(() => setSandboxReport(null))
+      .finally(() => setReportLoading(false));
+  }, [sandboxSessionId]);
+
+  // Group files by category
+  const filesByCategory = sourceFiles.reduce<Record<string, { filename: string; category: string }[]>>((acc, f) => {
+    const cat = f.category || "其他";
+    if (!acc[cat]) acc[cat] = [];
+    acc[cat].push(f);
+    return acc;
+  }, {});
+  const sortedCategories = Object.keys(filesByCategory).sort((a, b) => {
+    const ai = FILE_CAT_ORDER.indexOf(a);
+    const bi = FILE_CAT_ORDER.indexOf(b);
+    return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi);
+  });
 
   return (
     <div className="border-t border-border px-4 py-3 bg-muted/30 space-y-3">
-      {/* Basic info */}
+      {/* Header */}
       <div className="flex items-center gap-2 flex-wrap">
         <span className="text-xs font-medium text-foreground">{String(detail.name || "")}</span>
         {detail.scope ? (
-          <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-primary/10 text-primary font-medium">
-            {String(detail.scope)}
-          </span>
+          <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-primary/10 text-primary font-medium">{String(detail.scope)}</span>
+        ) : null}
+        {detail.version != null ? (
+          <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground font-medium">v{String(detail.version)}</span>
         ) : null}
         {isPending && targetId && (
-          <button
-            onClick={() => onSandbox({ id: targetId, name: String(detail.name || "") })}
-            className="ml-auto flex items-center gap-1 px-2 py-1 rounded text-[10px] font-medium bg-purple-100 text-purple-700 hover:bg-purple-200 transition-colors"
-          >
+          <button onClick={() => onSandbox({ id: targetId, name: String(detail.name || "") })} className="ml-auto flex items-center gap-1 px-2 py-1 rounded text-[10px] font-medium bg-purple-100 text-purple-700 hover:bg-purple-200 transition-colors">
             <Play size={10} />
             沙盒测试
           </button>
         )}
       </div>
+      {detail.description ? <div className="text-xs text-muted-foreground">{String(detail.description)}</div> : null}
 
-      {detail.description ? (
-        <div className="text-xs text-muted-foreground">{String(detail.description)}</div>
-      ) : null}
-      {detail.change_note ? (
-        <div className="text-xs"><span className="text-muted-foreground">变更说明：</span>{String(detail.change_note)}</div>
-      ) : null}
-
-      {/* System Prompt */}
-      <SystemPromptBlock value={detail.system_prompt} />
-
-      {/* Source files */}
-      {sourceFiles.length > 0 && (
-        <div>
-          <div className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider mb-1">
-            附属文件 ({sourceFiles.length})
+      {/* ═══ 区块一：沙盒测试报告（审批要件） ═══ */}
+      <CollapsibleSection title="沙盒测试报告（审批要件）" icon={<FlaskConical size={12} className="text-purple-600" />}>
+        {!sandboxSessionId ? (
+          <div className="text-xs text-amber-600 flex items-center gap-1"><AlertTriangle size={12} />尚未进行沙盒测试</div>
+        ) : reportLoading ? (
+          <div className="text-xs text-muted-foreground animate-pulse">加载测试报告…</div>
+        ) : !sandboxReport ? (
+          <div className="text-xs text-amber-600 flex items-center gap-1"><AlertTriangle size={12} />测试报告获取失败</div>
+        ) : (
+          <div className="space-y-2">
+            {/* 三项评价 */}
+            <div className="flex items-center gap-3 flex-wrap">
+              {(["quality_passed", "usability_passed", "anti_hallucination_passed"] as const).map((k) => {
+                const label = k === "quality_passed" ? "质量" : k === "usability_passed" ? "可用性" : "防幻觉";
+                const val = sandboxReport[k];
+                return (
+                  <span key={k} className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${val === true ? "bg-green-100 text-green-700" : val === false ? "bg-red-100 text-red-700" : "bg-gray-100 text-gray-500"}`}>
+                    {label}: {val === true ? "PASS" : val === false ? "FAIL" : "N/A"}
+                  </span>
+                );
+              })}
+            </div>
+            {/* 测试矩阵统计 */}
+            <div className="flex items-center gap-4 text-[10px] text-muted-foreground">
+              {sandboxReport.theoretical_combo_count != null && <span>理论组合: {String(sandboxReport.theoretical_combo_count)}</span>}
+              {sandboxReport.semantic_combo_count != null && <span>语义组合: {String(sandboxReport.semantic_combo_count)}</span>}
+              {sandboxReport.executed_case_count != null && <span>执行用例: {String(sandboxReport.executed_case_count)}</span>}
+            </div>
+            {/* approval_eligible */}
+            <div className="text-[10px]">
+              <span className="text-muted-foreground">可审批: </span>
+              <span className={sandboxReport.approval_eligible === true ? "text-green-700 font-medium" : "text-red-700 font-medium"}>
+                {sandboxReport.approval_eligible === true ? "是" : "否"}
+              </span>
+            </div>
           </div>
-          <div className="space-y-1">
-            {sourceFiles.map((f) => {
-              const key = `${targetId}:${f.filename}`;
-              return (
-                <div key={f.filename}>
-                  <button
-                    onClick={() => targetId && onLoadFile(targetId, f.filename)}
-                    className="flex items-center gap-2 w-full text-left px-2 py-1.5 border border-border rounded bg-background hover:bg-muted/50 transition-colors"
-                  >
-                    <span className="text-xs font-mono font-medium text-foreground">{f.filename}</span>
-                    <span className={`text-[9px] px-1.5 py-0.5 rounded-full font-medium ${CAT_COLOR[f.category] || "bg-gray-100 text-gray-600"}`}>
-                      {f.category}
-                    </span>
-                    {fileLoading === key && (
-                      <span className="text-[9px] text-primary animate-pulse ml-auto">加载中...</span>
-                    )}
-                    <span className="ml-auto text-xs text-muted-foreground">
-                      {fileContents[key] !== undefined ? "▼" : "▶"}
-                    </span>
-                  </button>
-                  {fileContents[key] !== undefined && (
-                    <pre className="text-[10px] text-foreground whitespace-pre-wrap leading-relaxed font-mono bg-background border border-t-0 border-border rounded-b px-3 py-2 max-h-48 overflow-y-auto">
-                      {fileContents[key]}
-                    </pre>
-                  )}
+        )}
+      </CollapsibleSection>
+
+      {/* ═══ 区块二：提交版本 Skill 包 ═══ */}
+      <CollapsibleSection title="提交版本 Skill 包" icon={<Package size={12} className="text-cyan-600" />}>
+        {/* 版本 + 变更说明 */}
+        {detail.change_note ? (
+          <div className="text-xs"><span className="text-muted-foreground">变更说明：</span>{String(detail.change_note)}</div>
+        ) : null}
+
+        {/* 文件树按 category 分组 */}
+        {sortedCategories.length > 0 && (
+          <div>
+            <div className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider mb-1">
+              文件树 ({sourceFiles.length})
+            </div>
+            {sortedCategories.map((cat) => (
+              <div key={cat} className="mb-2">
+                <div className="flex items-center gap-1 mb-1">
+                  <span className={`text-[9px] px-1.5 py-0.5 rounded-full font-medium ${CAT_COLOR[cat] || "bg-gray-100 text-gray-600"}`}>{cat}</span>
+                  <span className="text-[9px] text-muted-foreground">({filesByCategory[cat].length})</span>
                 </div>
-              );
-            })}
+                <div className="space-y-1 pl-2 border-l-2 border-border">
+                  {filesByCategory[cat].map((f) => {
+                    const key = `${targetId}:${f.filename}`;
+                    return (
+                      <div key={f.filename}>
+                        <button
+                          onClick={() => targetId && onLoadFile(targetId, f.filename)}
+                          className="flex items-center gap-2 w-full text-left px-2 py-1 border border-border rounded bg-background hover:bg-muted/50 transition-colors"
+                        >
+                          <FileText size={10} className="text-muted-foreground flex-shrink-0" />
+                          <span className="text-[10px] font-mono font-medium text-foreground truncate">{f.filename}</span>
+                          {fileLoading === key && <span className="text-[9px] text-primary animate-pulse ml-auto">加载中...</span>}
+                          <span className="ml-auto text-[10px] text-muted-foreground flex-shrink-0">{fileContents[key] !== undefined ? "▼" : "▶"}</span>
+                        </button>
+                        {fileContents[key] !== undefined && (
+                          <pre className="text-[10px] text-foreground whitespace-pre-wrap leading-relaxed font-mono bg-background border border-t-0 border-border rounded-b px-3 py-2 max-h-48 overflow-y-auto">
+                            {fileContents[key]}
+                          </pre>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
           </div>
-        </div>
-      )}
+        )}
+
+        {/* System Prompt */}
+        <SystemPromptBlock value={detail.system_prompt} />
+
+        {/* 附属信息 */}
+        {knowledgeTags.length > 0 && (
+          <div className="flex items-center gap-1 flex-wrap">
+            <Tag size={10} className="text-muted-foreground" />
+            {knowledgeTags.map((t) => (
+              <span key={t} className="text-[9px] px-1.5 py-0.5 rounded-full bg-cyan-100 text-cyan-700 font-medium">{t}</span>
+            ))}
+          </div>
+        )}
+        {dataQueries.length > 0 && (
+          <div>
+            <div className="flex items-center gap-1 text-[10px] text-muted-foreground mb-1"><Database size={10} />数据查询</div>
+            {dataQueries.map((q) => (
+              <div key={q.query_name} className="text-[10px] text-foreground pl-2">{q.query_name} → {q.table_name} ({q.query_type})</div>
+            ))}
+          </div>
+        )}
+        {boundTools.length > 0 && (
+          <div>
+            <div className="flex items-center gap-1 text-[10px] text-muted-foreground mb-1"><Wrench size={10} />绑定工具</div>
+            {boundTools.map((t) => (
+              <div key={t.id} className="text-[10px] text-foreground pl-2">{t.display_name || t.name} <span className="text-muted-foreground">({t.tool_type})</span></div>
+            ))}
+          </div>
+        )}
+      </CollapsibleSection>
+
+      {/* ═══ 区块三：拟可使用人范围（审批要件） ═══ */}
+      <CollapsibleSection title="拟可使用人范围（审批要件）" icon={<Users size={12} className="text-blue-600" />}>
+        {!suggestedPolicy ? (
+          <div className="text-xs text-amber-600 flex items-center gap-1"><AlertTriangle size={12} />安全扫描尚未完成</div>
+        ) : (
+          <div className="space-y-2">
+            {/* publish_scope + risk_level */}
+            <div className="flex items-center gap-3 flex-wrap">
+              <span className="text-[10px] text-muted-foreground">发布范围:</span>
+              <span className="text-[10px] font-medium text-foreground">{SCOPE_LABEL[suggestedPolicy.publish_scope || ""] || suggestedPolicy.publish_scope || "—"}</span>
+              {suggestedPolicy.risk_level && (
+                <span className={`text-[9px] px-1.5 py-0.5 rounded-full font-medium ${RISK_COLOR[suggestedPolicy.risk_level] || "bg-gray-100 text-gray-600"}`}>
+                  风险: {suggestedPolicy.risk_level}
+                </span>
+              )}
+            </div>
+
+            {/* role_overrides */}
+            {suggestedPolicy.role_overrides && suggestedPolicy.role_overrides.length > 0 && (
+              <div>
+                <div className="text-[10px] font-medium text-muted-foreground mb-1">岗位权限</div>
+                <div className="border border-border rounded overflow-hidden">
+                  <table className="w-full text-[10px]">
+                    <thead><tr className="bg-muted/50"><th className="px-2 py-1 text-left font-medium text-muted-foreground">岗位</th><th className="px-2 py-1 text-left font-medium text-muted-foreground">可调用</th><th className="px-2 py-1 text-left font-medium text-muted-foreground">数据范围</th></tr></thead>
+                    <tbody>
+                      {suggestedPolicy.role_overrides.map((ro) => (
+                        <tr key={ro.position_name} className="border-t border-border">
+                          <td className="px-2 py-1 text-foreground">{ro.position_name}</td>
+                          <td className="px-2 py-1">{ro.callable ? <span className="text-green-600">✓</span> : <span className="text-red-600">✗</span>}</td>
+                          <td className="px-2 py-1 text-muted-foreground">{ro.data_scope}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            {/* mask_overrides */}
+            {suggestedPolicy.mask_overrides && suggestedPolicy.mask_overrides.length > 0 && (
+              <div>
+                <div className="text-[10px] font-medium text-muted-foreground mb-1">字段遮罩规则</div>
+                <div className="border border-border rounded overflow-hidden">
+                  <table className="w-full text-[10px]">
+                    <thead><tr className="bg-muted/50"><th className="px-2 py-1 text-left font-medium text-muted-foreground">字段</th><th className="px-2 py-1 text-left font-medium text-muted-foreground">遮罩动作</th><th className="px-2 py-1 text-left font-medium text-muted-foreground">适用岗位</th></tr></thead>
+                    <tbody>
+                      {suggestedPolicy.mask_overrides.map((mo, i) => (
+                        <tr key={i} className="border-t border-border">
+                          <td className="px-2 py-1 text-foreground font-mono">{mo.field}</td>
+                          <td className="px-2 py-1 text-muted-foreground">{mo.action}</td>
+                          <td className="px-2 py-1 text-muted-foreground">{mo.position_name}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            {/* default_data_scope */}
+            {suggestedPolicy.default_data_scope && Object.keys(suggestedPolicy.default_data_scope).length > 0 ? (
+              <div>
+                <div className="text-[10px] font-medium text-muted-foreground mb-1">默认数据范围</div>
+                <div className="flex flex-wrap gap-2">
+                  {Object.entries(suggestedPolicy.default_data_scope).map(([k, v]) => (
+                    <span key={k} className="text-[10px] px-2 py-0.5 rounded bg-muted text-foreground">{k}: {v}</span>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+          </div>
+        )}
+      </CollapsibleSection>
     </div>
   );
 }
@@ -846,6 +1052,7 @@ function AdminAllTab({
                       fileLoading={fileLoading}
                       onLoadFile={onLoadFile}
                       onSandbox={onSandbox}
+                      securityScanResult={item.security_scan_result}
                     />
                   )}
 
