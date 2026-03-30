@@ -682,6 +682,13 @@ export interface SandboxInputSlot {
   knowledge_entry_id: number | null;
   table_name: string | null;
   field_name: string | null;
+  // 证据化审批
+  required_reason?: string;
+  evidence_requirement?: string;
+  pass_criteria?: string;
+  verification_conclusion?: "verified" | "failed" | "not_needed" | "unsupported";
+  verification_reason?: string;
+  suggested_source?: string;
 }
 
 export interface SandboxToolProvenance {
@@ -703,6 +710,13 @@ export interface SandboxToolReview {
   preconditions?: unknown[];
   confirmed: boolean;
   input_provenance: SandboxToolProvenance[];
+  // 证据化审批
+  requiredness?: "required" | "optional" | "avoidable" | "unknown";
+  requiredness_reason?: string;
+  non_tool_proof_required?: boolean;
+  pass_criteria?: string;
+  decision?: "must_call" | "no_need" | "uncertain_block";
+  no_tool_proof?: string;
 }
 
 export interface SandboxPermissionSnapshot {
@@ -715,6 +729,14 @@ export interface SandboxPermissionSnapshot {
   confirmed: boolean;
   included_in_test: boolean;
   warning?: string;
+  // 证据化审批
+  permission_required?: boolean;
+  permission_required_reason?: string;
+  why_no_permission_needed?: string | null;
+  applied_rules?: string[];
+  evidence_examples?: string[];
+  decision?: "required_confirmed" | "no_permission_needed" | "mismatch" | "uncertain_block";
+  no_permission_reason?: string;
 }
 
 export type SandboxSessionStatus = "draft" | "blocked" | "ready_to_run" | "running" | "completed" | "cannot_test";

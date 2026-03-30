@@ -29,7 +29,7 @@ export function SandboxTestModal({
   name,
   onPassed,
   onCancel,
-  passedLabel = "✓ 通过，继续发布",
+  passedLabel = "OK 通过，继续发布",
 }: SandboxTestModalProps) {
   const [session, setSession] = useState<SandboxSession | null>(null);
   const [report, setReport] = useState<SandboxReport | null>(null);
@@ -63,13 +63,13 @@ export function SandboxTestModal({
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-      <div className="bg-white border-2 border-[#1A202C] w-[680px] max-h-[85vh] flex flex-col">
+      <div className="bg-white border-2 border-[#1A202C] w-[720px] max-h-[85vh] flex flex-col">
         {/* Header */}
         <div className="flex items-center gap-2 px-4 py-3 border-b-2 border-[#1A202C] bg-[#EBF4F7]">
           <span className="text-[9px] font-bold uppercase tracking-widest text-[#00A3C4]">
             交互式沙盒测试
           </span>
-          <span className="text-xs font-bold text-[#1A202C] ml-1">— {name}</span>
+          <span className="text-xs font-bold text-[#1A202C] ml-1">-- {name}</span>
           <span className="ml-auto text-[8px] font-mono text-gray-400 border border-gray-300 px-1.5 py-0.5">
             {type === "skill" ? "SKILL" : "TOOL"}
           </span>
@@ -88,7 +88,7 @@ export function SandboxTestModal({
                       : "bg-gray-200 text-gray-400"
                 }`}
               >
-                {wizardStep > idx ? "✓" : idx + 1} {label}
+                {wizardStep > idx ? "OK" : idx + 1} {label}
               </div>
               {idx < STEP_LABELS.length - 1 && (
                 <div className={`w-4 h-px mx-0.5 ${wizardStep > idx ? "bg-[#00CC99]" : "bg-gray-200"}`} />
@@ -101,7 +101,7 @@ export function SandboxTestModal({
         <div className="flex-1 overflow-y-auto p-4 space-y-3">
           {error && (
             <div className="border-2 border-red-400 bg-red-50 px-3 py-2 text-[9px] font-bold text-red-500">
-              ✕ {error}
+              X {error}
             </div>
           )}
 
@@ -257,10 +257,10 @@ function Step0Start({ loading, onStart }: { loading: boolean; onStart: () => voi
   return (
     <div className="text-center py-6">
       <div className="text-[10px] font-bold uppercase tracking-widest text-gray-400 mb-3">
-        交互式引导测试 — 从架构上杜绝大模型幻觉
+        交互式引导测试 -- 从架构上杜绝大模型幻觉
       </div>
       <div className="text-[8px] text-gray-400 font-mono mb-4 max-w-md mx-auto">
-        测试将分三步确认：输入槽位来源 → Tool 参数验证 → 权限快照确认<br />
+        测试将分三步确认：输入槽位来源 -&gt; Tool 参数验证 -&gt; 权限快照确认<br />
         然后基于真实证据穷尽权限语义生成测试矩阵<br />
         禁止 LLM 在任何环节生成虚拟数据
       </div>
@@ -271,7 +271,7 @@ function Step0Start({ loading, onStart }: { loading: boolean; onStart: () => voi
   );
 }
 
-// ─── Step 1: 输入槽位来源确认 ──────────────────────────────────────────────
+// ─── Step 1: 输入槽位来源确认（证据化） ──────────────────────────────────────
 
 function Step1InputSlots({
   session,
@@ -337,23 +337,67 @@ function Step1InputSlots({
   return (
     <div className="space-y-3">
       <div className="text-[9px] font-bold uppercase tracking-widest text-[#00A3C4] mb-2">
-        Q1 — 输入槽位来源确认
+        Q1 -- 输入槽位来源确认
       </div>
       <div className="text-[8px] text-gray-400 font-mono mb-2">
-        结构化数据必须从知识库/数据表取得，禁止 LLM 用虚拟数据
+        每个槽位必须有证据证明来源合法，结构化数据禁止 chat_text
       </div>
 
       {session.detected_slots.map((slot) => {
         const edit = slotEdits[slot.slot_key] || { chosen_source: "", chat_example: "", knowledge_entry_id: "", rag_query: "", table_name: "", field_name: "" };
+        const conclusion = slot.verification_conclusion;
         return (
-          <div key={slot.slot_key} className="border border-gray-200 bg-[#F8FAFB] rounded">
+          <div key={slot.slot_key} className={`border rounded ${
+            conclusion === "failed" || conclusion === "unsupported"
+              ? "border-red-300 bg-red-50/30"
+              : conclusion === "verified"
+                ? "border-green-300 bg-green-50/30"
+                : "border-gray-200 bg-[#F8FAFB]"
+          }`}>
             <div className="flex items-center gap-2 px-3 py-1.5 border-b border-gray-100">
               <span className={`text-[8px] font-bold px-1 py-0.5 rounded ${slot.structured ? "bg-purple-100 text-purple-700" : "bg-gray-100 text-gray-500"}`}>
                 {slot.structured ? "结构化" : "非结构化"}
               </span>
               {slot.required && <span className="text-[8px] font-bold text-red-500">必填</span>}
               <span className="text-[9px] font-bold text-gray-700">{slot.label}</span>
+              {conclusion && (
+                <span className={`ml-auto text-[8px] font-bold ${
+                  conclusion === "verified" ? "text-green-600" : "text-red-500"
+                }`}>
+                  {conclusion === "verified" ? "OK" : conclusion.toUpperCase()}
+                </span>
+              )}
             </div>
+
+            {/* 证据化审批信息 */}
+            <div className="px-3 py-1.5 space-y-0.5 border-b border-gray-50">
+              {slot.required_reason && (
+                <div className="text-[8px] text-blue-600">
+                  <span className="text-gray-400">必填原因:</span> {slot.required_reason}
+                </div>
+              )}
+              {slot.evidence_requirement && (
+                <div className="text-[8px] text-gray-500">
+                  <span className="text-gray-400">证据要求:</span> {slot.evidence_requirement}
+                </div>
+              )}
+              {slot.pass_criteria && (
+                <div className="text-[8px] text-gray-500">
+                  <span className="text-gray-400">通过标准:</span> {slot.pass_criteria}
+                </div>
+              )}
+              {slot.verification_reason && (
+                <div className={`text-[8px] ${conclusion === "verified" ? "text-green-600" : "text-red-500"}`}>
+                  <span className="text-gray-400">判定:</span> {slot.verification_reason}
+                </div>
+              )}
+              {slot.suggested_source && conclusion !== "verified" && (
+                <div className="text-[8px] text-amber-600">
+                  <span className="text-gray-400">建议:</span> {slot.suggested_source}
+                </div>
+              )}
+            </div>
+
             <div className="px-3 py-2 space-y-2">
               <div className="flex items-center gap-2">
                 <span className="text-[8px] text-gray-500 w-12 flex-shrink-0">来源</span>
@@ -438,7 +482,7 @@ function Step1InputSlots({
   );
 }
 
-// ─── Step 2: Tool 确认 ──────────────────────────────────────────────────────
+// ─── Step 2: Tool 确认（三选一） ─────────────────────────────────────────────
 
 function Step2ToolReview({
   session,
@@ -446,12 +490,13 @@ function Step2ToolReview({
   loading,
 }: {
   session: SandboxSession;
-  onSubmit: (tools: { tool_id: number; confirmed: boolean; input_provenance: { field_name: string; source_kind: string; source_ref: string }[] }[]) => void;
+  onSubmit: (tools: { tool_id: number; decision: string; no_tool_proof?: string; input_provenance: { field_name: string; source_kind: string; source_ref: string }[] }[]) => void;
   loading: boolean;
 }) {
   const [toolEdits, setToolEdits] = useState(() => {
     const edits: Record<number, {
-      confirmed: boolean;
+      decision: string;
+      no_tool_proof: string;
       provenance: Record<string, { source_kind: string; source_ref: string }>;
     }> = {};
     for (const t of session.tool_review) {
@@ -462,7 +507,7 @@ function Step2ToolReview({
           source_ref: p.source_ref || "",
         };
       }
-      edits[t.tool_id] = { confirmed: false, provenance: prov };
+      edits[t.tool_id] = { decision: "", no_tool_proof: "", provenance: prov };
     }
     return edits;
   });
@@ -478,15 +523,18 @@ function Step2ToolReview({
 
   function handleSubmit() {
     const tools = session.tool_review.map((t) => {
-      const edit = toolEdits[t.tool_id] || { confirmed: false, provenance: {} };
+      const edit = toolEdits[t.tool_id] || { decision: "uncertain_block", no_tool_proof: "", provenance: {} };
       return {
         tool_id: t.tool_id,
-        confirmed: edit.confirmed,
-        input_provenance: Object.entries(edit.provenance).map(([field_name, p]) => ({
-          field_name,
-          source_kind: p.source_kind,
-          source_ref: p.source_ref,
-        })),
+        decision: edit.decision || "uncertain_block",
+        no_tool_proof: edit.decision === "no_need" ? edit.no_tool_proof : undefined,
+        input_provenance: edit.decision === "must_call"
+          ? Object.entries(edit.provenance).map(([field_name, p]) => ({
+              field_name,
+              source_kind: p.source_kind,
+              source_ref: p.source_ref,
+            }))
+          : [],
       };
     });
     onSubmit(tools);
@@ -495,34 +543,111 @@ function Step2ToolReview({
   return (
     <div className="space-y-3">
       <div className="text-[9px] font-bold uppercase tracking-widest text-[#00A3C4] mb-2">
-        Q2 — Tool 确认与参数来源验证
+        Q2 -- Tool 确认（必须调用 / 无需调用 / 不确定）
       </div>
       <div className="text-[8px] text-gray-400 font-mono mb-2">
-        检测绑定的 tool 数量和名称，确认每个 tool input 的数据来源
+        每个 Tool 必须选择是否需要调用，并提供证据
       </div>
 
       {session.tool_review.map((t) => {
-        const edit = toolEdits[t.tool_id] || { confirmed: false, provenance: {} };
+        const edit = toolEdits[t.tool_id] || { decision: "", no_tool_proof: "", provenance: {} };
         return (
           <div key={t.tool_id} className="border border-gray-200 bg-[#F8FAFB] rounded">
             <div className="flex items-center gap-2 px-3 py-2 border-b border-gray-100">
-              <input
-                type="checkbox"
-                checked={edit.confirmed}
-                onChange={(e) => setToolEdits((prev) => ({
-                  ...prev,
-                  [t.tool_id]: { ...prev[t.tool_id], confirmed: e.target.checked },
-                }))}
-                className="w-3 h-3"
-              />
               <span className="text-[9px] font-bold text-gray-700">{t.tool_name}</span>
               <span className="text-[8px] text-gray-400 ml-auto">ID: {t.tool_id}</span>
+              {t.requiredness && (
+                <span className={`text-[8px] font-bold px-1 py-0.5 rounded ${
+                  t.requiredness === "required" ? "bg-red-100 text-red-600" :
+                  t.requiredness === "avoidable" ? "bg-amber-100 text-amber-600" :
+                  "bg-gray-100 text-gray-500"
+                }`}>
+                  {t.requiredness}
+                </span>
+              )}
             </div>
             {t.description && (
               <div className="px-3 py-1 text-[8px] text-gray-500">{t.description}</div>
             )}
-            {t.input_provenance.length > 0 && (
-              <div className="px-3 py-2 space-y-1.5">
+
+            {/* 必要性信息 */}
+            {t.requiredness_reason && (
+              <div className="px-3 py-1 text-[8px] text-blue-600">
+                <span className="text-gray-400">必要性判定:</span> {t.requiredness_reason}
+              </div>
+            )}
+            {t.pass_criteria && (
+              <div className="px-3 py-1 text-[8px] text-gray-500">
+                <span className="text-gray-400">通过标准:</span> {t.pass_criteria}
+              </div>
+            )}
+
+            {/* 三选一 */}
+            <div className="px-3 py-2 flex items-center gap-4 border-t border-gray-50">
+              <label className="flex items-center gap-1.5 text-[9px] cursor-pointer">
+                <input
+                  type="radio"
+                  name={`tool-${t.tool_id}`}
+                  value="must_call"
+                  checked={edit.decision === "must_call"}
+                  onChange={() => setToolEdits((prev) => ({
+                    ...prev,
+                    [t.tool_id]: { ...prev[t.tool_id], decision: "must_call" },
+                  }))}
+                  className="w-3 h-3"
+                />
+                <span className="font-bold text-green-700">必须调用</span>
+              </label>
+              <label className="flex items-center gap-1.5 text-[9px] cursor-pointer">
+                <input
+                  type="radio"
+                  name={`tool-${t.tool_id}`}
+                  value="no_need"
+                  checked={edit.decision === "no_need"}
+                  onChange={() => setToolEdits((prev) => ({
+                    ...prev,
+                    [t.tool_id]: { ...prev[t.tool_id], decision: "no_need" },
+                  }))}
+                  className="w-3 h-3"
+                />
+                <span className="font-bold text-amber-700">无需调用</span>
+              </label>
+              <label className="flex items-center gap-1.5 text-[9px] cursor-pointer">
+                <input
+                  type="radio"
+                  name={`tool-${t.tool_id}`}
+                  value="uncertain_block"
+                  checked={edit.decision === "uncertain_block"}
+                  onChange={() => setToolEdits((prev) => ({
+                    ...prev,
+                    [t.tool_id]: { ...prev[t.tool_id], decision: "uncertain_block" },
+                  }))}
+                  className="w-3 h-3"
+                />
+                <span className="font-bold text-red-600">不确定（阻断）</span>
+              </label>
+            </div>
+
+            {/* no_need: 证明 */}
+            {edit.decision === "no_need" && (
+              <div className="px-3 py-2 border-t border-gray-50">
+                <div className="text-[8px] text-amber-600 mb-1">请说明无需调用的原因（引用知识库 ID 或数据表名作为替代证明）：</div>
+                <textarea
+                  value={edit.no_tool_proof}
+                  onChange={(e) => setToolEdits((prev) => ({
+                    ...prev,
+                    [t.tool_id]: { ...prev[t.tool_id], no_tool_proof: e.target.value },
+                  }))}
+                  rows={2}
+                  placeholder="例：知识库 #12 已包含等效数据，无需调用此工具"
+                  className="w-full border border-gray-300 rounded px-2 py-1 text-[9px] resize-none"
+                />
+              </div>
+            )}
+
+            {/* must_call: provenance */}
+            {edit.decision === "must_call" && t.input_provenance.length > 0 && (
+              <div className="px-3 py-2 space-y-1.5 border-t border-gray-50">
                 <div className="text-[8px] font-bold text-gray-500 uppercase tracking-widest">Required Input 来源</div>
                 {t.input_provenance.map((p) => {
                   const pe = edit.provenance[p.field_name] || { source_kind: "", source_ref: "" };
@@ -570,7 +695,7 @@ function Step2ToolReview({
   );
 }
 
-// ─── Step 3: 权限快照确认 ──────────────────────────────────────────────────
+// ─── Step 3: 权限快照确认（四选一） ─────────────────────────────────────────
 
 function Step3PermissionReview({
   session,
@@ -578,13 +703,17 @@ function Step3PermissionReview({
   loading,
 }: {
   session: SandboxSession;
-  onSubmit: (tables: { table_name: string; confirmed: boolean; included_in_test: boolean }[]) => void;
+  onSubmit: (tables: { table_name: string; decision: string; no_permission_reason?: string; included_in_test: boolean }[]) => void;
   loading: boolean;
 }) {
   const [tableEdits, setTableEdits] = useState(() => {
-    const edits: Record<string, { confirmed: boolean; included_in_test: boolean }> = {};
+    const edits: Record<string, { decision: string; no_permission_reason: string; included_in_test: boolean }> = {};
     for (const snap of session.permission_snapshot || []) {
-      edits[snap.table_name] = { confirmed: false, included_in_test: snap.included_in_test };
+      edits[snap.table_name] = {
+        decision: "",
+        no_permission_reason: "",
+        included_in_test: snap.included_in_test,
+      };
     }
     return edits;
   });
@@ -603,43 +732,48 @@ function Step3PermissionReview({
   return (
     <div className="space-y-3">
       <div className="text-[9px] font-bold uppercase tracking-widest text-[#00A3C4] mb-2">
-        Q3 — 权限快照确认
+        Q3 -- 权限快照确认
       </div>
       <div className="text-[8px] text-gray-400 font-mono mb-2">
-        确认每个数据表的行可见范围、字段遮罩规则是否符合业务预期
+        每个数据表必须明确选择权限状态并提供理由
       </div>
 
       {snapshots.map((snap) => {
-        const edit = tableEdits[snap.table_name] || { confirmed: false, included_in_test: true };
+        const edit = tableEdits[snap.table_name] || { decision: "", no_permission_reason: "", included_in_test: true };
         return (
           <div key={snap.table_name} className="border border-gray-200 bg-[#F8FAFB] rounded">
             <div className="flex items-center gap-2 px-3 py-2 border-b border-gray-100">
-              <input
-                type="checkbox"
-                checked={edit.confirmed}
-                onChange={(e) => setTableEdits((prev) => ({
-                  ...prev,
-                  [snap.table_name]: { ...prev[snap.table_name], confirmed: e.target.checked },
-                }))}
-                className="w-3 h-3"
-              />
               <span className="text-[9px] font-bold text-gray-700">{snap.display_name}</span>
               <span className="text-[8px] text-gray-400 font-mono">{snap.table_name}</span>
               {snap.warning && (
                 <span className="text-[8px] text-red-500 ml-auto">{snap.warning}</span>
               )}
             </div>
-            <div className="px-3 py-2 space-y-1">
+
+            {/* 权限信息 */}
+            <div className="px-3 py-1.5 space-y-0.5 border-b border-gray-50">
               <div className="flex items-center gap-4 text-[8px]">
                 <span className="text-gray-500">行可见范围:</span>
                 <span className="font-mono text-gray-700">{snap.row_visibility}</span>
               </div>
-              {snap.ownership_rules && Object.keys(snap.ownership_rules).length > 0 && (
-                <div className="flex items-center gap-4 text-[8px]">
-                  <span className="text-gray-500">Ownership:</span>
-                  <span className="font-mono text-gray-700">
-                    {String(snap.ownership_rules.owner_field ?? "无")} / {String(snap.ownership_rules.department_field ?? "无")}
-                  </span>
+              {snap.permission_required_reason && (
+                <div className="text-[8px] text-blue-600">
+                  <span className="text-gray-400">权限状态:</span> {snap.permission_required_reason}
+                </div>
+              )}
+              {snap.applied_rules && snap.applied_rules.length > 0 && (
+                <div className="text-[8px]">
+                  <span className="text-gray-400">已应用规则:</span>
+                  {snap.applied_rules.map((rule, i) => (
+                    <span key={i} className="ml-1 px-1 py-0.5 bg-gray-100 text-gray-600 rounded text-[7px] font-mono">
+                      {rule}
+                    </span>
+                  ))}
+                </div>
+              )}
+              {snap.why_no_permission_needed && (
+                <div className="text-[8px] text-green-600">
+                  <span className="text-gray-400">无需权限原因:</span> {snap.why_no_permission_needed}
                 </div>
               )}
               {snap.field_masks.length > 0 && (
@@ -654,20 +788,62 @@ function Step3PermissionReview({
                   </div>
                 </div>
               )}
-              <div className="flex items-center gap-2 pt-1">
-                <label className="flex items-center gap-1 text-[8px] text-gray-500">
-                  <input
-                    type="checkbox"
-                    checked={edit.included_in_test}
+            </div>
+
+            {/* 四选一 */}
+            <div className="px-3 py-2 space-y-1.5">
+              <div className="flex flex-wrap items-center gap-3">
+                {[
+                  { value: "required_confirmed", label: "权限符合预期", color: "text-green-700" },
+                  { value: "no_permission_needed", label: "无需权限控制", color: "text-blue-700" },
+                  { value: "mismatch", label: "配置不一致", color: "text-red-600" },
+                  { value: "uncertain_block", label: "不确定（阻断）", color: "text-red-600" },
+                ].map((opt) => (
+                  <label key={opt.value} className="flex items-center gap-1.5 text-[9px] cursor-pointer">
+                    <input
+                      type="radio"
+                      name={`perm-${snap.table_name}`}
+                      value={opt.value}
+                      checked={edit.decision === opt.value}
+                      onChange={() => setTableEdits((prev) => ({
+                        ...prev,
+                        [snap.table_name]: { ...prev[snap.table_name], decision: opt.value },
+                      }))}
+                      className="w-3 h-3"
+                    />
+                    <span className={`font-bold ${opt.color}`}>{opt.label}</span>
+                  </label>
+                ))}
+              </div>
+
+              {edit.decision === "no_permission_needed" && (
+                <div>
+                  <div className="text-[8px] text-blue-600 mb-1">请说明无需权限的理由：</div>
+                  <textarea
+                    value={edit.no_permission_reason}
                     onChange={(e) => setTableEdits((prev) => ({
                       ...prev,
-                      [snap.table_name]: { ...prev[snap.table_name], included_in_test: e.target.checked },
+                      [snap.table_name]: { ...prev[snap.table_name], no_permission_reason: e.target.value },
                     }))}
-                    className="w-2.5 h-2.5"
+                    rows={2}
+                    placeholder="例：仅公开知识，无敏感字段"
+                    className="w-full border border-gray-300 rounded px-2 py-1 text-[9px] resize-none"
                   />
-                  纳入测试
-                </label>
-              </div>
+                </div>
+              )}
+
+              <label className="flex items-center gap-1 text-[8px] text-gray-500">
+                <input
+                  type="checkbox"
+                  checked={edit.included_in_test}
+                  onChange={(e) => setTableEdits((prev) => ({
+                    ...prev,
+                    [snap.table_name]: { ...prev[snap.table_name], included_in_test: e.target.checked },
+                  }))}
+                  className="w-2.5 h-2.5"
+                />
+                纳入测试
+              </label>
             </div>
           </div>
         );
@@ -678,7 +854,10 @@ function Step3PermissionReview({
           onClick={() => {
             const tables = snapshots.map((s) => ({
               table_name: s.table_name,
-              confirmed: tableEdits[s.table_name]?.confirmed ?? false,
+              decision: tableEdits[s.table_name]?.decision || "uncertain_block",
+              no_permission_reason: tableEdits[s.table_name]?.decision === "no_permission_needed"
+                ? tableEdits[s.table_name]?.no_permission_reason
+                : undefined,
               included_in_test: tableEdits[s.table_name]?.included_in_test ?? true,
             }));
             onSubmit(tables);
@@ -711,7 +890,7 @@ function Step4Execute({
       </div>
       {loading ? (
         <div className="text-[10px] font-bold uppercase tracking-widest text-[#00A3C4] animate-pulse">
-          生成用例 → 执行 → 评价中，请稍候...
+          生成用例 -&gt; 执行 -&gt; 评价中，请稍候...
         </div>
       ) : (
         <PixelButton onClick={onRun}>执行测试矩阵</PixelButton>
@@ -720,7 +899,7 @@ function Step4Execute({
   );
 }
 
-// ─── Step 5: 报告 ──────────────────────────────────────────────────────────
+// ─── Step 5: 报告（含扣分项、四维分数、行为验证） ──────────────────────────
 
 function Step5Report({
   session,
@@ -736,9 +915,42 @@ function Step5Report({
   passedLabel: string;
 }) {
   const p3 = report.part3_evaluation as {
-    quality?: { passed: boolean; detail?: { avg_score?: number } };
-    usability?: { passed: boolean; detail?: { structured_input_count?: number } };
-    anti_hallucination?: { passed: boolean; detail?: { checks?: { check: string; found: boolean }[]; suggestion?: string } };
+    quality?: {
+      passed: boolean;
+      detail?: {
+        avg_score?: number;
+        avg_coverage?: number;
+        avg_correctness?: number;
+        avg_constraint?: number;
+        avg_actionability?: number;
+        top_deductions?: { dimension: string; points: number; reason: string; fix_suggestion: string }[];
+        fix_plan?: string[];
+      };
+    };
+    usability?: {
+      passed: boolean;
+      detail?: {
+        input_burden_score?: number;
+        first_turn_success_score?: number;
+        compact_answer_score?: number;
+        safe_compact_answer_score?: number;
+        reason?: string;
+        fix_suggestion?: string;
+        thresholds?: { first_turn_success: number; safe_compact_answer: number; input_burden: number };
+      };
+    };
+    anti_hallucination?: {
+      passed: boolean;
+      detail?: {
+        keyword_checks?: { check: string; found: boolean }[];
+        behavior_checks?: { prompt: string; response_preview?: string; passed: boolean; refused?: boolean; fabricated?: boolean; error?: string }[];
+        keyword_passed?: boolean;
+        behavior_passed?: boolean;
+        suggestion?: string;
+      };
+    };
+    top_issues?: { source: string; dimension: string; reason: string; points?: number }[];
+    fix_plan?: string[];
     final_verdict?: { approval_eligible: boolean };
   };
 
@@ -762,15 +974,15 @@ function Step5Report({
           : "border-red-400 bg-red-50 text-red-600"
       }`}>
         {session.approval_eligible
-          ? "✓ 三项全部通过，可提交审批"
-          : "✗ 未满足全部通过条件"
+          ? "OK 三项全部通过，可提交审批"
+          : "FAIL 未满足全部通过条件"
         }
       </div>
 
       {/* Part 2: 测试矩阵 */}
       <div className="border border-gray-200 bg-[#F8FAFB] rounded">
         <div className="px-3 py-1.5 border-b border-gray-100">
-          <span className="text-[8px] font-bold uppercase tracking-widest text-gray-500">Part 2 — 测试矩阵</span>
+          <span className="text-[8px] font-bold uppercase tracking-widest text-gray-500">Part 2 -- 测试矩阵</span>
         </div>
         <div className="px-3 py-2 flex items-center gap-4 text-[8px]">
           <span>理论组合: {p2.theoretical_combo_count ?? 0}</span>
@@ -790,32 +1002,91 @@ function Step5Report({
       {/* Part 3: 评价 */}
       <div className="border border-gray-200 bg-[#F8FAFB] rounded">
         <div className="px-3 py-1.5 border-b border-gray-100">
-          <span className="text-[8px] font-bold uppercase tracking-widest text-gray-500">Part 3 — 评价</span>
+          <span className="text-[8px] font-bold uppercase tracking-widest text-gray-500">Part 3 -- 评价</span>
         </div>
-        <div className="px-3 py-2 space-y-2">
-          <EvalItem
-            label="3.1 质量"
-            passed={p3.quality?.passed ?? false}
-            detail={`平均分: ${p3.quality?.detail?.avg_score ?? "N/A"}`}
-          />
-          <EvalItem
-            label="3.2 易用性"
-            passed={p3.usability?.passed ?? false}
-            detail={`结构化手动输入: ${p3.usability?.detail?.structured_input_count ?? 0} (阈值 5)`}
-          />
+        <div className="px-3 py-2 space-y-3">
+          {/* 3.1 质量（四维 + 扣分项） */}
+          <div>
+            <EvalItem
+              label="3.1 质量"
+              passed={p3.quality?.passed ?? false}
+              detail={`综合: ${p3.quality?.detail?.avg_score ?? "N/A"}`}
+            />
+            <div className="ml-4 flex items-center gap-3 mt-1">
+              <ScoreBadge label="覆盖" score={p3.quality?.detail?.avg_coverage} />
+              <ScoreBadge label="正确" score={p3.quality?.detail?.avg_correctness} />
+              <ScoreBadge label="约束" score={p3.quality?.detail?.avg_constraint} />
+              <ScoreBadge label="可行动" score={p3.quality?.detail?.avg_actionability} />
+            </div>
+            {p3.quality?.detail?.top_deductions && p3.quality.detail.top_deductions.length > 0 && (
+              <div className="ml-4 mt-1.5 space-y-1">
+                <div className="text-[8px] font-bold text-red-500">扣分项:</div>
+                {p3.quality.detail.top_deductions.map((d, i) => (
+                  <div key={i} className="text-[8px] text-red-600 bg-red-50 px-2 py-1 rounded">
+                    [{d.dimension}] {d.points}分: {d.reason}
+                    {d.fix_suggestion && (
+                      <span className="text-amber-600 ml-1">-&gt; {d.fix_suggestion}</span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* 3.2 易用性（四维） */}
+          <div>
+            <EvalItem
+              label="3.2 易用性"
+              passed={p3.usability?.passed ?? false}
+              detail=""
+            />
+            {p3.usability?.detail?.input_burden_score !== undefined && (
+              <div className="ml-4 mt-1 space-y-1">
+                <ScoreBar label="输入负担" score={p3.usability.detail.input_burden_score} threshold={p3.usability.detail.thresholds?.input_burden ?? 60} />
+                <ScoreBar label="首轮成功" score={p3.usability.detail.first_turn_success_score ?? 0} threshold={p3.usability.detail.thresholds?.first_turn_success ?? 70} />
+                <ScoreBar label="精简度" score={p3.usability.detail.compact_answer_score ?? 0} />
+                <ScoreBar label="安全精简" score={p3.usability.detail.safe_compact_answer_score ?? 0} threshold={p3.usability.detail.thresholds?.safe_compact_answer ?? 70} />
+              </div>
+            )}
+            {p3.usability?.detail?.reason && (
+              <div className="ml-4 text-[8px] text-gray-500 mt-1">{p3.usability.detail.reason}</div>
+            )}
+            {p3.usability?.detail?.fix_suggestion && (
+              <div className="ml-4 text-[8px] text-amber-600 mt-0.5">建议: {p3.usability.detail.fix_suggestion}</div>
+            )}
+          </div>
+
+          {/* 3.3 反幻觉（关键词 + 行为验证） */}
           <div>
             <EvalItem
               label="3.3 幻觉限制"
               passed={p3.anti_hallucination?.passed ?? false}
               detail=""
             />
-            {p3.anti_hallucination?.detail?.checks?.map((chk, i) => (
+            {/* 关键词检查 */}
+            {(p3.anti_hallucination?.detail?.keyword_checks || []).map((chk, i) => (
               <div key={i} className="ml-4 text-[8px]">
                 <span className={chk.found ? "text-green-600" : "text-red-500"}>
-                  {chk.found ? "✓" : "✗"} {chk.check}
+                  {chk.found ? "OK" : "FAIL"} {chk.check}
                 </span>
               </div>
             ))}
+            {/* 行为验证 */}
+            {p3.anti_hallucination?.detail?.behavior_checks && p3.anti_hallucination.detail.behavior_checks.length > 0 && (
+              <div className="ml-4 mt-1.5">
+                <div className="text-[8px] font-bold text-gray-500">行为验证:</div>
+                {p3.anti_hallucination.detail.behavior_checks.map((bc, i) => (
+                  <div key={i} className="text-[8px] mt-0.5">
+                    <span className={bc.passed ? "text-green-600" : "text-red-500"}>
+                      {bc.passed ? "OK" : "FAIL"} 场景: {bc.prompt.slice(0, 40)}...
+                    </span>
+                    {!bc.passed && bc.response_preview && (
+                      <div className="text-red-400 ml-2 text-[7px]">模型回复: {bc.response_preview.slice(0, 100)}</div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
             {p3.anti_hallucination?.detail?.suggestion && (
               <div className="ml-4 text-[8px] text-red-500 mt-0.5">
                 建议: {p3.anti_hallucination.detail.suggestion}
@@ -824,6 +1095,36 @@ function Step5Report({
           </div>
         </div>
       </div>
+
+      {/* Top Issues + Fix Plan */}
+      {p3.top_issues && p3.top_issues.length > 0 && (
+        <div className="border border-gray-200 bg-[#F8FAFB] rounded">
+          <div className="px-3 py-1.5 border-b border-gray-100">
+            <span className="text-[8px] font-bold uppercase tracking-widest text-gray-500">Top Issues</span>
+          </div>
+          <div className="px-3 py-2 space-y-1">
+            {p3.top_issues.map((issue, i) => (
+              <div key={i} className="text-[8px] text-gray-700">
+                <span className="text-gray-400">[{issue.source}]</span> {issue.reason}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+      {p3.fix_plan && p3.fix_plan.length > 0 && (
+        <div className="border border-amber-200 bg-amber-50/50 rounded">
+          <div className="px-3 py-1.5 border-b border-amber-200">
+            <span className="text-[8px] font-bold uppercase tracking-widest text-amber-600">Fix Plan</span>
+          </div>
+          <div className="px-3 py-2 space-y-1">
+            {p3.fix_plan.map((fix, i) => (
+              <div key={i} className="text-[8px] text-amber-700">
+                {i + 1}. {fix}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* 报告元信息 */}
       <div className="text-[8px] text-gray-400 font-mono">
@@ -842,14 +1143,51 @@ function Step5Report({
   );
 }
 
+// ─── 辅助组件 ──────────────────────────────────────────────────────────────
+
 function EvalItem({ label, passed, detail }: { label: string; passed: boolean; detail: string }) {
   return (
     <div className="flex items-center gap-2">
       <span className={`text-[9px] font-bold ${passed ? "text-[#00CC99]" : "text-red-500"}`}>
-        {passed ? "✓" : "✗"}
+        {passed ? "OK" : "FAIL"}
       </span>
       <span className="text-[9px] font-bold text-gray-700">{label}</span>
       {detail && <span className="text-[8px] text-gray-400 ml-auto">{detail}</span>}
+    </div>
+  );
+}
+
+function ScoreBadge({ label, score }: { label: string; score?: number }) {
+  if (score === undefined || score === null) return null;
+  const color = score >= 70 ? "text-green-600 bg-green-50" : score >= 50 ? "text-amber-600 bg-amber-50" : "text-red-600 bg-red-50";
+  return (
+    <span className={`text-[7px] font-bold px-1.5 py-0.5 rounded ${color}`}>
+      {label}: {Math.round(score)}
+    </span>
+  );
+}
+
+function ScoreBar({ label, score, threshold }: { label: string; score: number; threshold?: number }) {
+  const pct = Math.min(100, Math.max(0, score));
+  const passed = threshold ? score >= threshold : true;
+  return (
+    <div className="flex items-center gap-2">
+      <span className="text-[7px] text-gray-500 w-14 flex-shrink-0">{label}</span>
+      <div className="flex-1 h-2 bg-gray-100 rounded overflow-hidden relative">
+        <div
+          className={`h-full rounded ${passed ? "bg-[#00CC99]" : "bg-red-400"}`}
+          style={{ width: `${pct}%` }}
+        />
+        {threshold && (
+          <div
+            className="absolute top-0 bottom-0 w-px bg-gray-400"
+            style={{ left: `${threshold}%` }}
+          />
+        )}
+      </div>
+      <span className={`text-[7px] font-bold w-6 text-right ${passed ? "text-green-600" : "text-red-500"}`}>
+        {Math.round(score)}
+      </span>
     </div>
   );
 }
