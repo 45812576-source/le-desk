@@ -1446,14 +1446,17 @@ function AddColumnModal({ tableId, onDone, onClose }: { tableId: number; onDone:
 
 // ─── Skill Data View Panel ────────────────────────────────────────────────────
 function SkillDataViewPanel({
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   tableId,
   columns,
+  filterableColumns,
   referencedSkills,
   views,
   onSave,
 }: {
   tableId: number;
   columns: string[];
+  filterableColumns?: string[];
   referencedSkills: string[];
   views: SkillDataView[];
   onSave: (views: SkillDataView[]) => void;
@@ -1500,8 +1503,9 @@ function SkillDataViewPanel({
   function addFilter(viewId: string) {
     const view = views.find((v) => v.view_id === viewId);
     if (!view) return;
+    const defaultField = (filterableColumns ?? columns)[0] ?? "";
     updateView(viewId, {
-      row_filters: [...view.row_filters, { field: columns[0] ?? "", op: "eq", value: "" }],
+      row_filters: [...view.row_filters, { field: defaultField, op: "eq", value: "" }],
     });
   }
 
@@ -1636,7 +1640,7 @@ function SkillDataViewPanel({
                                   onChange={(e) => updateFilter(sv.view_id, i, { field: e.target.value })}
                                   className="border border-gray-200 text-[9px] px-1.5 py-0.5 bg-white focus:outline-none focus:border-[#00D1FF]"
                                 >
-                                  {columns.map((c) => <option key={c} value={c}>{c}</option>)}
+                                  {(filterableColumns ?? columns).map((c) => <option key={c} value={c}>{c}</option>)}
                                 </select>
                                 <select
                                   value={f.op}
@@ -1767,6 +1771,76 @@ function TablePreview({
   // Is this a blank (user-created) table — has field_meta
   const isEditable = fieldMeta.length > 0 || table.table_name.startsWith("usr_");
 
+  // ── 自动推断同步表列类型（枚举检测）──
+  // 对没有 field_meta 的同步表，从行数据自动推断每列的类型
+  const inferredColTypes = React.useMemo(() => {
+    const result: Record<string, { type: "enum" | "number" | "date" | "text" | "boolean"; uniqueValues?: string[] }> = {};
+    if (fieldMeta.length > 0 || rows.length === 0) return result; // 有 field_meta 时不推断
+
+    const MIN_ROWS_FOR_ENUM = 3;
+    const MAX_ENUM_VALUES = 20;
+    const MAX_ENUM_RATIO = 0.6; // 唯一值 / 非空行数 ≤ 60% 才算枚举
+
+    for (const col of cols) {
+      if (READONLY_COLS.has(col)) continue;
+      const nonNullValues = rows
+        .map((r) => r[col])
+        .filter((v) => v !== null && v !== undefined && v !== "");
+      if (nonNullValues.length === 0) continue;
+
+      // 检测布尔
+      const strValues = nonNullValues.map((v) => String(v).toLowerCase());
+      const boolSet = new Set(strValues);
+      if (boolSet.size <= 2 && [...boolSet].every((v) => ["true", "false", "0", "1", "是", "否", "yes", "no"].includes(v))) {
+        result[col] = { type: "boolean" };
+        continue;
+      }
+
+      // 检测数字
+      if (nonNullValues.every((v) => typeof v === "number" || (typeof v === "string" && !isNaN(Number(v)) && v.trim() !== ""))) {
+        result[col] = { type: "number" };
+        continue;
+      }
+
+      // 检测日期（时间戳或日期字符串）
+      if (nonNullValues.every((v) => {
+        if (typeof v === "number") return (v >= 1e9 && v <= 9.999e12);
+        if (typeof v === "string") return !isNaN(Date.parse(v)) && /\d{4}[-/]\d{1,2}[-/]\d{1,2}/.test(v);
+        return false;
+      })) {
+        result[col] = { type: "date" };
+        continue;
+      }
+
+      // 检测枚举：唯一值少、行数足够
+      const uniqueSet = new Set(nonNullValues.map((v) => formatCellValue(v)));
+      if (
+        nonNullValues.length >= MIN_ROWS_FOR_ENUM &&
+        uniqueSet.size <= MAX_ENUM_VALUES &&
+        uniqueSet.size / nonNullValues.length <= MAX_ENUM_RATIO
+      ) {
+        result[col] = { type: "enum", uniqueValues: [...uniqueSet].sort() };
+        continue;
+      }
+
+      result[col] = { type: "text" };
+    }
+    return result;
+  }, [cols, rows, fieldMeta.length]);
+
+  // 判断列是否为自由文本（不可用于分组/筛选权限）
+  function isTextColumn(colName: string): boolean {
+    // 有 field_meta 时根据 field_type 判断
+    const fm = fieldMeta.find((m) => m.name === colName);
+    if (fm) return fm.field_type === "text" || fm.field_type === "url" || fm.field_type === "email" || fm.field_type === "phone";
+    // 无 field_meta 时根据推断类型判断
+    const inferred = inferredColTypes[colName];
+    return !inferred || inferred.type === "text";
+  }
+
+  // 可用于分组/筛选的列（排除自由文本）
+  const groupableColumns = cols.filter((c) => !READONLY_COLS.has(c) && !isTextColumn(c));
+
   const loadRows = useCallback((viewId?: number | null) => {
     setLoadingRows(true);
     setRowsError("");
@@ -1785,11 +1859,12 @@ function TablePreview({
       .finally(() => setLoadingRows(false));
   }, [table.table_name]);
 
-  function handleViewChange(viewId: number | null, _config: TableViewConfig | null) {
+  function handleViewChange(viewId: number | null) {
     setActiveViewId(viewId);
     loadRows(viewId);
   }
 
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- initial data fetch on mount
   useEffect(() => { loadRows(); }, [loadRows]);
   useEffect(() => { if (editingName) nameInputRef.current?.focus(); }, [editingName]);
 
@@ -2015,6 +2090,7 @@ function TablePreview({
           <SkillDataViewPanel
             tableId={table.id}
             columns={cols.length > 0 ? cols : table.columns.map((c) => c.name)}
+            filterableColumns={groupableColumns.length > 0 ? groupableColumns : undefined}
             referencedSkills={referencedSkills}
             views={skillDataViews}
             onSave={(views) => onScopeChange(table.id, { skill_data_views: views })}
@@ -2046,19 +2122,38 @@ function TablePreview({
               <thead className="sticky top-0 z-10">
                 <tr className="bg-[#EBF4F7]">
                   {isEditable && <th className="w-6 border-b-2 border-[#1A202C] border-r border-gray-200" />}
-                  {visibleCols.map((c) => (
-                    <th
-                      key={c}
-                      className="text-left px-3 py-2 font-bold uppercase tracking-widest text-[#00A3C4] border-b-2 border-[#1A202C] border-r border-gray-200 whitespace-nowrap"
-                    >
-                      {c}
-                      {getFieldMeta(c) && (
-                        <span className="text-[7px] text-gray-400 ml-1 normal-case font-normal">
-                          {FIELD_TYPE_LABELS[getFieldMeta(c)!.field_type]}
-                        </span>
-                      )}
-                    </th>
-                  ))}
+                  {visibleCols.map((c) => {
+                    const fm = getFieldMeta(c);
+                    const inferred = inferredColTypes[c];
+                    const INFERRED_LABELS: Record<string, string> = { enum: "枚举", number: "数字", date: "日期", text: "文本", boolean: "布尔" };
+                    const INFERRED_COLORS: Record<string, string> = {
+                      enum: "bg-purple-100 text-purple-600",
+                      number: "bg-blue-50 text-blue-500",
+                      date: "bg-orange-50 text-orange-500",
+                      boolean: "bg-green-50 text-green-600",
+                      text: "bg-gray-50 text-gray-400",
+                    };
+                    return (
+                      <th
+                        key={c}
+                        className="text-left px-3 py-2 font-bold uppercase tracking-widest text-[#00A3C4] border-b-2 border-[#1A202C] border-r border-gray-200 whitespace-nowrap"
+                      >
+                        {c}
+                        {fm ? (
+                          <span className="text-[7px] text-gray-400 ml-1 normal-case font-normal">
+                            {FIELD_TYPE_LABELS[fm.field_type]}
+                          </span>
+                        ) : inferred ? (
+                          <span className={`text-[7px] ml-1 normal-case font-normal px-1 py-px rounded ${INFERRED_COLORS[inferred.type] ?? ""}`}>
+                            {INFERRED_LABELS[inferred.type] ?? inferred.type}
+                            {inferred.type === "enum" && inferred.uniqueValues && (
+                              <span className="text-[6px] ml-0.5 opacity-70">({inferred.uniqueValues.length})</span>
+                            )}
+                          </span>
+                        ) : null}
+                      </th>
+                    );
+                  })}
                 </tr>
               </thead>
               <tbody>
@@ -2081,20 +2176,40 @@ function TablePreview({
                         >✕</button>
                       </td>
                     )}
-                    {visibleCols.map((c) => (
-                      <td
-                        key={c}
-                        className="px-3 py-1.5 border-r border-gray-100 whitespace-nowrap max-w-[240px] truncate"
-                        title={formatCellValue(row[c])}
-                      >
-                        <EditableCell
-                          value={row[c]}
-                          fieldMeta={getFieldMeta(c)}
-                          readOnly={!isEditable || READONLY_COLS.has(c)}
-                          onSave={(v) => row.id && handleCellSave(row.id as number, c, v)}
-                        />
-                      </td>
-                    ))}
+                    {visibleCols.map((c) => {
+                      const inferred = inferredColTypes[c];
+                      const cellVal = row[c];
+                      const isEnum = inferred?.type === "enum";
+                      const isBool = inferred?.type === "boolean";
+                      return (
+                        <td
+                          key={c}
+                          className="px-3 py-1.5 border-r border-gray-100 whitespace-nowrap max-w-[240px] truncate"
+                          title={formatCellValue(cellVal)}
+                        >
+                          {isEnum && cellVal != null ? (
+                            <span className="inline-block border border-purple-200 bg-purple-50 text-purple-700 px-1.5 py-px text-[9px] font-bold rounded">
+                              {formatCellValue(cellVal)}
+                            </span>
+                          ) : isBool && cellVal != null ? (
+                            <span className={`inline-block px-1.5 py-px text-[9px] font-bold rounded ${
+                              ["true", "1", "是", "yes"].includes(String(cellVal).toLowerCase())
+                                ? "bg-green-50 text-green-600 border border-green-200"
+                                : "bg-gray-50 text-gray-400 border border-gray-200"
+                            }`}>
+                              {["true", "1", "是", "yes"].includes(String(cellVal).toLowerCase()) ? "是" : "否"}
+                            </span>
+                          ) : (
+                            <EditableCell
+                              value={cellVal}
+                              fieldMeta={getFieldMeta(c)}
+                              readOnly={!isEditable || READONLY_COLS.has(c)}
+                              onSave={(v) => row.id && handleCellSave(row.id as number, c, v)}
+                            />
+                          )}
+                        </td>
+                      );
+                    })}
                   </tr>
                 ))}
 
