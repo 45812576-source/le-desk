@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, useCallback } from "react";
-import { Eye, Download, Cloud, CloudOff, Lock, Send, Clock } from "lucide-react";
+import { Eye, Download, Cloud, CloudOff, Lock, Send, Clock, RefreshCw, AlertTriangle, Loader2, Link2 } from "lucide-react";
 import { PixelIcon, ICONS, PixelBadge } from "@/components/pixel";
 import { useTheme } from "@/lib/theme";
 import type { EditPermissionCheck, KnowledgeDetail, User } from "@/lib/types";
@@ -98,9 +98,9 @@ export default function PreviewPanel({
 
   const entryId = entry?.id ?? null;
 
-  // Determine if this entry uses RichEditor (cloud doc) or native viewer
   const ext = (entry?.file_ext || "").toLowerCase();
   const isMediaFile = entry?.oss_key && MEDIA_EXTS.has(ext);
+  const isLarkDoc = entry?.source_type === "lark_doc";
 
   // Fetch edit permission from backend when entry changes
   useEffect(() => {
@@ -229,7 +229,7 @@ export default function PreviewPanel({
         )}
 
         {/* Save status indicator / read-only badge / request edit */}
-        {!isMediaFile && (
+        {!isMediaFile && !isLarkDoc && (
           <div className="flex items-center gap-1.5 text-[10px]">
             {!canEdit && !permCheck?.pending_request && (
               <>
@@ -270,6 +270,13 @@ export default function PreviewPanel({
                 <CloudOff size={12} /><span>未保存</span>
               </button>
             )}
+          </div>
+        )}
+
+        {isLarkDoc && (
+          <div className="flex items-center gap-1 text-[10px]">
+            <Lock size={12} className="text-[#00A3C4]" />
+            <span className="text-[#00A3C4]">飞书只读</span>
           </div>
         )}
 
@@ -352,21 +359,225 @@ export default function PreviewPanel({
         <AiSummaryBar entry={entry} />
       )}
 
-      {/* Document area */}
+      {/* 飞书同步状态栏 */}
+      {isLarkDoc && (
+        <LarkSyncBar entry={entry} />
+      )}
+
+      {/* Document area — 多级渲染 */}
       <div className="flex-1 min-h-0 overflow-hidden">
-        {isMediaFile ? (
-          <div className="h-full overflow-y-auto">
+        <DocumentRenderResolver
+          entry={entry}
+          htmlVal={htmlVal}
+          canEdit={canEdit && !isLarkDoc}
+          onContentChange={handleContentChange}
+        />
+      </div>
+    </div>
+  );
+}
+
+// ─── 多级渲染 Resolver ────────────────────────────────────────────────────────
+function DocumentRenderResolver({
+  entry,
+  htmlVal,
+  canEdit,
+  onContentChange,
+}: {
+  entry: KnowledgeDetail;
+  htmlVal: string;
+  canEdit: boolean;
+  onContentChange: (html: string) => void;
+}) {
+  const ext = (entry.file_ext || "").toLowerCase();
+  const renderStatus = entry.doc_render_status;
+  const isMedia = entry.oss_key && MEDIA_EXTS.has(ext);
+
+  // 1. 正在转换中
+  if (renderStatus === "processing" || renderStatus === "pending") {
+    return (
+      <div className="flex flex-col items-center justify-center h-64 gap-3">
+        <Loader2 size={24} className="text-[#00D1FF] animate-spin" />
+        <p className="text-[11px] text-gray-500">正在转换为云文档...</p>
+        <p className="text-[9px] text-gray-400">转换完成后可直接在线预览和编辑</p>
+      </div>
+    );
+  }
+
+  // 2. 转换失败 — 显示原因 + 回退
+  if (renderStatus === "failed") {
+    return (
+      <div className="flex flex-col h-full">
+        <RenderFailedBanner entry={entry} />
+        {/* 回退到下层渲染 */}
+        {isMedia ? (
+          <div className="flex-1 overflow-y-auto">
             <DocumentViewer entry={entry} />
           </div>
-        ) : (
-          <RichEditor
-            key={entry.id}
-            content={htmlVal}
-            onChange={handleContentChange}
-            editable={canEdit}
-          />
+        ) : entry.content ? (
+          <RichEditor key={entry.id} content={htmlVal} onChange={onContentChange} editable={canEdit} />
+        ) : null}
+      </div>
+    );
+  }
+
+  // 3. content_html ready → RichEditor（非媒体文件）
+  if (renderStatus === "ready" && entry.content_html && !isMedia) {
+    return <RichEditor key={entry.id} content={htmlVal} onChange={onContentChange} editable={canEdit} />;
+  }
+
+  // 4. 媒体文件（PDF/图片/音视频）→ 原生预览
+  if (isMedia) {
+    return (
+      <div className="h-full overflow-y-auto">
+        <DocumentViewer entry={entry} />
+      </div>
+    );
+  }
+
+  // 5. OnlyOffice 可打开的 Office 文件
+  if (entry.can_open_onlyoffice && entry.oss_key) {
+    return (
+      <div className="h-full overflow-y-auto">
+        <DocumentViewer entry={entry} />
+      </div>
+    );
+  }
+
+  // 6. 有内容 → RichEditor fallback
+  if (entry.content || htmlVal) {
+    return <RichEditor key={entry.id} content={htmlVal} onChange={onContentChange} editable={canEdit} />;
+  }
+
+  // 7. 兜底
+  return (
+    <div className="flex flex-col items-center justify-center h-64 gap-3 text-gray-400">
+      <AlertTriangle size={24} />
+      <p className="text-[11px]">此文档暂无可预览内容</p>
+      {entry.oss_key && (
+        <button
+          onClick={async () => {
+            try {
+              const res = await fetch(`/api/proxy/knowledge/${entry.id}/file-url`);
+              if (res.ok) { const data = await res.json(); window.open(data.url, "_blank"); }
+            } catch {}
+          }}
+          className="flex items-center gap-1 text-[10px] text-[#00A3C4] hover:underline"
+        >
+          <Download size={12} /> 下载原始文件
+        </button>
+      )}
+    </div>
+  );
+}
+
+// 转换失败提示栏
+function RenderFailedBanner({ entry }: { entry: KnowledgeDetail }) {
+  const [retrying, setRetrying] = useState(false);
+
+  async function handleRetry() {
+    setRetrying(true);
+    try {
+      await apiFetch(`/knowledge/${entry.id}/render`, { method: "POST" });
+      window.location.reload();
+    } catch {}
+    setRetrying(false);
+  }
+
+  return (
+    <div className="flex items-center gap-3 px-4 py-2.5 bg-amber-50 border-b border-amber-200 flex-shrink-0">
+      <AlertTriangle size={14} className="text-amber-500 flex-shrink-0" />
+      <div className="flex-1 min-w-0">
+        <p className="text-[11px] text-amber-700 font-medium">云文档转换失败</p>
+        {entry.doc_render_error && (
+          <p className="text-[9px] text-amber-500 truncate">{entry.doc_render_error}</p>
         )}
       </div>
+      <button
+        onClick={handleRetry}
+        disabled={retrying}
+        className="flex items-center gap-1 px-2 py-1 text-[9px] font-bold text-amber-600 border border-amber-300 hover:bg-amber-100 transition-colors disabled:opacity-50"
+      >
+        <RefreshCw size={10} className={retrying ? "animate-spin" : ""} />
+        {retrying ? "重试中..." : "重试转换"}
+      </button>
+      {entry.oss_key && (
+        <button
+          onClick={async () => {
+            try {
+              const res = await fetch(`/api/proxy/knowledge/${entry.id}/file-url`);
+              if (res.ok) { const data = await res.json(); window.open(data.url, "_blank"); }
+            } catch {}
+          }}
+          className="flex items-center gap-1 px-2 py-1 text-[9px] font-bold text-gray-500 border border-gray-300 hover:bg-gray-100 transition-colors"
+        >
+          <Download size={10} /> 下载原文件
+        </button>
+      )}
+    </div>
+  );
+}
+
+// 飞书同步状态栏
+function LarkSyncBar({ entry }: { entry: KnowledgeDetail }) {
+  const [syncing, setSyncing] = useState(false);
+
+  const lastSynced = entry.lark_last_synced_at
+    ? new Date(entry.lark_last_synced_at * 1000).toLocaleString("zh-CN")
+    : null;
+
+  async function handleSync() {
+    setSyncing(true);
+    try {
+      await apiFetch(`/knowledge/${entry.id}/sync`, { method: "POST" });
+      window.location.reload();
+    } catch {}
+    setSyncing(false);
+  }
+
+  return (
+    <div className="flex items-center gap-2 px-5 py-1.5 border-b border-gray-100 flex-shrink-0 text-[10px]">
+      <Link2 size={12} className="text-[#00A3C4]" />
+      <span className="text-[#00A3C4] font-medium">飞书同步</span>
+
+      {entry.sync_status === "ok" && (
+        <span className="text-green-500">正常</span>
+      )}
+      {entry.sync_status === "syncing" && (
+        <span className="text-blue-500 flex items-center gap-1">
+          <Loader2 size={10} className="animate-spin" /> 同步中...
+        </span>
+      )}
+      {entry.sync_status === "error" && (
+        <span className="text-red-500 flex items-center gap-1">
+          <AlertTriangle size={10} /> 同步异常
+          {entry.sync_error && <span className="text-[8px] text-red-400 truncate max-w-[200px]">({entry.sync_error})</span>}
+        </span>
+      )}
+
+      {lastSynced && (
+        <span className="text-gray-400">上次同步: {lastSynced}</span>
+      )}
+
+      <button
+        onClick={handleSync}
+        disabled={syncing}
+        className="ml-auto flex items-center gap-1 px-2 py-0.5 text-[9px] text-[#00A3C4] hover:bg-[#F0F9FF] rounded transition-colors disabled:opacity-50"
+      >
+        <RefreshCw size={10} className={syncing ? "animate-spin" : ""} />
+        {syncing ? "同步中..." : "手动同步"}
+      </button>
+
+      {entry.lark_doc_url && (
+        <a
+          href={entry.lark_doc_url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-[9px] text-gray-400 hover:text-[#00A3C4] transition-colors"
+        >
+          查看原文
+        </a>
+      )}
     </div>
   );
 }

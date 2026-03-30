@@ -14,6 +14,7 @@ function ThemedIcon({ size }: { size: number }) {
   return <Table2 size={size} className="text-muted-foreground" />;
 }
 import { apiFetch } from "@/lib/api";
+import { useAuth } from "@/lib/auth";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 interface Column {
@@ -2740,6 +2741,8 @@ export default function DataPage() {
   const [manageKey, setManageKey] = useState(0);
   const { theme } = useTheme();
   const isLab = theme === "lab";
+  const { user } = useAuth();
+  const isAdmin = user?.role === "super_admin" || user?.role === "dept_admin";
 
   return (
     <div className="h-full flex flex-col">
@@ -2759,18 +2762,20 @@ export default function DataPage() {
           >
             数据源管理
           </PixelButton>
-          <PixelButton
-            variant={tab === "connect" ? "primary" : "secondary"}
-            size="sm"
-            onClick={() => setTab("connect")}
-          >
-            对接数据源
-          </PixelButton>
+          {isAdmin && (
+            <PixelButton
+              variant={tab === "connect" ? "primary" : "secondary"}
+              size="sm"
+              onClick={() => setTab("connect")}
+            >
+              对接数据源
+            </PixelButton>
+          )}
         </div>
       </div>
 
       {/* Content */}
-      {tab === "connect" ? (
+      {tab === "connect" && isAdmin ? (
         <div className="flex-1 overflow-auto p-6">
           <ConnectTab
             onAdded={() => {
@@ -2782,6 +2787,11 @@ export default function DataPage() {
       ) : (
         <div className="flex-1 min-h-0 overflow-hidden">
           <ManageTab key={manageKey} />
+          {!isAdmin && (
+            <div className="px-6 py-3 text-[10px] text-muted-foreground border-t border-border">
+              外部数据源接入与同步仅对部门管理员和超级管理员开放。如需接入飞书多维表，请联系管理员。
+            </div>
+          )}
         </div>
       )}
     </div>

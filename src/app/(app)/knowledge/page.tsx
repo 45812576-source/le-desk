@@ -113,6 +113,8 @@ function FileManagerTab() {
 
   // Sidebar filter
   const [filterText, setFilterText] = useState("");
+  const [filterSource, setFilterSource] = useState<string>("all");
+  const [filterStatus, setFilterStatus] = useState<string>("all");
 
   const handleSelectEntry = useCallback(async (e: KnowledgeDetail) => {
     setSelectedEntry(e);
@@ -184,14 +186,30 @@ function FileManagerTab() {
     ? entries.filter((e) => e.created_by === currentUser.id)
     : entries;
 
-  // Apply sidebar filter
-  const filteredEntries = filterText.trim()
-    ? myEntries.filter((e) => {
-        const q = filterText.toLowerCase();
-        return (e.ai_title || e.title || "").toLowerCase().includes(q) ||
-               (e.source_file || "").toLowerCase().includes(q);
-      })
-    : myEntries;
+  // Apply sidebar filters
+  const filteredEntries = myEntries.filter((e) => {
+    // Text filter
+    if (filterText.trim()) {
+      const q = filterText.toLowerCase();
+      const matchText = (e.ai_title || e.title || "").toLowerCase().includes(q) ||
+                         (e.source_file || "").toLowerCase().includes(q);
+      if (!matchText) return false;
+    }
+    // Source filter
+    if (filterSource !== "all") {
+      if (filterSource === "upload" && e.source_type !== "upload") return false;
+      if (filterSource === "lark_doc" && e.source_type !== "lark_doc") return false;
+      if (filterSource === "manual" && e.source_type !== "manual") return false;
+    }
+    // Status filter
+    if (filterStatus !== "all") {
+      if (filterStatus === "ready" && e.doc_render_status !== "ready") return false;
+      if (filterStatus === "processing" && e.doc_render_status !== "processing" && e.doc_render_status !== "pending") return false;
+      if (filterStatus === "failed" && e.doc_render_status !== "failed") return false;
+      if (filterStatus === "sync_error" && e.sync_status !== "error") return false;
+    }
+    return true;
+  });
 
   const tree = buildTree(folders);
   const rootFiles = filteredEntries.filter((e) => !e.folder_id);
@@ -367,6 +385,29 @@ function FileManagerTab() {
                 onChange={(e) => setFilterText(e.target.value)}
                 className="w-full text-[10px] border border-gray-300 px-2 py-1 focus:outline-none focus:border-[#00D1FF] bg-white"
               />
+              <div className="flex items-center gap-1">
+                <select
+                  value={filterSource}
+                  onChange={(e) => setFilterSource(e.target.value)}
+                  className="text-[9px] border border-gray-200 px-1 py-0.5 bg-white focus:outline-none focus:border-[#00D1FF] flex-1"
+                >
+                  <option value="all">全部来源</option>
+                  <option value="upload">本地上传</option>
+                  <option value="lark_doc">飞书同步</option>
+                  <option value="manual">手动创建</option>
+                </select>
+                <select
+                  value={filterStatus}
+                  onChange={(e) => setFilterStatus(e.target.value)}
+                  className="text-[9px] border border-gray-200 px-1 py-0.5 bg-white focus:outline-none focus:border-[#00D1FF] flex-1"
+                >
+                  <option value="all">全部状态</option>
+                  <option value="ready">可预览</option>
+                  <option value="processing">处理中</option>
+                  <option value="failed">转换失败</option>
+                  <option value="sync_error">同步异常</option>
+                </select>
+              </div>
               <div className="flex items-center justify-between">
                 <span className="text-[9px] font-bold uppercase tracking-widest text-[#00A3C4]">
                   知识文件

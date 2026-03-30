@@ -21,6 +21,7 @@ const LUCIDE_ICONS: Record<string, React.ElementType> = {
   "/projects":                FolderKanban,
   "/tasks":                   CheckSquare,
   "/dev-studio":              Code2,
+  "/skill-studio":            Code2,
   "/knowledge":               BookOpen,
   "/skills":                  Zap,
   "/data":                    Table2,
@@ -260,6 +261,7 @@ export function Sidebar({ user, taskPending = 0, onLogout }: SidebarProps) {
             <NavItem href="/projects" label="项目" icon={ICONS.project} {...navItemProps} />
             <NavItem href="/tasks" label="待办中心" icon={ICONS.tasks} {...navItemProps} badge={taskPending} />
             <NavItem href="/dev-studio" label="工具开发" icon={ICONS.devStudio} {...navItemProps} />
+            <NavItem href="/skill-studio" label="Skill Studio" icon={ICONS.devStudio} {...navItemProps} />
           </NavGroup>
 
           <NavGroup label="知识管理" storageKey="nav_group_knowledge" collapsed={collapsed} isLab={isLab}>

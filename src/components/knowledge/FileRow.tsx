@@ -48,6 +48,13 @@ export default function FileRow({
 
   const meta = [formatFileSize(entry.file_size), formatRelativeDate(entry.created_at)].filter(Boolean).join(" · ");
 
+  // 来源标签
+  const sourceLabel = entry.source_type === "lark_doc" ? "飞书" : entry.source_type === "upload" ? "上传" : entry.source_type === "manual" ? "手动" : null;
+
+  // 渲染/同步状态
+  const renderStatus = entry.doc_render_status;
+  const syncStatus = entry.sync_status;
+
   const BOARD_LABELS: Record<string, string> = {
     A: "A. 渠道与平台", B: "B. 投放策略与方法论", C: "C. 行业与客户知识",
     D: "D. 素材与创意", E: "E. 数据与分析", F: "F. 产品与运营",
@@ -88,8 +95,27 @@ export default function FileRow({
         />
       ) : (
         <div className="flex-1 min-w-0">
-          <div className="text-xs truncate font-medium">{displayTitle}</div>
-          {meta && <div className="text-[10px] text-gray-400 truncate mt-0.5">{meta}</div>}
+          <div className="flex items-center gap-1">
+            <span className="text-xs truncate font-medium">{displayTitle}</span>
+            {sourceLabel && (
+              <span className={`text-[7px] px-1 py-px rounded flex-shrink-0 ${
+                entry.source_type === "lark_doc" ? "bg-blue-50 text-blue-500" : "bg-gray-50 text-gray-400"
+              }`}>{sourceLabel}</span>
+            )}
+          </div>
+          <div className="flex items-center gap-1 mt-0.5">
+            {meta && <span className="text-[10px] text-gray-400 truncate">{meta}</span>}
+            {renderStatus === "processing" || renderStatus === "pending" ? (
+              <span className="text-[8px] text-blue-400 flex-shrink-0">转换中</span>
+            ) : renderStatus === "failed" ? (
+              <span className="text-[8px] text-red-400 flex-shrink-0">转换失败</span>
+            ) : null}
+            {syncStatus === "syncing" ? (
+              <span className="text-[8px] text-blue-400 flex-shrink-0">同步中</span>
+            ) : syncStatus === "error" ? (
+              <span className="text-[8px] text-red-400 flex-shrink-0">同步异常</span>
+            ) : null}
+          </div>
           {archivePath && <div className="text-[9px] text-gray-400/70 truncate mt-0.5 font-mono">{archivePath}</div>}
         </div>
       )}
