@@ -101,6 +101,21 @@ export interface KnowledgeEntry {
   quality_score?: number | null;
   // 云文档 HTML
   content_html?: string | null;
+  // 云文档渲染状态
+  doc_render_status?: 'pending' | 'processing' | 'ready' | 'failed' | null;
+  doc_render_error?: string | null;
+  doc_render_mode?: string | null;
+  // 来源与同步
+  source_uri?: string | null;
+  sync_status?: 'idle' | 'syncing' | 'ok' | 'error' | null;
+  sync_error?: string | null;
+  lark_doc_url?: string | null;
+  lark_doc_token?: string | null;
+  lark_sync_interval?: number | null;
+  lark_last_synced_at?: number | null;
+  // 能力标志
+  can_open_onlyoffice?: boolean;
+  can_retry_render?: boolean;
 }
 
 export interface Workspace {
