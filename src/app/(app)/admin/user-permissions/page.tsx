@@ -86,12 +86,6 @@ const ROLE_COLORS: Record<string, "red" | "yellow" | "cyan"> = {
   employee: "cyan",
 };
 
-const SCOPE_LABELS: Record<string, string> = {
-  private: "私有",
-  department: "部门",
-  all: "全员",
-};
-
 const PUBLISH_SCOPE_LABELS: Record<string, string> = {
   self_only: "仅自己",
   same_role: "同角色",

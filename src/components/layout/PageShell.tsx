@@ -7,7 +7,7 @@ import {
   BookOpen, Zap, Table2, Rss,
   ClipboardCheck, ShieldCheck, LayoutDashboard,
   Bot, Wrench, Store, Key, Globe2,
-  ShieldAlert, Lock, EyeOff, FileJson,
+  ShieldAlert, EyeOff, FileJson,
   BarChart2, ScrollText, Users, Settings,
 } from "lucide-react";
 

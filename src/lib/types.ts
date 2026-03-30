@@ -175,12 +175,14 @@ export interface ApprovalRequest {
   request_type: string;
   target_id: number | null;
   target_type: string | null;
-  target_detail: Record<string, unknown>;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  target_detail: Record<string, any>;
   requester_id: number;
   requester_name: string | null;
   status: "pending" | "approved" | "rejected" | "conditions";
   stage: string | null;
   conditions: unknown[];
+  security_scan_result?: Record<string, unknown> | null;
   created_at: string | null;
   actions: ApprovalAction[];
 }
@@ -584,4 +586,109 @@ export interface ProjectReport {
   period_start: string | null;
   period_end: string | null;
   created_at: string;
+}
+
+// ─── 交互式沙盒测试 ─────────────────────────────────────────────────────────
+
+export interface SandboxInputSlot {
+  slot_key: string;
+  label: string;
+  structured: boolean;
+  required: boolean;
+  allowed_sources: string[];
+  chosen_source: string | null;
+  evidence_status: "pending" | "verified" | "failed" | "not_applicable";
+  evidence_ref: string | null;
+  chat_example: string | null;
+  knowledge_entry_id: number | null;
+  table_name: string | null;
+  field_name: string | null;
+}
+
+export interface SandboxToolProvenance {
+  field_name: string;
+  field_type?: string;
+  description?: string;
+  source_kind: string | null;
+  source_ref: string | null;
+  resolved_value_preview: string | null;
+  verified: boolean;
+}
+
+export interface SandboxToolReview {
+  tool_id: number;
+  tool_name: string;
+  description: string;
+  input_schema?: Record<string, unknown>;
+  manifest_data_sources?: Record<string, unknown>[];
+  preconditions?: unknown[];
+  confirmed: boolean;
+  input_provenance: SandboxToolProvenance[];
+}
+
+export interface SandboxPermissionSnapshot {
+  table_name: string;
+  display_name: string;
+  row_visibility: string;
+  ownership_rules: Record<string, unknown>;
+  field_masks: { field_name: string; mask_action: string; mask_params: Record<string, unknown>; level?: string }[];
+  groupable_fields: string[];
+  confirmed: boolean;
+  included_in_test: boolean;
+  warning?: string;
+}
+
+export type SandboxSessionStatus = "draft" | "blocked" | "ready_to_run" | "running" | "completed" | "cannot_test";
+export type SandboxSessionStep =
+  | "start"
+  | "input_slot_review"
+  | "tool_review"
+  | "permission_review"
+  | "case_generation"
+  | "execution"
+  | "evaluation"
+  | "done";
+
+export interface SandboxSession {
+  session_id: number;
+  target_type: string;
+  target_id: number;
+  target_version: number | null;
+  target_name: string | null;
+  tester_id: number;
+  status: SandboxSessionStatus;
+  current_step: SandboxSessionStep;
+  blocked_reason: string | null;
+  detected_slots: SandboxInputSlot[];
+  tool_review: SandboxToolReview[];
+  permission_snapshot: SandboxPermissionSnapshot[] | null;
+  theoretical_combo_count: number | null;
+  semantic_combo_count: number | null;
+  executed_case_count: number | null;
+  quality_passed: boolean | null;
+  usability_passed: boolean | null;
+  anti_hallucination_passed: boolean | null;
+  approval_eligible: boolean | null;
+  report_id: number | null;
+  created_at: string | null;
+  completed_at: string | null;
+}
+
+export interface SandboxReport {
+  report_id: number;
+  session_id: number;
+  target_type: string;
+  target_id: number;
+  target_version: number | null;
+  target_name: string | null;
+  part1_evidence_check: Record<string, unknown>;
+  part2_test_matrix: Record<string, unknown>;
+  part3_evaluation: Record<string, unknown>;
+  quality_passed: boolean | null;
+  usability_passed: boolean | null;
+  anti_hallucination_passed: boolean | null;
+  approval_eligible: boolean | null;
+  report_hash: string | null;
+  knowledge_entry_id: number | null;
+  created_at: string | null;
 }

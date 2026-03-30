@@ -95,7 +95,6 @@ const STATUS_COLOR: Record<string, "cyan" | "green" | "yellow" | "gray"> = {
   archived: "gray",
 };
 
-const ICON_OPTIONS = ["chat", "star", "code", "doc", "tool", "chart", "user", "team"];
 const COLOR_OPTIONS = [
   "#00D1FF", "#00A3C4", "#0077A8", "#004F7A",
   "#7153EE", "#9B7FFF", "#5B3FCC", "#3A1FA0",
@@ -252,7 +251,7 @@ export default function AdminWorkspacesPage() {
   function toggleSkill(id: number) {
     setEditSkillIds((prev) => {
       const next = new Set(prev);
-      next.has(id) ? next.delete(id) : next.add(id);
+      if (next.has(id)) next.delete(id); else next.add(id);
       return next;
     });
   }
@@ -276,7 +275,7 @@ export default function AdminWorkspacesPage() {
   function toggleTool(id: number) {
     setEditToolIds((prev) => {
       const next = new Set(prev);
-      next.has(id) ? next.delete(id) : next.add(id);
+      if (next.has(id)) next.delete(id); else next.add(id);
       return next;
     });
   }

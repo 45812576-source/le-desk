@@ -1,8 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { BookOpen, FileText } from "lucide-react";
-import { PixelIcon, ICONS, PixelBadge } from "@/components/pixel";
+import { BookOpen } from "lucide-react";
+import { PixelIcon, ICONS } from "@/components/pixel";
 import { useTheme } from "@/lib/theme";
 import type { KnowledgeDetail } from "@/lib/types";
 import FileTypeIcon from "./FileTypeIcon";
@@ -54,7 +54,7 @@ export default function TaxonomyTreeView({ entries, selectedEntry, onSelectEntry
   function toggleBoard(b: string) {
     setOpenBoards((prev) => {
       const next = new Set(prev);
-      next.has(b) ? next.delete(b) : next.add(b);
+      if (next.has(b)) next.delete(b); else next.add(b);
       return next;
     });
   }
@@ -62,7 +62,7 @@ export default function TaxonomyTreeView({ entries, selectedEntry, onSelectEntry
   function toggleCode(code: string) {
     setOpenCodes((prev) => {
       const next = new Set(prev);
-      next.has(code) ? next.delete(code) : next.add(code);
+      if (next.has(code)) next.delete(code); else next.add(code);
       return next;
     });
   }

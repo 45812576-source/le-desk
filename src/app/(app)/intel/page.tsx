@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useState, useRef } from "react";
-import { PageShell } from "@/components/layout/PageShell";
 import { Rss, Radio } from "lucide-react";
 import { ICONS, PixelIcon } from "@/components/pixel";
 import { ThemedPageIcon } from "@/components/layout/PageShell";

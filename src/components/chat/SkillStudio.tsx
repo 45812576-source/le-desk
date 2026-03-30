@@ -810,7 +810,7 @@ function LineNumberedEditor({ value, onChange, disabled, placeholder }: {
 
 function DiffViewer({ oldText, newText }: { oldText: string; newText: string }) {
   const diff = diffLines(oldText, newText);
-  let newNum = 0, oldNum = 0;
+  let newNum = 0;
   const LINE_H = 20;
 
   return (
@@ -818,13 +818,12 @@ function DiffViewer({ oldText, newText }: { oldText: string; newText: string }) 
       {diff.map((line, i) => {
         let bgClass = "", textClass = "text-[#1A202C]", indClass = "text-gray-200", ind = " ", lineNum = "";
         if (line.type === "unchanged") {
-          oldNum++; newNum++;
+          newNum++;
           lineNum = String(newNum);
         } else if (line.type === "added") {
           newNum++;
           bgClass = "bg-green-50"; textClass = "text-green-900"; indClass = "text-green-600 font-bold"; ind = "+"; lineNum = String(newNum);
         } else {
-          oldNum++;
           bgClass = "bg-red-50"; textClass = "text-red-700"; indClass = "text-red-500 font-bold"; ind = "−"; lineNum = "";
         }
         return (
@@ -1041,7 +1040,7 @@ function PromptEditor({
   const [preflightRunning, setPreflightRunning] = useState(false);
   const [preflightStage, setPreflightStage] = useState<string | null>(null);
   const [showKbConfirm, setShowKbConfirm] = useState<PreflightGate["items"] | null>(null);
-  const [submitting, setSubmitting] = useState(false);
+  const [, setSubmitting] = useState(false);
 
   const isReadOnly = skill?.status === "published" || skill?.status === "archived";
   const hasDiff = diffBase !== null && diffBase !== prompt;
@@ -1939,6 +1938,26 @@ function StageIndicator({ stage }: { stage: string | null }) {
   );
 }
 
+// ─── Token estimation ─────────────────────────────────────────────────────────
+
+const TOKEN_COMPRESS_THRESHOLD = 180_000;
+
+function estimateTokens(text: string): number {
+  if (!text) return 0;
+  // 中文字符：约 1.5 token/字；英文/数字：约 0.25 token/word
+  let tokens = 0;
+  const cjkCount = (text.match(/[\u4e00-\u9fff\u3400-\u4dbf]/g) || []).length;
+  tokens += cjkCount * 1.5;
+  const rest = text.replace(/[\u4e00-\u9fff\u3400-\u4dbf]/g, " ");
+  const words = rest.split(/\s+/).filter(Boolean);
+  tokens += words.length * 1.3; // 英文 word 约 1.3 token
+  return Math.ceil(tokens);
+}
+
+function estimateMessagesTokens(msgs: ChatMessage[]): number {
+  return msgs.reduce((sum, m) => sum + estimateTokens(m.text) + 4, 0); // +4 per msg overhead
+}
+
 // ─── Right panel (Studio Chat) ─────────────────────────────────────────────────
 
 function StudioChat({
@@ -1968,11 +1987,11 @@ function StudioChat({
   clearRef?: { current: (() => void) | null };
   setInputRef?: { current: ((text: string) => void) | null };
 }) {
-  // 消息按 conv+skill 分 key 持久化到 sessionStorage，页面刷新后恢复
+  // 消息按 conv+skill 分 key 持久化到 localStorage，跨 tab/页面重启后恢复
   const _storageKey = `studio_msgs_${convId}_${skillId ?? "free"}`;
   const [messages, setMessages] = useState<ChatMessage[]>(() => {
     try {
-      const raw = sessionStorage.getItem(_storageKey);
+      const raw = localStorage.getItem(_storageKey);
       return raw ? (JSON.parse(raw) as ChatMessage[]) : [];
     } catch { return []; }
   });
@@ -2003,11 +2022,10 @@ function StudioChat({
         setPendingDraft(null);
         setPendingSummary(null);
         setPendingFileSplit(null);
-        try { sessionStorage.removeItem(_storageKey); } catch { /* ignore */ }
+        try { localStorage.removeItem(_storageKey); } catch { /* ignore */ }
       };
     }
     return () => { if (clearRef) clearRef.current = null; };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [clearRef, _storageKey]);
 
   // 注册 setInput 回调给父组件（用于意见采纳填充）
@@ -2021,23 +2039,43 @@ function StudioChat({
     return () => { if (setInputRef) setInputRef.current = null; };
   }, [setInputRef]);
 
-  // skillId 切换时从 sessionStorage 加载对应历史
+  // skillId 切换时从 localStorage 加载对应历史
   useEffect(() => {
     try {
-      const raw = sessionStorage.getItem(_storageKey);
+      const raw = localStorage.getItem(_storageKey);
       setMessages(raw ? (JSON.parse(raw) as ChatMessage[]) : []);
     } catch { setMessages([]); }
     setPendingDraft(null);
     setPendingSummary(null);
     setPendingFileSplit(null);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [_storageKey]);
 
-  // 每次 messages 变化时同步到 sessionStorage
+  // 每次 messages 变化时同步到 localStorage
   useEffect(() => {
-    try { sessionStorage.setItem(_storageKey, JSON.stringify(messages)); } catch { /* quota exceeded */ }
+    try { localStorage.setItem(_storageKey, JSON.stringify(messages)); } catch { /* quota exceeded */ }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [messages]);
+
+  // 18w token 自动压缩
+  const [compressing, setCompressing] = useState(false);
+  useEffect(() => {
+    if (streaming || compressing || messages.length < 6) return;
+    const totalTokens = estimateMessagesTokens(messages);
+    if (totalTokens < TOKEN_COMPRESS_THRESHOLD) return;
+    setCompressing(true);
+    apiFetch<{ messages: ChatMessage[] }>(`/conversations/${convId}/messages/compress`, {
+      method: "POST",
+      body: JSON.stringify({ skill_id: skillId, messages }),
+    })
+      .then((res) => {
+        if (res.messages && res.messages.length > 0) {
+          setMessages(res.messages);
+        }
+      })
+      .catch(() => { /* 压缩失败静默忽略 */ })
+      .finally(() => setCompressing(false));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [messages, streaming]);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
@@ -2287,7 +2325,7 @@ function StudioChat({
           <div className="flex items-center justify-center h-full">
             <p className="text-[9px] text-gray-400 font-bold uppercase text-center">
               描述你想创建或修改的 Skill<br />
-              <span className="text-gray-300 normal-case font-normal">说"帮我测试"可以触发测试</span>
+              <span className="text-gray-300 normal-case font-normal">说&ldquo;帮我测试&rdquo;可以触发测试</span>
             </p>
           </div>
         )}
@@ -2350,6 +2388,15 @@ function StudioChat({
           onConfirm={handleConfirmSplit}
           onDiscard={() => setPendingFileSplit(null)}
         />
+      )}
+
+      {/* Compressing indicator */}
+      {compressing && (
+        <div className="px-3 py-1.5 bg-amber-50 border-t border-amber-200 flex-shrink-0">
+          <span className="text-[8px] font-bold uppercase tracking-widest text-amber-600 animate-pulse">
+            正在压缩历史消息...
+          </span>
+        </div>
       )}
 
       {/* Input */}
@@ -2464,6 +2511,7 @@ export function SkillStudio({ convId }: { convId: number }) {
     return [...skills, ...globalSkills].filter((s) => { if (seen.has(s.id)) return false; seen.add(s.id); return true; });
   })();
 
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- fetchSkills is a stable callback that fetches data
   useEffect(() => { fetchSkills(); }, [fetchSkills]);
 
   function handleNew() {
@@ -2473,11 +2521,49 @@ export function SkillStudio({ convId }: { convId: number }) {
     setSavedPrompt("");
   }
 
-  function handleSaved(skill: SkillDetail) {
+  async function handleSaved(skill: SkillDetail) {
     setSelectedFile({ skillId: skill.id, fileType: "prompt" });
     setIsNew(false);
     setSavedPrompt(prompt);
     fetchSkills();
+
+    // 将本轮 chat 摘要写入 skill 的 _memo.md 附属文件
+    const chatKey = `studio_msgs_${convId}_${skill.id}`;
+    try {
+      const raw = localStorage.getItem(chatKey);
+      const chatMsgs: ChatMessage[] = raw ? JSON.parse(raw) : [];
+      if (chatMsgs.length > 0) {
+        // 取最近 10 条消息作为摘要
+        const recent = chatMsgs.slice(-10);
+        const summary = recent.map((m) => {
+          const prefix = m.role === "user" ? "👤" : "🤖";
+          const text = m.text.length > 200 ? m.text.slice(0, 200) + "..." : m.text;
+          return `${prefix} ${text}`;
+        }).join("\n\n");
+
+        const now = new Date().toLocaleString("zh-CN", { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
+        const newEntry = `## ${now} 改动记录\n\n${summary}\n\n---\n`;
+
+        // 读取已有 memo 内容并追加
+        let existing = "";
+        try {
+          const res = await apiFetch<{ content: string }>(`/skills/${skill.id}/files/_memo.md`);
+          existing = res.content || "";
+        } catch { /* 文件不存在，忽略 */ }
+
+        const header = existing ? "" : `# Skill Memo - ${skill.name}\n\n`;
+        const content = header + newEntry + existing.replace(/^# Skill Memo.*\n\n/, "");
+
+        await apiFetch(`/skills/${skill.id}/files/${encodeURIComponent("_memo.md")}`, {
+          method: "PUT",
+          body: JSON.stringify({ content }),
+        });
+
+        // 归档后清空本轮 chat
+        localStorage.removeItem(chatKey);
+        clearChatRef.current?.();
+      }
+    } catch { /* memo 写入失败不阻塞保存流程 */ }
   }
 
   async function handleFork() {
@@ -2525,6 +2611,17 @@ export function SkillStudio({ convId }: { convId: number }) {
         }),
       });
     } catch { /* best effort */ }
+
+    // 自动在 workdir 中创建 skill 项目文件夹
+    const safeName = selectedSkill.name.replace(/[^a-zA-Z0-9\u4e00-\u9fff_-]/g, "");
+    const folderName = `skill-${selectedSkill.id}-${safeName}`;
+    try {
+      await apiFetch("/dev-studio/workdir/mkdir", {
+        method: "POST",
+        body: JSON.stringify({ path: folderName }),
+      });
+    } catch { /* 文件夹可能已存在，忽略 */ }
+
     window.open(`/dev-studio?from_skill=${selectedSkill.id}`, "_blank");
   }
 

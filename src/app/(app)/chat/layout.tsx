@@ -7,7 +7,7 @@ import { useRouter, usePathname } from "next/navigation";
 import { apiFetch } from "@/lib/api";
 import { useChatStore } from "@/lib/chat-store";
 import type { Conversation, Workspace } from "@/lib/types";
-import { PixelIcon, ICONS } from "@/components/pixel";
+import { ICONS } from "@/components/pixel";
 import { ThemedPageIcon } from "@/components/layout/PageShell";
 import { useTheme } from "@/lib/theme";
 

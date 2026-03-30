@@ -18,7 +18,7 @@ type ProjectType = "dev" | "custom";
 
 export default function NewProjectPage() {
   const router = useRouter();
-  const { user } = useAuth();
+  useAuth(); // ensure authenticated
   const [projectType, setProjectType] = useState<ProjectType>("custom");
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
@@ -107,7 +107,6 @@ export default function NewProjectPage() {
   }
 
   // 已选的 user_id 列表（用于 exclude，避免重复选人）
-  const currentUserId = user?.id ?? 0;
   const selectedCustomIds = members.map((m) => m.user_id).filter(Boolean);
   const devExcludeForRequester = [developer?.id].filter(Boolean) as number[];
   const devExcludeForDeveloper = [requester?.id].filter(Boolean) as number[];

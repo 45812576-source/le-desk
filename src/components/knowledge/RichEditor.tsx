@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useRef, useEffect, useState } from "react";
-import { useEditor, EditorContent } from "@tiptap/react";
+import { useEditor, EditorContent, type Editor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import { Table } from "@tiptap/extension-table";
 import TableRow from "@tiptap/extension-table-row";
@@ -31,7 +31,7 @@ import {
   AlignLeft, AlignCenter, AlignRight,
   Grid3x3, ImagePlus, Link as LinkIcon,
   Undo2, Redo2, Highlighter, CheckSquare, Minus,
-  Table as TableIcon, Plus, Trash2,
+  Table as TableIcon, Trash2,
   Rows3, Columns3,
   MessageSquareWarning, Paperclip, Sigma,
 } from "lucide-react";
@@ -43,7 +43,7 @@ interface SlashMenuItem {
   description: string;
   icon: React.ReactNode;
   group: string;
-  command: (editor: any, callbacks?: SlashCallbacks) => void;
+  command: (editor: Editor, callbacks?: SlashCallbacks) => void;
 }
 
 interface SlashCallbacks {
@@ -83,7 +83,7 @@ function SlashCommandMenu({
   position,
   callbacks,
 }: {
-  editor: any;
+  editor: Editor;
   query: string;
   onClose: () => void;
   position: { top: number; left: number };
@@ -206,7 +206,7 @@ function ToolDivider() {
   return <span className="w-px h-5 bg-gray-200 mx-1 flex-shrink-0" />;
 }
 
-function Toolbar({ editor, onImageUpload }: { editor: any; onImageUpload: () => void }) {
+function Toolbar({ editor, onImageUpload }: { editor: Editor; onImageUpload: () => void }) {
   const setLink = () => {
     const prev = editor.getAttributes("link").href as string | undefined;
     const url = window.prompt("链接地址", prev || "https://");
@@ -274,7 +274,7 @@ function Toolbar({ editor, onImageUpload }: { editor: any; onImageUpload: () => 
 
 // ─── Floating Bubble Toolbar (on text selection) ─────────────────────────────
 
-function BubbleToolbar({ editor }: { editor: any }) {
+function BubbleToolbar({ editor }: { editor: Editor }) {
   const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
   const toolbarRef = useRef<HTMLDivElement>(null);
 
