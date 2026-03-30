@@ -378,6 +378,18 @@ function StatusBadge({ status }: { status: string }) {
   return <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-gray-100 text-gray-600">{status}</span>;
 }
 
+function SystemPromptBlock({ value }: { value: unknown }) {
+  if (!value) return null;
+  return (
+    <div>
+      <div className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider mb-1">System Prompt</div>
+      <pre className="text-[10px] text-foreground whitespace-pre-wrap leading-relaxed font-mono bg-background border border-border rounded px-3 py-2 max-h-48 overflow-y-auto">
+        {String(value)}
+      </pre>
+    </div>
+  );
+}
+
 function ApprovalCard({
   request: r,
   acting,
