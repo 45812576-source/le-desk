@@ -35,6 +35,12 @@ app.prepare().then(() => {
       return;
     }
 
+    // /api/knowledge/collab/* → 协同编辑 WebSocket
+    if (pathname && pathname.startsWith("/api/knowledge/collab")) {
+      proxy.ws(req, socket, head);
+      return;
+    }
+
     // /api/opencode-rpc/* → 用户专属 opencode 实例
     if (pathname && pathname.startsWith("/api/opencode-rpc")) {
       const ocPort = query._oc_port || "17171";

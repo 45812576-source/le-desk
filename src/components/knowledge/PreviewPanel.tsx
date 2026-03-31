@@ -7,6 +7,7 @@ import { useTheme } from "@/lib/theme";
 import type { EditPermissionCheck, KnowledgeDetail, User } from "@/lib/types";
 import { apiFetch } from "@/lib/api";
 import { RichEditor } from "@/components/knowledge/RichEditor";
+import { CollabEditor } from "@/components/knowledge/CollabEditor";
 import DocumentViewer from "@/components/knowledge/DocumentViewer";
 
 interface Folder {
@@ -74,7 +75,6 @@ interface PreviewPanelProps {
 
 export default function PreviewPanel({
   entry,
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   currentUser,
   onUpdateContent,
   onDelete,
@@ -371,6 +371,8 @@ export default function PreviewPanel({
           htmlVal={htmlVal}
           canEdit={canEdit && !isLarkDoc}
           onContentChange={handleContentChange}
+          currentUser={currentUser}
+          onUpdateContent={onUpdateContent}
         />
       </div>
     </div>
@@ -383,11 +385,15 @@ function DocumentRenderResolver({
   htmlVal,
   canEdit,
   onContentChange,
+  currentUser,
+  onUpdateContent,
 }: {
   entry: KnowledgeDetail;
   htmlVal: string;
   canEdit: boolean;
   onContentChange: (html: string) => void;
+  currentUser: User | null;
+  onUpdateContent: (id: number, content: string, contentHtml?: string) => Promise<void>;
 }) {
   const ext = (entry.file_ext || "").toLowerCase();
   const renderStatus = entry.doc_render_status;
@@ -421,8 +427,20 @@ function DocumentRenderResolver({
     );
   }
 
-  // 3. content_html ready → RichEditor（非媒体文件）
+  // 3. content_html ready → CollabEditor（协同）或 RichEditor（非媒体文件）
   if (renderStatus === "ready" && entry.content_html && !isMedia) {
+    if (currentUser && canEdit) {
+      return (
+        <CollabEditor
+          key={`collab-${entry.id}`}
+          knowledgeId={entry.id}
+          initialHtml={htmlVal}
+          editable
+          userName={currentUser.username || currentUser.display_name || "用户"}
+          onSave={(html, text) => onUpdateContent(entry.id, text, html)}
+        />
+      );
+    }
     return <RichEditor key={entry.id} content={htmlVal} onChange={onContentChange} editable={canEdit} />;
   }
 
@@ -444,8 +462,20 @@ function DocumentRenderResolver({
     );
   }
 
-  // 6. 有内容 → RichEditor fallback
+  // 6. 有内容 → CollabEditor（协同）或 RichEditor fallback
   if (entry.content || htmlVal) {
+    if (currentUser && canEdit) {
+      return (
+        <CollabEditor
+          key={`collab-${entry.id}`}
+          knowledgeId={entry.id}
+          initialHtml={htmlVal}
+          editable
+          userName={currentUser.username || currentUser.display_name || "用户"}
+          onSave={(html, text) => onUpdateContent(entry.id, text, html)}
+        />
+      );
+    }
     return <RichEditor key={entry.id} content={htmlVal} onChange={onContentChange} editable={canEdit} />;
   }
 

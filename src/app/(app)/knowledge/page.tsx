@@ -20,6 +20,7 @@ import ContextMenu from "@/components/knowledge/ContextMenu";
 import DropZone from "@/components/knowledge/DropZone";
 import UploadProgress, { type UploadingFile } from "@/components/knowledge/UploadProgress";
 import RecentFiles, { addRecentFile } from "@/components/knowledge/RecentFiles";
+import CommentPanel from "@/components/knowledge/CommentPanel";
 
 type Tab = "files" | "search";
 type TreeMode = "user" | "rag";
@@ -118,6 +119,11 @@ function FileManagerTab() {
   const [batchMode, setBatchMode] = useState(false);
   const [batchSuggestions, setBatchSuggestions] = useState<Record<number, { id: number; suggested_folder_id: number | null; suggested_folder_path: string; confidence: number; reason: string } | null>>({});
   const [batchLoading, setBatchLoading] = useState(false);
+  const [showComments, setShowComments] = useState(false);
+  const [autoFilingRunning, setAutoFilingRunning] = useState(false);
+  const [autoFilingResult, setAutoFilingResult] = useState<{ filed: number; skipped: number; low_confidence: number; batch_id: string; suggestions: Array<{ id: number; knowledge_id: number; title: string; suggested_folder_id: number; confidence: number; reason: string }> } | null>(null);
+  const [pendingSuggestions, setPendingSuggestions] = useState<Array<{ id: number; knowledge_id: number; title: string; suggested_folder_id: number; suggested_folder_path: string; confidence: number; reason: string }>>([]);
+  const [showPendingSuggestions, setShowPendingSuggestions] = useState(false);
 
   const handleSelectEntry = useCallback(async (e: KnowledgeDetail) => {
     setSelectedEntry(e);
@@ -460,8 +466,107 @@ function FileManagerTab() {
             </div>
           )}
           {treeMode === "rag" && (
-            <div className="px-3 py-1.5">
-              <span className="text-[9px] font-bold uppercase tracking-widest text-[#00A3C4]">RAG 自动归档</span>
+            <div className="px-3 py-1.5 space-y-1.5">
+              <div className="flex items-center justify-between">
+                <span className="text-[9px] font-bold uppercase tracking-widest text-[#00A3C4]">系统归档树</span>
+                <div className="flex items-center gap-1">
+                  <button disabled={autoFilingRunning} onClick={async () => { setAutoFilingRunning(true); setAutoFilingResult(null); try { const res = await apiFetch<{ filed: number; skipped: number; low_confidence: number; batch_id: string; suggestions: Array<{ id: number; knowledge_id: number; title: string; suggested_folder_id: number; confidence: number; reason: string }> }>("/knowledge/filing/auto-run", { method: "POST" }); setAutoFilingResult(res); const msg = res.suggestions.length > 0 ? `已归档 ${res.filed} 个，${res.suggestions.length} 个待审阅` : `已自动归档 ${res.filed} 个文件`; setToast(msg); fetchAll(); } catch { setToast("自动归档失败"); } setAutoFilingRunning(false); }} className="flex items-center gap-1 px-2 py-0.5 border-2 border-[#00CC99] bg-[#00CC99]/10 text-[#00CC99] text-[9px] font-bold uppercase hover:bg-[#00CC99] hover:text-white transition-colors disabled:opacity-50">{autoFilingRunning ? "归档中..." : "一键归档"}</button>
+                  <button onClick={async () => { setShowPendingSuggestions(!showPendingSuggestions); if (!showPendingSuggestions) { try { const res = await apiFetch<Array<{ id: number; knowledge_id: number; title: string; suggested_folder_id: number; suggested_folder_path: string; confidence: number; reason: string }>>("/knowledge/filing/suggestions?status=pending"); setPendingSuggestions(res); } catch { setToast("加载待审建议失败"); } } }} className={`px-2 py-0.5 border-2 text-[9px] font-bold uppercase transition-colors ${showPendingSuggestions ? "border-amber-500 bg-amber-500 text-white" : "border-amber-400 text-amber-500 hover:bg-amber-50"}`}>待审</button>
+                  <button onClick={async () => { try { await apiFetch("/knowledge/filing/ensure-system-tree", { method: "POST" }); setToast("系统归档树已刷新"); } catch { setToast("刷新失败"); } }} className="px-2 py-0.5 border-2 border-gray-300 text-gray-500 text-[9px] font-bold uppercase hover:bg-gray-100 transition-colors" title="初始化/刷新系统归档树">刷新树</button>
+                </div>
+              </div>
+              {autoFilingResult && (
+                <div className="space-y-1">
+                  <div className="flex items-center justify-between text-[9px] bg-[#00CC99]/10 px-2 py-1 border border-[#00CC99]/30">
+                    <span className="text-[#00CC99] font-medium">
+                      已归档 {autoFilingResult.filed} / 待审 {autoFilingResult.suggestions.length} / 跳过 {autoFilingResult.skipped}
+                    </span>
+                    <button onClick={async () => { try { const res = await apiFetch<{ undone: number }>("/knowledge/filing/undo", { method: "POST", body: JSON.stringify({ batch_id: autoFilingResult.batch_id }) }); setToast(`已撤销 ${res.undone} 个归档`); setAutoFilingResult(null); fetchAll(); } catch { setToast("撤销失败"); } }} className="text-red-400 hover:text-red-500 font-bold uppercase">撤销</button>
+                  </div>
+                  {autoFilingResult.suggestions.length > 0 && (
+                    <div className="border border-amber-300 bg-amber-50 px-2 py-1 space-y-1 max-h-[200px] overflow-y-auto">
+                      <span className="text-[9px] font-bold uppercase tracking-widest text-amber-600">低置信度待审阅</span>
+                      {autoFilingResult.suggestions.map((s) => (
+                        <div key={s.id} className="flex items-center gap-1.5 text-[9px] border-b border-amber-200 pb-1">
+                          <span className="flex-1 truncate font-medium text-gray-700">{s.title}</span>
+                          <span className="text-amber-600 text-[8px]">{Math.round(s.confidence * 100)}%</span>
+                          <span className="text-gray-400 truncate max-w-[100px] text-[8px]">{s.reason}</span>
+                          <button
+                            onClick={async () => {
+                              try {
+                                await apiFetch(`/knowledge/${s.knowledge_id}/filing-suggestion/accept`, { method: "POST", body: JSON.stringify({ suggestion_id: s.id }) });
+                                setAutoFilingResult(prev => prev ? { ...prev, suggestions: prev.suggestions.filter(x => x.id !== s.id), filed: prev.filed + 1 } : null);
+                                fetchAll();
+                              } catch { setToast("接受失败"); }
+                            }}
+                            className="px-1.5 py-0.5 bg-[#00CC99] text-white font-bold uppercase text-[8px] hover:bg-[#00CC99]/80"
+                          >接受</button>
+                          <button
+                            onClick={async () => {
+                              try {
+                                await apiFetch(`/knowledge/${s.knowledge_id}/filing-suggestion/reject`, { method: "POST", body: JSON.stringify({ suggestion_id: s.id }) });
+                                setAutoFilingResult(prev => prev ? { ...prev, suggestions: prev.suggestions.filter(x => x.id !== s.id) } : null);
+                              } catch { setToast("拒绝失败"); }
+                            }}
+                            className="px-1.5 py-0.5 border border-gray-300 text-gray-500 font-bold uppercase text-[8px] hover:bg-gray-100"
+                          >跳过</button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+              {showPendingSuggestions && (
+                <div className="border border-amber-300 bg-amber-50 px-2 py-1 space-y-1 max-h-[300px] overflow-y-auto">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[9px] font-bold uppercase tracking-widest text-amber-600">
+                      待审归档建议 ({pendingSuggestions.length})
+                    </span>
+                    {pendingSuggestions.length > 0 && (
+                      <button
+                        onClick={async () => {
+                          for (const s of pendingSuggestions) {
+                            try { await apiFetch(`/knowledge/${s.knowledge_id}/filing-suggestion/accept`, { method: "POST", body: JSON.stringify({ suggestion_id: s.id }) }); } catch {}
+                          }
+                          setPendingSuggestions([]);
+                          setToast(`已全部接受 ${pendingSuggestions.length} 条建议`);
+                          fetchAll();
+                        }}
+                        className="text-[8px] text-[#00CC99] font-bold uppercase hover:underline"
+                      >全部接受</button>
+                    )}
+                  </div>
+                  {pendingSuggestions.length === 0 && (
+                    <p className="text-[9px] text-gray-400 py-2 text-center">暂无待审建议</p>
+                  )}
+                  {pendingSuggestions.map((s) => (
+                    <div key={s.id} className="flex items-center gap-1.5 text-[9px] border-b border-amber-200 pb-1">
+                      <span className="flex-1 truncate font-medium text-gray-700">{s.title}</span>
+                      <span className="text-amber-600 text-[8px]">{Math.round(s.confidence * 100)}%</span>
+                      <span className="text-gray-400 truncate max-w-[80px] text-[8px]">{s.reason}</span>
+                      <button
+                        onClick={async () => {
+                          try {
+                            await apiFetch(`/knowledge/${s.knowledge_id}/filing-suggestion/accept`, { method: "POST", body: JSON.stringify({ suggestion_id: s.id }) });
+                            setPendingSuggestions(prev => prev.filter(x => x.id !== s.id));
+                            fetchAll();
+                          } catch { setToast("接受失败"); }
+                        }}
+                        className="px-1.5 py-0.5 bg-[#00CC99] text-white font-bold uppercase text-[8px] hover:bg-[#00CC99]/80"
+                      >接受</button>
+                      <button
+                        onClick={async () => {
+                          try {
+                            await apiFetch(`/knowledge/${s.knowledge_id}/filing-suggestion/reject`, { method: "POST", body: JSON.stringify({ suggestion_id: s.id }) });
+                            setPendingSuggestions(prev => prev.filter(x => x.id !== s.id));
+                          } catch { setToast("拒绝失败"); }
+                        }}
+                        className="px-1.5 py-0.5 border border-gray-300 text-gray-500 font-bold uppercase text-[8px] hover:bg-gray-100"
+                      >跳过</button>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -662,6 +767,33 @@ function FileManagerTab() {
         folders={treeMode === "rag" && currentUser?.role === "super_admin" ? folders : folders}
         onMoveToFolder={treeMode === "rag" && currentUser?.role === "super_admin" ? handleMoveEntry : undefined}
       />
+
+      {/* Comment toggle strip */}
+      {selectedEntry && (
+        <button
+          onClick={() => setShowComments(!showComments)}
+          className={`w-6 flex-shrink-0 border-l border-gray-200 flex items-center justify-center hover:bg-gray-50 transition-colors ${showComments ? "bg-[#E0F7FF] text-[#00A3C4]" : "text-gray-400"}`}
+          title={showComments ? "关闭评论" : "打开评论"}
+        >
+          <span className="[writing-mode:vertical-lr] text-[9px] font-bold uppercase tracking-widest">评论</span>
+        </button>
+      )}
+
+      {/* Comment panel */}
+      {showComments && selectedEntry && currentUser && (
+        <CommentPanel
+          knowledgeId={selectedEntry.id}
+          currentUserId={currentUser.id}
+          canEdit={selectedEntry.created_by === currentUser.id || currentUser.role === "super_admin"}
+          onToast={(msg) => setToast(msg)}
+          onRestoreSuccess={() => {
+            // 恢复快照后刷新正文
+            if (selectedEntry) {
+              handleSelectEntry(selectedEntry);
+            }
+          }}
+        />
+      )}
 
       {/* Context menu */}
       {contextMenu && (
