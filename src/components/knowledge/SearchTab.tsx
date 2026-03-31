@@ -136,6 +136,9 @@ export default function SearchTab() {
                       {taxOpt?.value && <PixelBadge color={taxOpt.color}>{taxOpt.label}</PixelBadge>}
                       <span className="text-[8px] text-gray-400 ml-auto">{Math.round(chunk.score * 100)}%</span>
                     </div>
+                    {chunk.heading_path && (
+                      <p className="text-[8px] text-gray-400 mb-1 truncate">📍 {chunk.heading_path}</p>
+                    )}
                     <p className="text-[9px] text-gray-500 line-clamp-3 leading-relaxed">{chunk.text}</p>
                     {chunk.source_file && <p className="text-[8px] text-[#00A3C4] mt-1 truncate">{chunk.source_file}</p>}
                   </div>
@@ -156,13 +159,27 @@ export default function SearchTab() {
                   {preview.source_type && <PixelBadge color="gray">{preview.source_type}</PixelBadge>}
                 </div>
                 {preview.source_file && <p className="text-[9px] text-[#00A3C4] mb-4">来源文件：{preview.source_file}</p>}
+                {selectedChunk?.heading_path && (
+                  <div className="flex items-center gap-1 mb-3 px-2 py-1.5 bg-[#F0F9FF] border border-[#00D1FF]/30 text-[9px] text-[#00A3C4]">
+                    <span className="font-bold">定位:</span>
+                    <span>{selectedChunk.heading_path}</span>
+                  </div>
+                )}
                 <div className="text-[10px] font-bold uppercase tracking-widest text-[#00A3C4] mb-2">全文内容</div>
                 <div className="space-y-3">
-                  {preview.chunks.map((c) => (
-                    <div key={c.index} className={`border-l-2 pl-3 py-1 text-[10px] leading-relaxed whitespace-pre-wrap ${selectedChunk.chunk_index === c.index ? "border-[#00D1FF] text-[#1A202C]" : "border-gray-200 text-gray-500"}`}>
-                      {c.text}
-                    </div>
-                  ))}
+                  {preview.chunks.map((c) => {
+                    const isHit = selectedChunk?.chunk_index === c.index;
+                    return (
+                      <div
+                        key={c.index}
+                        id={`chunk-${c.index}`}
+                        ref={isHit ? (el) => { el?.scrollIntoView({ behavior: "smooth", block: "center" }); } : undefined}
+                        className={`border-l-2 pl-3 py-1 text-[10px] leading-relaxed whitespace-pre-wrap transition-colors ${isHit ? "border-[#00D1FF] bg-[#CCF2FF]/30 text-[#1A202C]" : "border-gray-200 text-gray-500"}`}
+                      >
+                        {c.text}
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
             ) : (

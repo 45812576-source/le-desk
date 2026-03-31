@@ -504,6 +504,11 @@ export interface ChunkSearchResult {
   taxonomy_board: string | null;
   category: string | null;
   title: string;
+  // Block mapping (may be null for legacy entries)
+  block_id: number | null;
+  block_key: string | null;
+  heading_path: string | null;
+  char_range: [number, number] | null;
 }
 
 export interface KnowledgeChunkDetail {

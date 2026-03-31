@@ -115,6 +115,9 @@ function FileManagerTab() {
   const [filterText, setFilterText] = useState("");
   const [filterSource, setFilterSource] = useState<string>("all");
   const [filterStatus, setFilterStatus] = useState<string>("all");
+  const [batchMode, setBatchMode] = useState(false);
+  const [batchSuggestions, setBatchSuggestions] = useState<Record<number, { id: number; suggested_folder_id: number | null; suggested_folder_path: string; confidence: number; reason: string } | null>>({});
+  const [batchLoading, setBatchLoading] = useState(false);
 
   const handleSelectEntry = useCallback(async (e: KnowledgeDetail) => {
     setSelectedEntry(e);
@@ -207,6 +210,7 @@ function FileManagerTab() {
       if (filterStatus === "processing" && e.doc_render_status !== "processing" && e.doc_render_status !== "pending") return false;
       if (filterStatus === "failed" && e.doc_render_status !== "failed") return false;
       if (filterStatus === "sync_error" && e.sync_status !== "error") return false;
+      if (filterStatus === "unfiled" && e.folder_id != null) return false;
     }
     return true;
   });
@@ -406,6 +410,7 @@ function FileManagerTab() {
                   <option value="processing">处理中</option>
                   <option value="failed">转换失败</option>
                   <option value="sync_error">同步异常</option>
+                  <option value="unfiled">未归档</option>
                 </select>
               </div>
               <div className="flex items-center justify-between">
@@ -414,12 +419,35 @@ function FileManagerTab() {
                 </span>
                 <div className="flex items-center gap-1">
                   {selectedIds.size > 0 && (
-                    <button
-                      onClick={handleBatchDelete}
-                      className="flex items-center gap-1 px-2 py-0.5 border-2 border-red-400 bg-red-50 text-red-500 text-[9px] font-bold uppercase hover:bg-red-400 hover:text-white transition-colors"
-                    >
-                      删除 {selectedIds.size}
-                    </button>
+                    <>
+                      <button
+                        onClick={handleBatchDelete}
+                        className="flex items-center gap-1 px-2 py-0.5 border-2 border-red-400 bg-red-50 text-red-500 text-[9px] font-bold uppercase hover:bg-red-400 hover:text-white transition-colors"
+                      >
+                        删除 {selectedIds.size}
+                      </button>
+                      <button
+                        onClick={async () => {
+                          setBatchMode(true);
+                          setBatchLoading(true);
+                          try {
+                            const res = await apiFetch<{ suggestions: Array<{ knowledge_id: number; suggestion: { id: number; suggested_folder_id: number | null; suggested_folder_path: string; confidence: number; reason: string } | null }> }>("/knowledge/batch/suggest-folders", {
+                              method: "POST",
+                              body: JSON.stringify({ entry_ids: Array.from(selectedIds) }),
+                            });
+                            const map: typeof batchSuggestions = {};
+                            for (const s of res.suggestions) {
+                              map[s.knowledge_id] = s.suggestion;
+                            }
+                            setBatchSuggestions(map);
+                          } catch { }
+                          setBatchLoading(false);
+                        }}
+                        className="flex items-center gap-1 px-2 py-0.5 border-2 border-[#00CC99] bg-[#00CC99]/10 text-[#00CC99] text-[9px] font-bold uppercase hover:bg-[#00CC99] hover:text-white transition-colors"
+                      >
+                        归档 {selectedIds.size}
+                      </button>
+                    </>
                   )}
                   <button
                     onClick={openNewFolder}
@@ -547,6 +575,63 @@ function FileManagerTab() {
                       />
                     ))}
                   </div>
+
+                  {/* Batch filing panel */}
+                  {batchMode && (
+                    <div className="mx-2 my-2 border-2 border-[#00CC99] bg-[#00CC99]/5 p-2 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[9px] font-bold uppercase tracking-widest text-[#00CC99]">
+                          {batchLoading ? "生成归档建议中..." : `归档建议 (${Object.keys(batchSuggestions).length})`}
+                        </span>
+                        <div className="flex gap-1">
+                          <button
+                            onClick={async () => {
+                              const toAccept = Object.entries(batchSuggestions).filter(([, s]) => s?.suggested_folder_id);
+                              if (toAccept.length === 0) return;
+                              for (const [kid, s] of toAccept) {
+                                if (!s) continue;
+                                await apiFetch(`/knowledge/${kid}/filing-suggestion/accept`, {
+                                  method: "POST",
+                                  body: JSON.stringify({ suggestion_id: s.id }),
+                                });
+                              }
+                              setToast(`已归档 ${toAccept.length} 个文件`);
+                              setBatchMode(false);
+                              setBatchSuggestions({});
+                              setSelectedIds(new Set());
+                              fetchAll();
+                            }}
+                            className="px-2 py-0.5 border-2 border-[#00CC99] bg-[#00CC99] text-white text-[9px] font-bold uppercase hover:opacity-80"
+                          >
+                            全部接受
+                          </button>
+                          <button
+                            onClick={() => { setBatchMode(false); setBatchSuggestions({}); }}
+                            className="px-2 py-0.5 border-2 border-gray-300 text-gray-500 text-[9px] font-bold uppercase hover:border-red-400 hover:text-red-400"
+                          >
+                            取消
+                          </button>
+                        </div>
+                      </div>
+                      {!batchLoading && Object.entries(batchSuggestions).map(([kid, suggestion]) => {
+                        const entry = entries.find(e => e.id === Number(kid));
+                        if (!entry) return null;
+                        return (
+                          <div key={kid} className="flex items-center gap-2 text-[9px] border-b border-gray-200 pb-1">
+                            <span className="flex-1 truncate font-bold">{entry.ai_title || entry.title}</span>
+                            {suggestion ? (
+                              <>
+                                <span className="text-[#00A3C4] truncate max-w-[120px]">→ {suggestion.suggested_folder_path}</span>
+                                <span className="text-gray-400">({Math.round(suggestion.confidence * 100)}%)</span>
+                              </>
+                            ) : (
+                              <span className="text-gray-400">无建议</span>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
 
                   {/* Empty state */}
                   {(tree.get(null) ?? []).length === 0 && rootFiles.length === 0 && myEntries.length === 0 && uploadingFiles.length === 0 && (
