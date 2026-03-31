@@ -256,12 +256,10 @@ export function Sidebar({ user, taskPending = 0, onLogout }: SidebarProps) {
 
         {/* Nav */}
         <nav className={`${collapsed ? "px-1 py-2" : "px-2 py-2"} space-y-0`}>
-          <NavGroup label="工作台" storageKey="nav_group_workspace" collapsed={collapsed} isLab={isLab}>
-            <NavItem href="/chat" label="对话" icon={ICONS.chat} {...navItemProps} />
+          <NavGroup label="协同办公" storageKey="nav_group_workspace" collapsed={collapsed} isLab={isLab}>
+            <NavItem href="/chat" label="工作台" icon={ICONS.chat} {...navItemProps} />
             <NavItem href="/projects" label="项目" icon={ICONS.project} {...navItemProps} />
             <NavItem href="/tasks" label="待办中心" icon={ICONS.tasks} {...navItemProps} badge={taskPending} />
-            <NavItem href="/dev-studio" label="工具开发" icon={ICONS.devStudio} {...navItemProps} />
-            <NavItem href="/skill-studio" label="Skill Studio" icon={ICONS.devStudio} {...navItemProps} />
           </NavGroup>
 
           <NavGroup label="知识管理" storageKey="nav_group_knowledge" collapsed={collapsed} isLab={isLab}>
