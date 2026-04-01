@@ -213,15 +213,17 @@ export async function GET(
     // 内网穿透场景：location.origin 是 ngrok URL，必须强制替换为 /api/opencode-rpc
     js = js.replace(
       'location.hostname.includes("opencode.ai")?"http://localhost:4096":location.origin',
-      '"/api/opencode-rpc"'
+      'location.origin+"/api/opencode-rpc"'
     );
     // 兜底：替换其他可能的变体写法（minified 版本可能有空格差异）
     js = js.replace(
       /location\.hostname\.includes\("opencode\.ai"\)\s*\?\s*"http:\/\/localhost:4096"\s*:\s*location\.origin/g,
-      '"/api/opencode-rpc"'
+      'location.origin+"/api/opencode-rpc"'
     );
-    // opencode 的 API client 硬编码了 http://localhost:4096，替换为相对路径代理
-    js = js.replace(/http:\/\/localhost:4096/g, "/api/opencode-rpc");
+    // opencode SDK 的 baseUrl 硬编码了 http://localhost:4096，替换为绝对路径代理
+    // 注意：new URL(path, base) 要求 base 是绝对 URL，不能用相对路径
+    // 只替换 baseUrl 上下文，避免破坏 placeholder 等普通字符串
+    js = js.replace(/baseUrl:"http://localhost:4096"/g, 'baseUrl:location.origin+"/api/opencode-rpc"');
     const respHeaders = new Headers();
     respHeaders.set("content-type", contentType || "application/javascript");
     respHeaders.set("cache-control", "no-store, no-cache, must-revalidate");
