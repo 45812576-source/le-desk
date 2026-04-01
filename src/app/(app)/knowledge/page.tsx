@@ -193,9 +193,8 @@ function FileManagerTab() {
     fetchAll();
   }
 
-  const myEntries = currentUser
-    ? entries.filter((e) => e.created_by === currentUser.id)
-    : entries;
+  // 权限过滤由后端完成，前端不再二次过滤
+  const myEntries = entries; // was: currentUser
 
   // Apply sidebar filters
   const filteredEntries = myEntries.filter((e) => {
