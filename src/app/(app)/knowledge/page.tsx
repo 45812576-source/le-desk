@@ -158,10 +158,14 @@ const FileManagerTab = forwardRef<{ createDoc: () => void; triggerUpload: () => 
     finally { if (!silent) setLoading(false); }
   }, []);
 
-  // 首次加载：确保"我的知识"根目录存在 + 拉取列表
+  // 首次加载：先确保"我的知识"根目录存在，再拉取列表
+  // 必须串行：否则 fetchAll 可能拿不到刚建的 folder，导致文档在树中消失
   useEffect(() => {
-    apiFetch("/knowledge/ensure-my-folder", { method: "POST" }).catch(() => {});
-    fetchAll();
+    async function init() {
+      try { await apiFetch("/knowledge/ensure-my-folder", { method: "POST" }); } catch {}
+      fetchAll();
+    }
+    init();
   }, [fetchAll]);
 
   // 新建文档 — optimistic: 先拿到 id 立即选中，后台拉列表不闪
@@ -199,6 +203,13 @@ const FileManagerTab = forwardRef<{ createDoc: () => void; triggerUpload: () => 
         taxonomy_path: [],
       };
       setEntries(prev => [optimistic, ...prev]);
+      // 确保 folder 在树中存在（否则文档因 folder_id 不匹配任何 folder 而消失）
+      if (res.folder_id && res.folder_name) {
+        setFolders(prev => {
+          if (prev.some(f => f.id === res.folder_id)) return prev;
+          return [{ id: res.folder_id!, name: res.folder_name!, parent_id: null, sort_order: -1, created_by: 0, created_at: new Date().toISOString() } as Folder, ...prev];
+        });
+      }
       setSelectedEntry(optimistic);
       addRecentFile(res.id);
       setToast(`已创建「${res.title}」${res.folder_name ? ` → ${res.folder_name}` : ""}`);
