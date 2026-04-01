@@ -2040,10 +2040,18 @@ function StudioChat({
   const [pendingToolSuggestion, setPendingToolSuggestion] = useState<StudioToolSuggestion | null>(null);
   const [pendingFileSplit, setPendingFileSplit] = useState<StudioFileSplit | null>(null);
   const [splitting, setSplitting] = useState(false);
+
+  // V2 会话状态
   const [sessionState, setSessionState] = useState<{
-    mode: string; goal: string; file_status: string;
-    rejected: string[]; has_draft: boolean; total_rounds: number;
+    scenario: string; mode: string; goal: string;
+    confirmed_facts: string[]; active_constraints: string[];
+    rejected: string[]; file_status: string;
+    readiness: number; has_draft: boolean; total_rounds: number;
   } | null>(null);
+  const [reconciledFacts, setReconciledFacts] = useState<{ type: string; text: string }[]>([]);
+  const [directionShift, setDirectionShift] = useState<{ from: string; to: string } | null>(null);
+  const [fileNeedStatus, setFileNeedStatus] = useState<{ status: string; forbidden_countdown: number } | null>(null);
+  const [repeatBlocked, setRepeatBlocked] = useState<string | null>(null);
 
   // ── Memo action handlers ──
   async function handleMemoStartTask(taskId: string) {
@@ -2193,6 +2201,9 @@ function StudioChat({
     });
     setStreaming(true);
     setInput("");
+    setReconciledFacts([]);
+    setDirectionShift(null);
+    setRepeatBlocked(null);
 
     const ctrl = new AbortController();
     abortRef.current = ctrl;
@@ -2268,8 +2279,16 @@ function StudioChat({
               } else if (curEvt === "studio_memo_status" || curEvt === "studio_task_focus" || curEvt === "studio_persistent_notices") {
                 // Memo-related SSE events — refresh memo state from backend
                 onMemoRefresh();
-              } else if (curEvt === "studio_session_state") {
-                setSessionState(data as typeof sessionState);
+              } else if (curEvt === "studio_state_update") {
+                setSessionState(data as NonNullable<typeof sessionState>);
+              } else if (curEvt === "studio_reconciled_facts") {
+                setReconciledFacts((data as { facts: typeof reconciledFacts }).facts || []);
+              } else if (curEvt === "studio_direction_shift") {
+                setDirectionShift(data as NonNullable<typeof directionShift>);
+              } else if (curEvt === "studio_file_need_status") {
+                setFileNeedStatus(data as NonNullable<typeof fileNeedStatus>);
+              } else if (curEvt === "studio_repeat_blocked") {
+                setRepeatBlocked((data as { reason: string }).reason || null);
               } else if (curEvt === "studio_editor_target") {
                 // AI requests to open/create a specific file
                 const target = data as { file_type?: string; filename?: string };
@@ -2425,17 +2444,62 @@ function StudioChat({
         />
       )}
 
-      {/* Session state bar */}
+      {/* V2 当前理解面板 */}
       {sessionState && sessionState.total_rounds > 0 && (
-        <div className="px-3 py-1.5 bg-[#F0F4F8] border-b border-gray-200 flex-shrink-0">
-          <div className="flex items-center gap-3 text-[8px] font-mono text-gray-500">
-            <span className="font-bold text-[#00A3C4] uppercase">{sessionState.mode}</span>
+        <div className="px-3 py-2 bg-[#F0F4F8] border-b border-gray-200 flex-shrink-0 space-y-1">
+          <div className="flex items-center gap-2 text-[8px] font-mono text-gray-500">
+            <span className="font-bold text-[#00A3C4] uppercase">{sessionState.scenario !== "unknown" ? sessionState.scenario.replace(/_/g, " ") : "识别中"}</span>
+            <span className="text-gray-300">|</span>
+            <span className="font-bold uppercase">{sessionState.mode}</span>
+            <span className="text-gray-300">|</span>
             <span className="truncate flex-1">{sessionState.goal}</span>
-            {sessionState.file_status === "not_needed" && (
-              <span className="text-amber-500 font-bold">无文件</span>
+            {(sessionState.file_status === "not_needed" || sessionState.file_status === "forbidden") && (
+              <span className="text-amber-500 font-bold">{sessionState.file_status === "forbidden" ? "禁文件" : "无文件"}</span>
             )}
-            <span className="text-gray-400">R{sessionState.total_rounds}</span>
+            <span className="text-gray-400">R{sessionState.total_rounds} S{sessionState.readiness}/5</span>
           </div>
+          {/* 已确认事实（折叠） */}
+          {sessionState.confirmed_facts.length > 0 && (
+            <div className="text-[7px] text-gray-400 truncate">
+              已知：{sessionState.confirmed_facts.slice(0, 3).map(f => f.slice(0, 30)).join("；")}
+              {sessionState.confirmed_facts.length > 3 && `…等${sessionState.confirmed_facts.length}项`}
+            </div>
+          )}
+          {/* 约束 */}
+          {sessionState.active_constraints.length > 0 && (
+            <div className="text-[7px] text-red-400 truncate">
+              约束：{sessionState.active_constraints.slice(0, 2).map(c => c.slice(0, 25)).join("；")}
+            </div>
+          )}
+          {/* 被否定 */}
+          {sessionState.rejected.length > 0 && (
+            <div className="text-[7px] text-gray-400 line-through truncate">
+              否定：{sessionState.rejected.slice(0, 2).map(r => r.slice(0, 25)).join("；")}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* 本轮已采纳标签 */}
+      {reconciledFacts.length > 0 && (
+        <div className="px-3 py-1 bg-[#F0FFF9] border-b border-[#CCFFF0] flex gap-2 flex-wrap flex-shrink-0">
+          {reconciledFacts.map((f, i) => (
+            <span key={i} className={`text-[7px] px-1.5 py-0.5 font-mono ${
+              f.type === "correction" ? "bg-amber-100 text-amber-700" :
+              f.type === "scenario_shift" ? "bg-purple-100 text-purple-700" :
+              f.type === "file_rejection" ? "bg-red-100 text-red-600" :
+              f.type === "execution_request" ? "bg-blue-100 text-blue-700" :
+              f.type === "constraint" ? "bg-orange-100 text-orange-700" :
+              "bg-green-100 text-green-700"
+            }`}>
+              {f.type === "correction" ? "已纠偏" :
+               f.type === "scenario_shift" ? `切换→${f.text}` :
+               f.type === "file_rejection" ? "已禁文件" :
+               f.type === "execution_request" ? "直接出草稿" :
+               f.type === "constraint" ? `约束：${f.text.slice(0, 15)}` :
+               `已采纳：${f.text.slice(0, 15)}`}
+            </span>
+          ))}
         </div>
       )}
 
@@ -2469,8 +2533,9 @@ function StudioChat({
                 {[
                   { label: "方向不对", msg: "你理解的方向不对，我重新说一下：" , focusInput: true },
                   { label: "别重复问", msg: "这个问题你已经问过了，请基于已有信息继续推进" },
-                  { label: "先别管文件", msg: "先不需要文件，直接基于对话内容推进" },
+                  { label: "先别管文件", msg: "不要文件，直接基于对话内容推进" },
                   { label: "直接给草稿", msg: "信息够了，请直接输出 Skill 草稿" },
+                  { label: "按上句改", msg: "按我刚才那句修正来调整方向" },
                 ].map((action) => (
                   <button
                     key={action.label}
