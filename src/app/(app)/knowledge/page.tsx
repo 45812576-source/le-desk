@@ -145,8 +145,8 @@ const FileManagerTab = forwardRef<{ createDoc: () => void; triggerUpload: () => 
     } catch {}
   }, []);
 
-  const fetchAll = useCallback(async () => {
-    setLoading(true);
+  const fetchAll = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true);
     try {
       const [fds, ens] = await Promise.all([
         apiFetch<Folder[]>("/knowledge/folders"),
@@ -155,7 +155,7 @@ const FileManagerTab = forwardRef<{ createDoc: () => void; triggerUpload: () => 
       setFolders(Array.isArray(fds) ? fds : []);
       setEntries(Array.isArray(ens) ? ens : []);
     } catch {}
-    finally { setLoading(false); }
+    finally { if (!silent) setLoading(false); }
   }, []);
 
   // 首次加载：确保"我的知识"根目录存在 + 拉取列表
@@ -164,20 +164,49 @@ const FileManagerTab = forwardRef<{ createDoc: () => void; triggerUpload: () => 
     fetchAll();
   }, [fetchAll]);
 
-  // 新建文档
+  // 新建文档 — optimistic: 先拿到 id 立即选中，后台拉列表不闪
   const createDoc = useCallback(async () => {
     try {
-      const res = await apiFetch<{ id: number; title: string; folder_id: number | null; folder_name: string | null }>("/knowledge", {
+      const res = await apiFetch<{ id: number; title: string; folder_id: number | null; folder_name: string | null; status: string }>("/knowledge", {
         method: "POST",
         body: JSON.stringify({ title: "未命名文档", content: "", category: "experience" }),
       });
-      setToast(`已创建「${res.title}」${res.folder_name ? `到 ${res.folder_name}` : ""}`);
-      await fetchAll();
-      // 自动选中新建的文档
+      // Optimistic: 立即在列表前端插入，避免 fetchAll 的 loading 闪烁
+      const optimistic: KnowledgeDetail = {
+        id: res.id,
+        title: res.title,
+        content: "",
+        category: "experience",
+        tags: [],
+        status: (res.status || "pending") as KnowledgeDetail["status"],
+        created_by: 0,
+        created_at: new Date().toISOString(),
+        folder_id: res.folder_id,
+        folder_name: res.folder_name,
+        review_level: 1,
+        review_level_label: "L1-自动",
+        review_stage: "auto_approved",
+        review_stage_label: "自动通过",
+        sensitivity_flags: [],
+        auto_review_note: null,
+        source_type: "manual",
+        source_file: null,
+        capture_mode: "manual_form",
+        reviewed_by: null,
+        review_note: null,
+        taxonomy_board: null,
+        taxonomy_code: null,
+        taxonomy_path: [],
+      };
+      setEntries(prev => [optimistic, ...prev]);
+      setSelectedEntry(optimistic);
+      addRecentFile(res.id);
+      setToast(`已创建「${res.title}」${res.folder_name ? ` → ${res.folder_name}` : ""}`);
+      // 后台静默刷新列表 + 拉完整详情（不闪 skeleton）
+      fetchAll(true).catch(() => {});
       try {
         const full = await apiFetch<KnowledgeDetail>(`/knowledge/${res.id}`);
         setSelectedEntry(full);
-        addRecentFile(res.id);
       } catch {}
     } catch (e) {
       setToast(e instanceof Error ? `创建失败: ${e.message}` : "创建文档失败");
@@ -356,8 +385,8 @@ const FileManagerTab = forwardRef<{ createDoc: () => void; triggerUpload: () => 
       await Promise.all(batch.map((f, j) => uploadOne(f, i + j)));
     }
 
-    // Done
-    await fetchAll();
+    // Done — 静默刷新，不闪 skeleton
+    await fetchAll(true);
     setTimeout(() => setUploadingFiles([]), 1500);
 
     const doneCount = results.length;
@@ -679,7 +708,7 @@ const FileManagerTab = forwardRef<{ createDoc: () => void; triggerUpload: () => 
                       onSelectEntry={handleSelectEntry}
                       onRename={handleRename}
                       onDelete={handleDelete}
-                      onNewSubfolder={(pid, name) => { void apiFetch("/knowledge/folders", { method: "POST", body: JSON.stringify({ name, parent_id: pid }) }).then(fetchAll); }}
+                      onNewSubfolder={(pid, name) => { void apiFetch("/knowledge/folders", { method: "POST", body: JSON.stringify({ name, parent_id: pid }) }).then(() => fetchAll()); }}
                       onMoveEntry={handleMoveEntry}
                       onRenameEntry={handleRenameEntry}
                       onDeleteEntry={handleDeleteEntry}

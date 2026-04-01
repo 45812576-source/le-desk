@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, useCallback } from "react";
+import { Component, useEffect, useRef, useState, useCallback, type ReactNode } from "react";
 import { Eye, Download, Cloud, CloudOff, Lock, Send, Clock, RefreshCw, AlertTriangle, Loader2, Link2 } from "lucide-react";
 import { PixelIcon, ICONS, PixelBadge } from "@/components/pixel";
 import { useTheme } from "@/lib/theme";
@@ -9,6 +9,17 @@ import { apiFetch } from "@/lib/api";
 import { RichEditor } from "@/components/knowledge/RichEditor";
 import { CollabEditor } from "@/components/knowledge/CollabEditor";
 import DocumentViewer from "@/components/knowledge/DocumentViewer";
+
+// ─── ErrorBoundary for editor fallback ──────────────────────────────────────
+class EditorErrorBoundary extends Component<
+  { fallback: ReactNode; children: ReactNode },
+  { hasError: boolean }
+> {
+  state = { hasError: false };
+  static getDerivedStateFromError() { return { hasError: true }; }
+  componentDidCatch() { /* logged by browser */ }
+  render() { return this.state.hasError ? this.props.fallback : this.props.children; }
+}
 
 interface Folder {
   id: number;
@@ -379,6 +390,29 @@ export default function PreviewPanel({
   );
 }
 
+// 预览失败 fallback
+function ViewerFallback({ entry }: { entry: KnowledgeDetail }) {
+  return (
+    <div className="flex flex-col items-center justify-center h-48 gap-3 text-gray-400">
+      <AlertTriangle size={20} />
+      <p className="text-[10px]">预览加载失败</p>
+      {entry.oss_key && (
+        <button
+          onClick={async () => {
+            try {
+              const res = await fetch(`/api/proxy/knowledge/${entry.id}/file-url`);
+              if (res.ok) { const data = await res.json(); window.open(data.url, "_blank"); }
+            } catch {}
+          }}
+          className="flex items-center gap-1 text-[10px] text-[#00A3C4] hover:underline"
+        >
+          <Download size={12} /> 下载原始文件
+        </button>
+      )}
+    </div>
+  );
+}
+
 // ─── 多级渲染 Resolver ────────────────────────────────────────────────────────
 function DocumentRenderResolver({
   entry,
@@ -446,14 +480,16 @@ function DocumentRenderResolver({
   if (renderStatus === "ready" && entry.content_html && !isMedia) {
     if (currentUser && canEdit) {
       return (
-        <CollabEditor
-          key={`collab-${entry.id}`}
-          knowledgeId={entry.id}
-          initialHtml={htmlVal}
-          editable
-          userName={currentUser.username || currentUser.display_name || "用户"}
-          onSave={(html, text) => onUpdateContent(entry.id, text, html)}
-        />
+        <EditorErrorBoundary fallback={<RichEditor key={entry.id} content={htmlVal} onChange={onContentChange} editable={canEdit} />}>
+          <CollabEditor
+            key={`collab-${entry.id}`}
+            knowledgeId={entry.id}
+            initialHtml={htmlVal}
+            editable
+            userName={currentUser.username || currentUser.display_name || "用户"}
+            onSave={(html, text) => onUpdateContent(entry.id, text, html)}
+          />
+        </EditorErrorBoundary>
       );
     }
     return <RichEditor key={entry.id} content={htmlVal} onChange={onContentChange} editable={canEdit} />;
@@ -462,18 +498,22 @@ function DocumentRenderResolver({
   // 4. 媒体文件（PDF/图片/音视频）→ 原生预览
   if (isMedia) {
     return (
-      <div className="h-full overflow-y-auto">
-        <DocumentViewer entry={entry} />
-      </div>
+      <EditorErrorBoundary fallback={<ViewerFallback entry={entry} />}>
+        <div className="h-full overflow-y-auto">
+          <DocumentViewer entry={entry} />
+        </div>
+      </EditorErrorBoundary>
     );
   }
 
   // 5. OnlyOffice 可打开的 Office 文件
   if (entry.can_open_onlyoffice && entry.oss_key) {
     return (
-      <div className="h-full overflow-y-auto">
-        <DocumentViewer entry={entry} />
-      </div>
+      <EditorErrorBoundary fallback={<ViewerFallback entry={entry} />}>
+        <div className="h-full overflow-y-auto">
+          <DocumentViewer entry={entry} />
+        </div>
+      </EditorErrorBoundary>
     );
   }
 
@@ -481,14 +521,16 @@ function DocumentRenderResolver({
   if (entry.content || htmlVal) {
     if (currentUser && canEdit) {
       return (
-        <CollabEditor
-          key={`collab-${entry.id}`}
-          knowledgeId={entry.id}
-          initialHtml={htmlVal}
-          editable
-          userName={currentUser.username || currentUser.display_name || "用户"}
-          onSave={(html, text) => onUpdateContent(entry.id, text, html)}
-        />
+        <EditorErrorBoundary fallback={<RichEditor key={entry.id} content={htmlVal} onChange={onContentChange} editable={canEdit} />}>
+          <CollabEditor
+            key={`collab-${entry.id}`}
+            knowledgeId={entry.id}
+            initialHtml={htmlVal}
+            editable
+            userName={currentUser.username || currentUser.display_name || "用户"}
+            onSave={(html, text) => onUpdateContent(entry.id, text, html)}
+          />
+        </EditorErrorBoundary>
       );
     }
     return <RichEditor key={entry.id} content={htmlVal} onChange={onContentChange} editable={canEdit} />;
