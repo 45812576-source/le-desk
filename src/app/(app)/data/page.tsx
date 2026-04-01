@@ -12,8 +12,11 @@ import { useAuth } from "@/lib/auth";
 import type { DataAssetFolder, DataAssetTable, Tab } from "./components/shared/types";
 import { ConnectTab } from "./components/connect";
 import FolderTree from "./components/FolderTree";
+import type { QuickFilter } from "./components/FolderTree";
 import AssetList from "./components/AssetList";
+import type { AssetFilter } from "./components/AssetList";
 import TableDetailPanel from "./components/TableDetail";
+import UnfiledWorkbench from "./components/manage/UnfiledWorkbench";
 
 function ThemedIcon({ size }: { size: number }) {
   const { theme } = useTheme();
@@ -27,6 +30,8 @@ function ManageTab() {
   const [tables, setTables] = useState<DataAssetTable[]>([]);
   const [selectedFolderId, setSelectedFolderId] = useState<number | null>(null);
   const [selectedTableId, setSelectedTableId] = useState<number | null>(null);
+  const [quickFilter, setQuickFilter] = useState<QuickFilter>("all");
+  const [assetFilter, setAssetFilter] = useState<AssetFilter>({});
   const [loadingFolders, setLoadingFolders] = useState(true);
   const [loadingTables, setLoadingTables] = useState(true);
   const [folderError, setFolderError] = useState(false);
@@ -48,7 +53,11 @@ function ManageTab() {
   const fetchTables = useCallback(async () => {
     setLoadingTables(true);
     try {
-      const qs = selectedFolderId !== null ? `?folder_id=${selectedFolderId}` : "";
+      const params = new URLSearchParams();
+      if (selectedFolderId !== null) params.set("folder_id", String(selectedFolderId));
+      if (quickFilter === "lark_sync") params.set("source_type", "lark_bitable");
+      if (quickFilter === "imported") params.set("source_type", "imported");
+      const qs = params.toString() ? `?${params.toString()}` : "";
       const data = await apiFetch<{ items: DataAssetTable[]; total: number }>(`/data-assets/tables${qs}`);
       setTables(data.items);
     } catch {
@@ -81,7 +90,7 @@ function ManageTab() {
     } finally {
       setLoadingTables(false);
     }
-  }, [selectedFolderId]);
+  }, [selectedFolderId, quickFilter]);
 
   useEffect(() => { fetchFolders(); }, [fetchFolders]);
   useEffect(() => { fetchTables(); }, [fetchTables]);
@@ -90,6 +99,14 @@ function ManageTab() {
     setSelectedFolderId(id);
     setSelectedTableId(null);
   }
+
+  function handleQuickFilterChange(filter: QuickFilter) {
+    setQuickFilter(filter);
+    setSelectedFolderId(null);
+    setSelectedTableId(null);
+  }
+
+  const showUnfiled = quickFilter === "unfiled" && selectedFolderId === null;
 
   return (
     <div className="flex h-full border-2 border-[#1A202C]">
@@ -106,36 +123,48 @@ function ManageTab() {
           <FolderTree
             folders={folders}
             selectedFolderId={selectedFolderId}
+            quickFilter={quickFilter}
             onSelectFolder={handleSelectFolder}
+            onQuickFilterChange={handleQuickFilterChange}
             onFoldersChange={fetchFolders}
           />
         )}
       </div>
 
-      {/* Middle: Asset list */}
-      <div className="w-72 flex-shrink-0 border-r-2 border-[#1A202C] bg-white">
-        <AssetList
-          tables={tables}
-          selectedTableId={selectedTableId}
-          onSelectTable={setSelectedTableId}
-          loading={loadingTables}
-        />
-      </div>
-
-      {/* Right: Table detail */}
-      <div className="flex-1 min-w-0 bg-white">
-        {selectedTableId !== null ? (
-          <TableDetailPanel
-            tableId={selectedTableId}
-            onRefresh={() => { fetchTables(); }}
-          />
-        ) : (
-          <div className="flex flex-col items-center justify-center h-full text-[9px] text-gray-400 uppercase tracking-widest">
-            <div className="mb-3 opacity-40"><ThemedIcon size={32} /></div>
-            选择左侧数据表查看详情
+      {/* Middle: Asset list / Unfiled workbench */}
+      {showUnfiled ? (
+        <div className="flex-1 min-w-0 bg-white">
+          <UnfiledWorkbench folders={folders} onClassified={() => { fetchFolders(); fetchTables(); }} />
+        </div>
+      ) : (
+        <>
+          <div className="w-72 flex-shrink-0 border-r-2 border-[#1A202C] bg-white">
+            <AssetList
+              tables={tables}
+              selectedTableId={selectedTableId}
+              onSelectTable={setSelectedTableId}
+              loading={loadingTables}
+              filter={assetFilter}
+              onFilterChange={setAssetFilter}
+            />
           </div>
-        )}
-      </div>
+
+          {/* Right: Table detail */}
+          <div className="flex-1 min-w-0 bg-white">
+            {selectedTableId !== null ? (
+              <TableDetailPanel
+                tableId={selectedTableId}
+                onRefresh={() => { fetchTables(); }}
+              />
+            ) : (
+              <div className="flex flex-col items-center justify-center h-full text-[9px] text-gray-400 uppercase tracking-widest">
+                <div className="mb-3 opacity-40"><ThemedIcon size={32} /></div>
+                选择左侧数据表查看详情
+              </div>
+            )}
+          </div>
+        </>
+      )}
     </div>
   );
 }

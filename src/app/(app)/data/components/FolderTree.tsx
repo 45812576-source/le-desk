@@ -4,10 +4,23 @@ import React, { useState, useRef, useEffect } from "react";
 import type { DataAssetFolder } from "./shared/types";
 import { apiFetch } from "@/lib/api";
 
+export type QuickFilter = "all" | "unfiled" | "lark_sync" | "imported" | "my_tables" | "shared";
+
+const QUICK_FILTERS: { id: QuickFilter; label: string; icon: string }[] = [
+  { id: "all", label: "全部数据表", icon: "📋" },
+  { id: "unfiled", label: "未归档", icon: "📭" },
+  { id: "lark_sync", label: "飞书同步", icon: "🔄" },
+  { id: "imported", label: "本地导入", icon: "📥" },
+  { id: "my_tables", label: "我负责的", icon: "👤" },
+  { id: "shared", label: "共享给我的", icon: "🤝" },
+];
+
 interface Props {
   folders: DataAssetFolder[];
   selectedFolderId: number | null;
+  quickFilter: QuickFilter;
   onSelectFolder: (id: number | null) => void;
+  onQuickFilterChange: (filter: QuickFilter) => void;
   onFoldersChange: () => void;
 }
 
@@ -117,7 +130,7 @@ function FolderItem({
   );
 }
 
-export default function FolderTree({ folders, selectedFolderId, onSelectFolder, onFoldersChange }: Props) {
+export default function FolderTree({ folders, selectedFolderId, quickFilter, onSelectFolder, onQuickFilterChange, onFoldersChange }: Props) {
   const [creating, setCreating] = useState(false);
   const [newName, setNewName] = useState("");
   const newRef = useRef<HTMLInputElement>(null);
@@ -150,16 +163,20 @@ export default function FolderTree({ folders, selectedFolderId, onSelectFolder, 
         </button>
       </div>
       <div className="flex-1 overflow-y-auto">
-        {/* 全部 */}
-        <div
-          className={`flex items-center gap-1 px-2 py-1.5 cursor-pointer text-[10px] font-bold hover:bg-[#EBF4F7] transition-colors ${
-            selectedFolderId === null ? "bg-[#CCF2FF] text-[#00A3C4]" : "text-[#1A202C]"
-          }`}
-          onClick={() => onSelectFolder(null)}
-        >
-          <span className="text-[9px]">📋</span>
-          <span>全部数据表</span>
-        </div>
+        {/* 快捷筛选 */}
+        {QUICK_FILTERS.map((qf) => (
+          <div
+            key={qf.id}
+            className={`flex items-center gap-1 px-2 py-1.5 cursor-pointer text-[10px] font-bold hover:bg-[#EBF4F7] transition-colors ${
+              selectedFolderId === null && quickFilter === qf.id ? "bg-[#CCF2FF] text-[#00A3C4]" : "text-[#1A202C]"
+            }`}
+            onClick={() => { onSelectFolder(null); onQuickFilterChange(qf.id); }}
+          >
+            <span className="text-[9px]">{qf.icon}</span>
+            <span>{qf.label}</span>
+          </div>
+        ))}
+        <div className="border-b border-gray-200 my-1" />
         {creating && (
           <div className="flex items-center gap-1 px-2 py-1 border-b border-gray-200">
             <input
