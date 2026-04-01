@@ -4,7 +4,11 @@ import React from "react";
 import { PixelBadge } from "@/components/pixel/PixelBadge";
 import { PixelButton } from "@/components/pixel/PixelButton";
 import { apiFetch } from "@/lib/api";
-import type { TableDetail } from "../shared/types";
+import { useV2DataAssets } from "../shared/feature-flags";
+import type { TableDetail, TableDetailV2 } from "../shared/types";
+import RiskScorePanel from "./security/RiskScorePanel";
+import SourceProfilePanel from "./source/SourceProfilePanel";
+import DegradationAlert from "./source/DegradationAlert";
 
 const SOURCE_LABELS: Record<string, string> = {
   lark_bitable: "飞书多维表",
@@ -36,6 +40,8 @@ interface Props {
 }
 
 export default function OverviewTab({ detail, onRefresh }: Props) {
+  const isV2 = useV2DataAssets();
+
   async function triggerSync() {
     try {
       await apiFetch(`/data-assets/tables/${detail.id}/sync`, { method: "POST" });
@@ -49,6 +55,9 @@ export default function OverviewTab({ detail, onRefresh }: Props) {
 
   return (
     <div className="p-4 space-y-4">
+      {/* V2: 降级告警 */}
+      {isV2 && <DegradationAlert profile={(detail as TableDetailV2).source_profile} />}
+
       {/* 风险提醒 */}
       {detail.risk_warnings.length > 0 && (
         <div className="space-y-1">
@@ -111,6 +120,14 @@ export default function OverviewTab({ detail, onRefresh }: Props) {
           <div className="text-[9px] text-red-500 mt-1">{detail.field_profile_error}</div>
         )}
       </div>
+
+      {/* V2: 数据源画像（仅外部源） */}
+      {isV2 && detail.source_type !== "blank" && (detail as TableDetailV2).source_profile && (
+        <SourceProfilePanel profile={(detail as TableDetailV2).source_profile!} />
+      )}
+
+      {/* V2: 风险评分面板 */}
+      {isV2 && <RiskScorePanel detail={detail as TableDetailV2} />}
 
       {/* 最近同步记录 */}
       {detail.recent_sync_jobs.length > 0 && (

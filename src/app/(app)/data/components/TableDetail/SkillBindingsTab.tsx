@@ -3,8 +3,10 @@
 import React, { useState } from "react";
 import { PixelBadge } from "@/components/pixel/PixelBadge";
 import { apiFetch } from "@/lib/api";
+import { useV2DataAssets } from "../shared/feature-flags";
 import type { TableDetail, SkillDataGrant } from "../shared/types";
 import { DISCLOSURE_LABELS, type DisclosureLevel } from "../shared/types";
+import OutputReviewPanel from "./security/OutputReviewPanel";
 
 interface Props {
   detail: TableDetail;
@@ -102,6 +104,7 @@ function BindingRelationGraph({ detail }: { detail: TableDetail }) {
 }
 
 export default function SkillBindingsTab({ detail, onRefresh }: Props) {
+  const isV2 = useV2DataAssets();
   const [expandedGrantId, setExpandedGrantId] = useState<number | null>(null);
 
   async function handleDeleteBinding(bindingId: number) {
@@ -188,6 +191,9 @@ export default function SkillBindingsTab({ detail, onRefresh }: Props) {
           </div>
         );
       })}
+
+      {/* V2: 输出审查日志 */}
+      {isV2 && <OutputReviewPanel tableId={detail.id} />}
     </div>
   );
 }

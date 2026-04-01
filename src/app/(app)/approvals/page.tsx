@@ -18,6 +18,7 @@ const TYPE_TABS: { key: string; label: string }[] = [
   { key: "tool_publish", label: "工具" },
   { key: "webapp_publish", label: "Web APP" },
   { key: "scope_change,mask_override,schema_approval", label: "权限&脱敏" },
+  { key: "export_sensitive,elevate_disclosure,grant_access,policy_change,field_sensitivity_change,small_sample_change", label: "数据安全" },
 ];
 
 function requestTypeLabel(type: string): string {
@@ -32,6 +33,12 @@ function requestTypeLabel(type: string): string {
     scope_change: "权限变更",
     mask_override: "脱敏覆盖",
     schema_approval: "Schema 审批",
+    export_sensitive: "导出敏感数据",
+    elevate_disclosure: "提升披露等级",
+    grant_access: "授予访问权限",
+    policy_change: "策略变更",
+    field_sensitivity_change: "字段敏感级别变更",
+    small_sample_change: "小样本保护变更",
   };
   return map[type] || type;
 }

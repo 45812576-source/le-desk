@@ -4,7 +4,19 @@ import React, { useState } from "react";
 import { PixelBadge } from "@/components/pixel/PixelBadge";
 import { PixelButton } from "@/components/pixel/PixelButton";
 import { apiFetch } from "@/lib/api";
+import { useV2DataAssets } from "../shared/feature-flags";
+import { updateFieldTags, batchUpdateFieldTags } from "../shared/api";
 import type { TableDetail, TableFieldDetail, FieldValueDictionary } from "../shared/types";
+import {
+  SENSITIVITY_LABELS,
+  SENSITIVITY_COLORS,
+  LIFECYCLE_LABELS,
+  LIFECYCLE_STYLES,
+  type SensitivityLevel,
+  type TableFieldDetailV2,
+  type TableDetailV2,
+} from "../shared/types";
+import FieldImpactPanel from "./fields/FieldImpactPanel";
 
 const TYPE_COLORS: Record<string, string> = {
   text: "bg-gray-50 text-gray-500",
@@ -30,6 +42,18 @@ const ROLE_TAG_LABELS: Record<string, { label: string; color: string }> = {
   derived: { label: "衍生", color: "bg-orange-50 text-orange-500" },
   system: { label: "系统", color: "bg-gray-50 text-gray-400" },
 };
+
+const SENSITIVITY_OPTIONS = Object.entries(SENSITIVITY_LABELS) as [SensitivityLevel, string][];
+
+// ─── 行背景色（按敏感级别渐变） ──
+function sensitivityRowBg(level?: SensitivityLevel): string {
+  switch (level) {
+    case "S2_sensitive": return "bg-yellow-50/40";
+    case "S3_confidential": return "bg-orange-50/40";
+    case "S4_restricted": return "bg-red-50/40";
+    default: return "";
+  }
+}
 
 function FieldDictionaryPanel({ fieldId, onClose }: { fieldId: number; onClose: () => void }) {
   const [entries, setEntries] = React.useState<FieldValueDictionary[]>([]);
@@ -98,15 +122,31 @@ function FieldDictionaryPanel({ fieldId, onClose }: { fieldId: number; onClose: 
   );
 }
 
-function FieldRow({ field, detail, onRefresh }: { field: TableFieldDetail; detail: TableDetail; onRefresh: () => void }) {
+function FieldRow({
+  field,
+  detail,
+  isV2,
+  onRefresh,
+}: {
+  field: TableFieldDetail;
+  detail: TableDetail;
+  isV2: boolean;
+  onRefresh: () => void;
+}) {
   const typeColor = TYPE_COLORS[field.field_type] || TYPE_COLORS.text;
   const [showDict, setShowDict] = useState(false);
+  const [showImpact, setShowImpact] = useState(false);
+
+  // V2 字段扩展
+  const v2Field = field as TableFieldDetailV2;
+  const sensitivityLevel = v2Field.sensitivity_level;
+  const lifecycleStatus = v2Field.lifecycle_status;
+  const isDeprecatedOrArchived = lifecycleStatus === "deprecated" || lifecycleStatus === "archived";
 
   // 字段被哪些视图使用
   const usedByViews = detail.views.filter((v) =>
     v.visible_field_ids?.length > 0 && field.id !== null && v.visible_field_ids.includes(field.id)
   );
-  // 字段被哪些 Skill 使用
   const usedByGrants = detail.skill_grants?.filter((g) =>
     g.field_rule_override_json && Object.keys(g.field_rule_override_json).length > 0
   ) || [];
@@ -124,17 +164,57 @@ function FieldRow({ field, detail, onRefresh }: { field: TableFieldDetail; detai
     }
   }
 
+  async function handleSensitivityChange(level: SensitivityLevel) {
+    if (!field.id) return;
+    try {
+      // S2 及以上同步 is_sensitive = true
+      const isSensitive = level >= "S2_sensitive";
+      await updateFieldTags(field.id, { sensitivity_level: level, is_sensitive: isSensitive });
+      onRefresh();
+    } catch (e: unknown) {
+      alert(e instanceof Error ? e.message : "操作失败");
+    }
+  }
+
+  async function handleConfirmLifecycle() {
+    if (!field.id) return;
+    try {
+      await updateFieldTags(field.id, { lifecycle_status: "confirmed" });
+      onRefresh();
+    } catch (e: unknown) {
+      alert(e instanceof Error ? e.message : "操作失败");
+    }
+  }
+
+  const rowBg = isV2 ? sensitivityRowBg(sensitivityLevel) : "";
+
   return (
     <>
-      <div className="flex items-center gap-3 px-4 py-2 border-b border-gray-100 hover:bg-[#F0FBFF] transition-colors">
+      <div className={`flex items-center gap-3 px-4 py-2 border-b border-gray-100 hover:bg-[#F0FBFF] transition-colors ${rowBg} ${isDeprecatedOrArchived && isV2 ? "opacity-50" : ""}`}>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
             <span className="text-[10px] font-bold">{field.display_name || field.field_name}</span>
             {field.is_system && (
               <span className="text-[7px] font-bold px-1 py-px bg-gray-100 text-gray-400 rounded">SYS</span>
             )}
-            {field.is_sensitive && (
-              <span className="text-[7px] font-bold px-1 py-px bg-red-50 text-red-500 rounded">🔒 敏感</span>
+            {/* V2: 生命周期标签 */}
+            {isV2 && lifecycleStatus && (
+              <span className={`text-[7px] font-bold px-1 py-px border rounded ${LIFECYCLE_STYLES[lifecycleStatus]}`}>
+                {LIFECYCLE_LABELS[lifecycleStatus]}
+              </span>
+            )}
+            {/* V2: inferred 状态确认按钮 */}
+            {isV2 && lifecycleStatus === "inferred" && field.id && (
+              <button
+                onClick={handleConfirmLifecycle}
+                className="text-[7px] font-bold px-1 py-px bg-green-50 text-green-500 border border-green-200 rounded hover:bg-green-100 transition-colors"
+              >
+                确认
+              </button>
+            )}
+            {/* V1: 原有敏感标记（V2 下用下拉替代） */}
+            {!isV2 && field.is_sensitive && (
+              <span className="text-[7px] font-bold px-1 py-px bg-red-50 text-red-500 rounded">敏感</span>
             )}
             {field.is_enum && (
               <span className="text-[7px] font-bold px-1 py-px bg-purple-50 text-purple-500 rounded cursor-pointer" onClick={() => setShowDict(!showDict)}>
@@ -148,7 +228,6 @@ function FieldRow({ field, detail, onRefresh }: { field: TableFieldDetail; detai
           {field.display_name && field.display_name !== field.field_name && (
             <span className="text-[8px] font-mono text-gray-400">{field.field_name}</span>
           )}
-          {/* 角色标签 */}
           {field.field_role_tags?.length > 0 && (
             <div className="flex gap-1 mt-0.5">
               {field.field_role_tags.map((tag) => {
@@ -200,21 +279,55 @@ function FieldRow({ field, detail, onRefresh }: { field: TableFieldDetail; detai
           {field.null_ratio !== null && (
             <span title="空值率">{(field.null_ratio * 100).toFixed(1)}% null</span>
           )}
-          {field.id && (
-            <button
-              onClick={toggleSensitive}
-              className={`text-[7px] px-1 py-px border rounded transition-colors ${
-                field.is_sensitive ? "border-red-300 text-red-400 bg-red-50" : "border-gray-200 text-gray-300 hover:text-red-400"
+
+          {/* V2: S0-S4 敏感分级下拉 */}
+          {isV2 && field.id ? (
+            <select
+              value={sensitivityLevel || "S0_public"}
+              onChange={(e) => handleSensitivityChange(e.target.value as SensitivityLevel)}
+              className={`text-[7px] font-bold px-1 py-px border rounded cursor-pointer appearance-none ${
+                SENSITIVITY_COLORS[sensitivityLevel] || "border-gray-200 text-gray-300"
               }`}
-              title={field.is_sensitive ? "取消敏感标记" : "标记为敏感"}
+              title="敏感分级"
             >
-              🔒
+              {SENSITIVITY_OPTIONS.map(([val, label]) => (
+                <option key={val} value={val}>{label}</option>
+              ))}
+            </select>
+          ) : (
+            /* V1: 原有 🔒 按钮 */
+            field.id && (
+              <button
+                onClick={toggleSensitive}
+                className={`text-[7px] px-1 py-px border rounded transition-colors ${
+                  field.is_sensitive ? "border-red-300 text-red-400 bg-red-50" : "border-gray-200 text-gray-300 hover:text-red-400"
+                }`}
+                title={field.is_sensitive ? "取消敏感标记" : "标记为敏感"}
+              >
+                敏感
+              </button>
+            )
+          )}
+
+          {/* V2: 影响按钮 */}
+          {isV2 && field.id && (
+            <button
+              onClick={() => setShowImpact(!showImpact)}
+              className={`text-[7px] px-1 py-px border rounded transition-colors ${
+                showImpact ? "border-[#00D1FF] text-[#00A3C4] bg-[#F0FBFF]" : "border-gray-200 text-gray-300 hover:text-[#00A3C4]"
+              }`}
+              title="查看字段影响"
+            >
+              影响
             </button>
           )}
         </div>
       </div>
       {showDict && field.id && (
         <FieldDictionaryPanel fieldId={field.id} onClose={() => setShowDict(false)} />
+      )}
+      {showImpact && field.id && (
+        <FieldImpactPanel fieldId={field.id} fieldName={field.display_name || field.field_name} onClose={() => setShowImpact(false)} />
       )}
     </>
   );
@@ -285,10 +398,12 @@ function EnumSuggestionsPanel({ tableId, onRefresh }: { tableId: number; onRefre
 
 function BatchActionsBar({
   selectedIds,
+  isV2,
   onClear,
   onRefresh,
 }: {
   selectedIds: Set<number>;
+  isV2: boolean;
   onClear: () => void;
   onRefresh: () => void;
 }) {
@@ -310,13 +425,45 @@ function BatchActionsBar({
     }
   }
 
+  async function handleBatchSensitivityLevel(level: SensitivityLevel) {
+    setActing(true);
+    try {
+      const isSensitive = level >= "S2_sensitive";
+      await batchUpdateFieldTags([...selectedIds], { sensitivity_level: level, is_sensitive: isSensitive });
+      onClear();
+      onRefresh();
+    } catch (e: unknown) {
+      alert(e instanceof Error ? e.message : "操作失败");
+    } finally {
+      setActing(false);
+    }
+  }
+
   if (selectedIds.size === 0) return null;
 
   return (
     <div className="flex items-center gap-2 px-4 py-1.5 bg-[#F0FBFF] border-b border-[#00D1FF]">
       <span className="text-[9px] font-bold text-[#00A3C4]">已选 {selectedIds.size} 个字段</span>
-      <PixelButton size="sm" onClick={() => handleBatchSensitive(true)} disabled={acting}>标记敏感</PixelButton>
-      <PixelButton size="sm" onClick={() => handleBatchSensitive(false)} disabled={acting}>取消敏感</PixelButton>
+      {isV2 ? (
+        <>
+          <select
+            onChange={(e) => { if (e.target.value) handleBatchSensitivityLevel(e.target.value as SensitivityLevel); }}
+            disabled={acting}
+            className="text-[8px] font-bold border border-[#00D1FF] rounded px-1 py-0.5 bg-white cursor-pointer"
+            defaultValue=""
+          >
+            <option value="" disabled>批量设置敏感级别...</option>
+            {SENSITIVITY_OPTIONS.map(([val, label]) => (
+              <option key={val} value={val}>{label}</option>
+            ))}
+          </select>
+        </>
+      ) : (
+        <>
+          <PixelButton size="sm" onClick={() => handleBatchSensitive(true)} disabled={acting}>标记敏感</PixelButton>
+          <PixelButton size="sm" onClick={() => handleBatchSensitive(false)} disabled={acting}>取消敏感</PixelButton>
+        </>
+      )}
       <button onClick={onClear} className="text-[8px] text-gray-400 hover:text-[#1A202C] ml-auto">清除选择</button>
     </div>
   );
@@ -328,6 +475,7 @@ interface Props {
 }
 
 export default function FieldsTab({ detail, onRefresh }: Props) {
+  const isV2 = useV2DataAssets();
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
 
   function toggleSelect(fieldId: number) {
@@ -351,6 +499,7 @@ export default function FieldsTab({ detail, onRefresh }: Props) {
       <EnumSuggestionsPanel tableId={detail.id} onRefresh={onRefresh || (() => {})} />
       <BatchActionsBar
         selectedIds={selectedIds}
+        isV2={isV2}
         onClear={() => setSelectedIds(new Set())}
         onRefresh={onRefresh || (() => {})}
       />
@@ -383,7 +532,7 @@ export default function FieldsTab({ detail, onRefresh }: Props) {
             </div>
           )}
           <div className="flex-1 min-w-0">
-            <FieldRow field={f} detail={detail} onRefresh={onRefresh || (() => {})} />
+            <FieldRow field={f} detail={detail} isV2={isV2} onRefresh={onRefresh || (() => {})} />
           </div>
         </div>
       ))}

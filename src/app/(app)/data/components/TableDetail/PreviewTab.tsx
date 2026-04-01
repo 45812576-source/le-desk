@@ -2,15 +2,18 @@
 
 import React, { useState, useEffect, useCallback } from "react";
 import { apiFetch } from "@/lib/api";
-import type { TableDetail } from "../shared/types";
+import { useV2DataAssets } from "../shared/feature-flags";
+import type { TableDetail, TableDetailV2 } from "../shared/types";
 import { formatCellValue, READONLY_COLS } from "../shared";
 import EditableCell from "../shared/EditableCell";
+import DegradationAlert from "./source/DegradationAlert";
 
 interface Props {
   detail: TableDetail;
 }
 
 export default function PreviewTab({ detail }: Props) {
+  const isV2 = useV2DataAssets();
   const [rows, setRows] = useState<Record<string, unknown>[]>([]);
   const [cols, setCols] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
@@ -73,6 +76,9 @@ export default function PreviewTab({ detail }: Props) {
 
   return (
     <div className="flex-1 min-h-0 flex flex-col">
+      {/* V2: 降级告警 */}
+      {isV2 && <DegradationAlert profile={(detail as TableDetailV2).source_profile} />}
+
       {/* 权限摘要条 */}
       {hasRoleGroups && (
         <div className="flex items-center gap-3 px-3 py-1.5 bg-[#EBF4F7] border-b border-gray-200 text-[8px] text-gray-400 flex-shrink-0">
