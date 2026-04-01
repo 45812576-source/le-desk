@@ -1020,6 +1020,371 @@ function UploadTargetModal({
   );
 }
 
+// ─── Data View Panel ─────────────────────────────────────────────────────────
+
+interface DataViewItem {
+  table_id: number;
+  table_name: string;
+  display_name: string;
+  source_type: string;
+  sync_status: string;
+  view_id: number | null;
+  view_name: string | null;
+  view_purpose: string | null;
+  view_kind: string | null;
+  disclosure_ceiling: string | null;
+  field_count: number;
+  record_count_cache: number | null;
+  risk_flags: string[];
+  available?: boolean;
+  display_mode?: string;
+}
+
+interface DataViewDetail {
+  ok: boolean;
+  table: { id: number; table_name: string; display_name: string; source_type: string; sync_status: string };
+  view: { id: number; name: string; view_kind: string; view_purpose: string; disclosure_ceiling: string | null; is_system: boolean; is_default: boolean };
+  fields: { id: number; field_name: string; display_name: string; field_type: string; is_enum: boolean; enum_values: string[]; is_sensitive: boolean; is_filterable: boolean; is_groupable: boolean; is_sortable: boolean }[];
+  permission: { disclosure_level: string; row_access_mode: string; tool_permission_mode: string; denied: boolean; deny_reasons: string[]; capabilities: Record<string, boolean> };
+  availability: { available: boolean; risk_flags: string[]; display_mode: string };
+  preview: { ok: boolean; rows?: Record<string, unknown>[]; fields?: Record<string, unknown>[]; total?: number; error?: string } | null;
+}
+
+const DISCLOSURE_LABELS: Record<string, { text: string; color: string; bg: string }> = {
+  L0: { text: "禁止", color: "#DC2626", bg: "#FEE2E2" },
+  L1: { text: "仅结论", color: "#DC2626", bg: "#FEF2F2" },
+  L2: { text: "仅汇总", color: "#D97706", bg: "#FFFBEB" },
+  L3: { text: "脱敏明细", color: "#CA8A04", bg: "#FEFCE8" },
+  L4: { text: "明细可读", color: "#16A34A", bg: "#F0FDF4" },
+};
+
+const SOURCE_ICONS: Record<string, string> = {
+  lark_bitable: "📊",
+  external_db: "🗄️",
+  csv_import: "📄",
+  blank: "📝",
+};
+
+function DataViewPanel({ onClose, onSelectView }: { onClose: () => void; onSelectView: (viewId: number) => void }) {
+  const [items, setItems] = useState<DataViewItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [query, setQuery] = useState("");
+  const [sourceFilter, setSourceFilter] = useState("");
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    apiFetch<{ ok: boolean; items: DataViewItem[] }>("/dev-studio/data-views?only_bindable=true")
+      .then((data) => setItems(data.items || []))
+      .catch(() => setError("加载数据视图列表失败"))
+      .finally(() => setLoading(false));
+  }, []);
+
+  const filtered = useMemo(() => {
+    let list = items;
+    if (sourceFilter) list = list.filter((i) => i.source_type === sourceFilter);
+    if (query) {
+      const q = query.toLowerCase();
+      list = list.filter((i) =>
+        `${i.display_name} ${i.table_name} ${i.view_name || ""}`.toLowerCase().includes(q)
+      );
+    }
+    return list;
+  }, [items, sourceFilter, query]);
+
+  const sourceTypes = useMemo(() => [...new Set(items.map((i) => i.source_type).filter(Boolean))], [items]);
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={onClose}>
+      <div
+        className="bg-white border-2 border-[#1A202C] w-[520px] max-h-[70vh] flex flex-col"
+        onClick={(e) => e.stopPropagation()}
+        style={{ fontFamily: "Roboto Mono, monospace" }}
+      >
+        <div className="flex items-center justify-between px-4 py-2 border-b-2 border-[#1A202C] bg-[#F0F4F8]">
+          <span className="text-[10px] font-bold uppercase tracking-widest">选择数据视图</span>
+          <button onClick={onClose} className="text-[10px] font-bold hover:text-red-600">✕</button>
+        </div>
+
+        <div className="px-4 py-2 border-b border-gray-200 space-y-2">
+          <input
+            type="text"
+            placeholder="搜索表名 / 视图名..."
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            className="w-full border-2 border-[#1A202C] px-2 py-1 text-[10px] font-mono outline-none"
+          />
+          <div className="flex gap-1 flex-wrap">
+            <button
+              onClick={() => setSourceFilter("")}
+              className={`px-2 py-0.5 text-[9px] font-bold uppercase tracking-widest border-2 transition-colors ${!sourceFilter ? "border-[#00D1FF] bg-[#CCF2FF] text-[#00A3C4]" : "border-gray-300 text-gray-500 hover:border-gray-400"}`}
+            >
+              全部
+            </button>
+            {sourceTypes.map((st) => (
+              <button
+                key={st}
+                onClick={() => setSourceFilter(st === sourceFilter ? "" : st)}
+                className={`px-2 py-0.5 text-[9px] font-bold uppercase tracking-widest border-2 transition-colors ${st === sourceFilter ? "border-[#00D1FF] bg-[#CCF2FF] text-[#00A3C4]" : "border-gray-300 text-gray-500 hover:border-gray-400"}`}
+              >
+                {SOURCE_ICONS[st] || "📦"} {st}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-4 py-2 space-y-1">
+          {loading && <div className="text-[9px] text-gray-400 animate-pulse py-4">加载数据视图...</div>}
+          {error && <div className="text-[9px] text-red-500 py-4">{error}</div>}
+          {!loading && !error && filtered.length === 0 && (
+            <div className="text-[9px] text-gray-400 py-4">暂无可用数据视图</div>
+          )}
+          {filtered.map((item, idx) => {
+            const dl = item.disclosure_ceiling ? DISCLOSURE_LABELS[item.disclosure_ceiling] : null;
+            return (
+              <button
+                key={`${item.table_id}-${item.view_id}-${idx}`}
+                onClick={() => item.view_id && onSelectView(item.view_id)}
+                disabled={!item.view_id || item.available === false}
+                className="w-full text-left px-3 py-2 border-2 border-gray-200 hover:border-[#00D1FF] hover:bg-[#F0FBFF] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px]">{SOURCE_ICONS[item.source_type] || "📦"}</span>
+                  <span className="text-[10px] font-bold truncate">{item.display_name}</span>
+                  <span className="text-[9px] text-gray-400">→</span>
+                  <span className="text-[10px] text-[#00A3C4] truncate">{item.view_name || "无视图"}</span>
+                  {dl && (
+                    <span
+                      className="text-[8px] font-bold px-1.5 py-0.5 uppercase tracking-widest"
+                      style={{ color: dl.color, backgroundColor: dl.bg, border: `1px solid ${dl.color}` }}
+                    >
+                      {dl.text}
+                    </span>
+                  )}
+                </div>
+                <div className="flex items-center gap-3 mt-0.5">
+                  <span className="text-[8px] text-gray-400">{item.field_count} 字段</span>
+                  {item.record_count_cache != null && (
+                    <span className="text-[8px] text-gray-400">{item.record_count_cache} 条</span>
+                  )}
+                  {item.sync_status === "failed" && (
+                    <span className="text-[8px] text-red-500 font-bold">同步失败</span>
+                  )}
+                  {item.risk_flags?.map((flag) => (
+                    <span key={flag} className="text-[8px] text-orange-500">{flag}</span>
+                  ))}
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
+function DataViewDetailDrawer({
+  viewId,
+  onClose,
+  onInject,
+}: {
+  viewId: number;
+  onClose: () => void;
+  onInject: (context: string) => void;
+}) {
+  const [detail, setDetail] = useState<DataViewDetail | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    setLoading(true);
+    setError("");
+    apiFetch<DataViewDetail>(`/dev-studio/data-views/${viewId}`)
+      .then((data) => setDetail(data))
+      .catch(() => setError("加载视图详情失败"))
+      .finally(() => setLoading(false));
+  }, [viewId]);
+
+  const contextText = useMemo(() => {
+    if (!detail) return "";
+    const fields = detail.fields.map((f) => {
+      let desc = `${f.display_name}(${f.field_name}): ${f.field_type}`;
+      if (f.is_sensitive) desc += " [敏感]";
+      if (f.is_enum && f.enum_values.length > 0) desc += ` 枚举=[${f.enum_values.join(",")}]`;
+      return desc;
+    });
+    return [
+      `## 可用数据视图`,
+      `- 视图名：${detail.view.name}`,
+      `- 所属表：${detail.table.display_name} (${detail.table.table_name})`,
+      `- 读取方式：使用 data_table_reader 工具，参数 view_id=${detail.view.id}`,
+      `- 披露级别：${detail.view.disclosure_ceiling || detail.permission.disclosure_level}`,
+      `- 可见字段：`,
+      ...fields.map((f) => `  - ${f}`),
+    ].join("\n");
+  }, [detail]);
+
+  const handleCopy = useCallback(() => {
+    navigator.clipboard.writeText(`view_id=${viewId}`).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    });
+  }, [viewId]);
+
+  return (
+    <div className="fixed inset-0 z-50 flex justify-end bg-black/40" onClick={onClose}>
+      <div
+        className="bg-white border-l-2 border-[#1A202C] w-[560px] max-w-full h-full flex flex-col"
+        onClick={(e) => e.stopPropagation()}
+        style={{ fontFamily: "Roboto Mono, monospace" }}
+      >
+        <div className="flex items-center justify-between px-4 py-2 border-b-2 border-[#1A202C] bg-[#F0F4F8]">
+          <span className="text-[10px] font-bold uppercase tracking-widest">视图详情</span>
+          <button onClick={onClose} className="text-[10px] font-bold hover:text-red-600">✕</button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-4 py-3 space-y-4">
+          {loading && <div className="text-[9px] text-gray-400 animate-pulse">加载中...</div>}
+          {error && <div className="text-[9px] text-red-500">{error}</div>}
+          {detail && (
+            <>
+              {/* 基础信息 */}
+              <div className="space-y-1">
+                <div className="text-[9px] font-bold uppercase tracking-widest text-gray-400">表信息</div>
+                <div className="text-[10px]">
+                  {SOURCE_ICONS[detail.table.source_type] || "📦"} {detail.table.display_name}
+                  <span className="text-gray-400 ml-1">({detail.table.table_name})</span>
+                </div>
+                <div className="text-[10px]">
+                  视图：<span className="text-[#00A3C4] font-bold">{detail.view.name}</span>
+                  <span className="text-gray-400 ml-2">{detail.view.view_kind} / {detail.view.view_purpose}</span>
+                </div>
+              </div>
+
+              {/* 权限摘要 */}
+              <div className="space-y-1">
+                <div className="text-[9px] font-bold uppercase tracking-widest text-gray-400">权限摘要</div>
+                <div className="flex flex-wrap gap-1.5">
+                  {(() => {
+                    const dl = DISCLOSURE_LABELS[detail.permission.disclosure_level];
+                    return dl ? (
+                      <span
+                        className="text-[8px] font-bold px-1.5 py-0.5 uppercase tracking-widest"
+                        style={{ color: dl.color, backgroundColor: dl.bg, border: `1px solid ${dl.color}` }}
+                      >
+                        {detail.permission.disclosure_level}: {dl.text}
+                      </span>
+                    ) : null;
+                  })()}
+                  <span className="text-[8px] px-1.5 py-0.5 border border-gray-300 text-gray-500">
+                    行: {detail.permission.row_access_mode}
+                  </span>
+                  {detail.availability.risk_flags.map((f) => (
+                    <span key={f} className="text-[8px] px-1.5 py-0.5 border border-orange-300 text-orange-500">
+                      {f}
+                    </span>
+                  ))}
+                </div>
+              </div>
+
+              {/* 字段列表 */}
+              <div className="space-y-1">
+                <div className="text-[9px] font-bold uppercase tracking-widest text-gray-400">
+                  可见字段 ({detail.fields.length})
+                </div>
+                <div className="border-2 border-gray-200 max-h-[200px] overflow-y-auto">
+                  <table className="w-full text-[9px]">
+                    <thead>
+                      <tr className="bg-[#F0F4F8]">
+                        <th className="text-left px-2 py-1 font-bold uppercase tracking-widest">名称</th>
+                        <th className="text-left px-2 py-1 font-bold uppercase tracking-widest">类型</th>
+                        <th className="text-left px-2 py-1 font-bold uppercase tracking-widest">标记</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {detail.fields.map((f) => (
+                        <tr key={f.id} className="border-t border-gray-100 hover:bg-gray-50">
+                          <td className="px-2 py-1">{f.display_name}</td>
+                          <td className="px-2 py-1 text-gray-500">{f.field_type}</td>
+                          <td className="px-2 py-1">
+                            {f.is_sensitive && <span className="text-red-500 mr-1">敏感</span>}
+                            {f.is_enum && <span className="text-purple-500">枚举</span>}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {/* 预览数据 */}
+              {detail.preview && detail.preview.ok && detail.preview.rows && (
+                <div className="space-y-1">
+                  <div className="text-[9px] font-bold uppercase tracking-widest text-gray-400">
+                    预览数据 (前 {detail.preview.rows.length} 行)
+                  </div>
+                  <div className="border-2 border-gray-200 max-h-[200px] overflow-auto">
+                    <table className="w-full text-[9px]">
+                      <thead>
+                        <tr className="bg-[#F0F4F8]">
+                          {detail.fields.slice(0, 8).map((f) => (
+                            <th key={f.id} className="text-left px-2 py-1 font-bold uppercase tracking-widest whitespace-nowrap">
+                              {f.display_name}
+                            </th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {detail.preview.rows.slice(0, 10).map((row, ri) => (
+                          <tr key={ri} className="border-t border-gray-100 hover:bg-gray-50">
+                            {detail.fields.slice(0, 8).map((f) => {
+                              const col = f.field_name;
+                              const val = row[col];
+                              return (
+                                <td key={f.id} className="px-2 py-1 whitespace-nowrap max-w-[120px] truncate">
+                                  {val == null ? <span className="text-gray-300">null</span> : String(val)}
+                                </td>
+                              );
+                            })}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
+              {detail.preview && !detail.preview.ok && (
+                <div className="text-[9px] text-orange-500">预览不可用: {detail.preview.error}</div>
+              )}
+            </>
+          )}
+        </div>
+
+        {/* 动作按钮 */}
+        {detail && (
+          <div className="flex gap-2 px-4 py-2 border-t-2 border-[#1A202C] bg-[#F0F4F8]">
+            <button
+              onClick={() => onInject(contextText)}
+              className="flex-1 px-3 py-1.5 text-[9px] font-bold uppercase tracking-widest border-2 border-[#00D1FF] text-[#00A3C4] hover:bg-[#CCF2FF] transition-colors"
+            >
+              插入到 OpenCode
+            </button>
+            <button
+              onClick={handleCopy}
+              className="px-3 py-1.5 text-[9px] font-bold uppercase tracking-widest border-2 border-gray-400 text-gray-500 hover:bg-gray-100 transition-colors"
+            >
+              {copied ? "已复制 ✓" : "复制视图引用"}
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+
 // ─── Dev Studio ───────────────────────────────────────────────────────────────
 
 // 受限模型 key 常量
@@ -1044,6 +1409,8 @@ export function DevStudio({ workspaceId, fromSkillId }: { convId: number; worksp
   const [showTransfer, setShowTransfer] = useState(false);
   const [showWorkdir, setShowWorkdir] = useState(false);
   const [showUploadPicker, setShowUploadPicker] = useState(false);
+  const [showDataViewPanel, setShowDataViewPanel] = useState(false);
+  const [selectedViewId, setSelectedViewId] = useState<number | null>(null);
   const [uploadTargetPath, setUploadTargetPath] = useState("");
   const [uploadMsg, setUploadMsg] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -1416,6 +1783,13 @@ export function DevStudio({ workspaceId, fromSkillId }: { convId: number; worksp
           管理文件
         </button>
         <button
+          onClick={() => setShowDataViewPanel(true)}
+          disabled={status !== "ready"}
+          className="px-3 py-1 text-[9px] font-bold uppercase tracking-widest border-2 border-[#00CC99] text-[#00A87A] hover:bg-[#C6F6D5] disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+        >
+          选择数据视图
+        </button>
+        <button
           onClick={() => setShowTransfer(true)}
           disabled={status !== "ready"}
           className="px-3 py-1 text-[9px] font-bold uppercase tracking-widest border-2 border-[#D97706] text-[#D97706] hover:bg-[#FFFBEB] disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
@@ -1465,6 +1839,42 @@ export function DevStudio({ workspaceId, fromSkillId }: { convId: number; worksp
             fileInputRef.current?.click();
           }}
           onCancel={() => setShowUploadPicker(false)}
+        />
+      )}
+
+      {showDataViewPanel && (
+        <DataViewPanel
+          onClose={() => setShowDataViewPanel(false)}
+          onSelectView={(viewId) => {
+            setShowDataViewPanel(false);
+            setSelectedViewId(viewId);
+          }}
+        />
+      )}
+
+      {selectedViewId && (
+        <DataViewDetailDrawer
+          viewId={selectedViewId}
+          onClose={() => setSelectedViewId(null)}
+          onInject={async (context) => {
+            try {
+              const blob = new Blob([context], { type: "text/markdown" });
+              const formData = new FormData();
+              formData.append("file", blob, "_data_context.md");
+              formData.append("target_path", "inbox");
+              await apiFetch("/dev-studio/upload-file", {
+                method: "POST",
+                body: formData,
+              });
+              setSelectedViewId(null);
+              setSaveSuccess("数据视图上下文已写入 inbox/_data_context.md");
+              setTimeout(() => setSaveSuccess(null), 3000);
+            } catch {
+              setSelectedViewId(null);
+              setSaveSuccess("写入失败，请重试");
+              setTimeout(() => setSaveSuccess(null), 3000);
+            }
+          }}
         />
       )}
     </div>
