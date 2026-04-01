@@ -1757,30 +1757,52 @@ function ToolSuggestionCard({
 function SummaryCard({
   summary,
   onConfirm,
+  onConfirmEdited,
   onDiscard,
 }: {
   summary: StudioSummary;
   onConfirm: () => void;
+  onConfirmEdited: (editedItems: { label: string; value: string }[]) => void;
   onDiscard: () => void;
 }) {
+  const [editedItems, setEditedItems] = useState(() =>
+    summary.items.map((item) => ({ ...item }))
+  );
+  const hasEdits = editedItems.some((item, i) => item.value !== summary.items[i]?.value);
+
   return (
     <div className="mx-3 my-2 border-2 border-[#00CC99] bg-[#F0FFF9] flex-shrink-0">
       <div className="px-3 py-2 border-b border-[#CCFFF0] flex items-center gap-2">
         <span className="text-[9px] font-bold uppercase tracking-widest text-[#00CC99] flex-1">
           ◈ {summary.title || "需求理解摘要"}
         </span>
-        <span className="text-[8px] text-gray-400">确认后将生成草稿</span>
+        <span className="text-[8px] text-gray-400">可直接编辑后确认</span>
       </div>
       <div className="px-3 py-2 space-y-1.5">
-        {summary.items.map((item, i) => (
-          <div key={i} className="flex gap-2 text-[9px]">
-            <span className="font-bold text-[#00CC99] flex-shrink-0 w-16 truncate">{item.label}</span>
-            <span className="text-[#1A202C] leading-relaxed">{item.value}</span>
+        {editedItems.map((item, i) => (
+          <div key={i} className="flex gap-2 text-[9px] items-start">
+            <span className="font-bold text-[#00CC99] flex-shrink-0 w-16 truncate pt-0.5">{item.label}</span>
+            <input
+              type="text"
+              value={item.value}
+              onChange={(e) => {
+                const next = [...editedItems];
+                next[i] = { ...next[i], value: e.target.value };
+                setEditedItems(next);
+              }}
+              className="flex-1 border border-gray-200 px-1.5 py-0.5 text-[9px] font-mono focus:outline-none focus:border-[#00CC99] bg-white"
+            />
           </div>
         ))}
       </div>
       <div className="px-3 py-2 border-t border-[#CCFFF0] flex gap-2">
-        <PixelButton size="sm" onClick={onConfirm} className="flex-1">✓ 确认，开始生成</PixelButton>
+        <PixelButton
+          size="sm"
+          onClick={() => hasEdits ? onConfirmEdited(editedItems) : onConfirm()}
+          className="flex-1"
+        >
+          {hasEdits ? "✓ 按修改后的理解生成" : "✓ 确认，开始生成"}
+        </PixelButton>
         <PixelButton size="sm" variant="secondary" onClick={onDiscard}>重新描述</PixelButton>
       </div>
     </div>
@@ -2018,6 +2040,10 @@ function StudioChat({
   const [pendingToolSuggestion, setPendingToolSuggestion] = useState<StudioToolSuggestion | null>(null);
   const [pendingFileSplit, setPendingFileSplit] = useState<StudioFileSplit | null>(null);
   const [splitting, setSplitting] = useState(false);
+  const [sessionState, setSessionState] = useState<{
+    mode: string; goal: string; file_status: string;
+    rejected: string[]; has_draft: boolean; total_rounds: number;
+  } | null>(null);
 
   // ── Memo action handlers ──
   async function handleMemoStartTask(taskId: string) {
@@ -2242,6 +2268,8 @@ function StudioChat({
               } else if (curEvt === "studio_memo_status" || curEvt === "studio_task_focus" || curEvt === "studio_persistent_notices") {
                 // Memo-related SSE events — refresh memo state from backend
                 onMemoRefresh();
+              } else if (curEvt === "studio_session_state") {
+                setSessionState(data as typeof sessionState);
               } else if (curEvt === "studio_editor_target") {
                 // AI requests to open/create a specific file
                 const target = data as { file_type?: string; filename?: string };
@@ -2332,6 +2360,12 @@ function StudioChat({
     send(msg);
   }
 
+  function handleConfirmEditedSummary(editedItems: { label: string; value: string }[]) {
+    setPendingSummary(null);
+    const edits = editedItems.map((item) => `${item.label}=${item.value}`).join("，");
+    send(`按以下修正后的理解生成草稿：${edits}`);
+  }
+
   async function handleConfirmSplit() {
     if (!pendingFileSplit || !skillId) return;
     setSplitting(true);
@@ -2391,13 +2425,27 @@ function StudioChat({
         />
       )}
 
+      {/* Session state bar */}
+      {sessionState && sessionState.total_rounds > 0 && (
+        <div className="px-3 py-1.5 bg-[#F0F4F8] border-b border-gray-200 flex-shrink-0">
+          <div className="flex items-center gap-3 text-[8px] font-mono text-gray-500">
+            <span className="font-bold text-[#00A3C4] uppercase">{sessionState.mode}</span>
+            <span className="truncate flex-1">{sessionState.goal}</span>
+            {sessionState.file_status === "not_needed" && (
+              <span className="text-amber-500 font-bold">无文件</span>
+            )}
+            <span className="text-gray-400">R{sessionState.total_rounds}</span>
+          </div>
+        </div>
+      )}
+
       {/* Messages */}
       <div ref={scrollRef} className="flex-1 overflow-y-auto p-3 space-y-3">
         {messages.length === 0 && !streaming && !memo && (
           <div className="flex items-center justify-center h-full">
             <p className="text-[9px] text-gray-400 font-bold uppercase text-center">
-              描述你想创建或修改的 Skill<br />
-              <span className="text-gray-300 normal-case font-normal">说&ldquo;帮我测试&rdquo;可以触发测试</span>
+              描述你想创建的 Skill，我会快速给出第一版草稿<br />
+              <span className="text-gray-300 normal-case font-normal">如果你已有参考文件，可以在左侧选中后告诉我</span>
             </p>
           </div>
         )}
@@ -2415,6 +2463,32 @@ function StudioChat({
                 </>
               )}
             </div>
+            {/* 纠偏快捷按钮 — 仅最后一条 assistant 消息、非 loading 时显示 */}
+            {m.role === "assistant" && !m.loading && i === messages.length - 1 && !streaming && (
+              <div className="flex gap-1 mt-1 flex-wrap">
+                {[
+                  { label: "方向不对", msg: "你理解的方向不对，我重新说一下：" , focusInput: true },
+                  { label: "别重复问", msg: "这个问题你已经问过了，请基于已有信息继续推进" },
+                  { label: "先别管文件", msg: "先不需要文件，直接基于对话内容推进" },
+                  { label: "直接给草稿", msg: "信息够了，请直接输出 Skill 草稿" },
+                ].map((action) => (
+                  <button
+                    key={action.label}
+                    onClick={() => {
+                      if (action.focusInput) {
+                        setInput(action.msg);
+                        setTimeout(() => inputRef.current?.focus(), 50);
+                      } else {
+                        send(action.msg);
+                      }
+                    }}
+                    className="text-[7px] px-1.5 py-0.5 border border-gray-300 text-gray-500 hover:border-[#00A3C4] hover:text-[#00A3C4] transition-colors font-mono uppercase tracking-wider"
+                  >
+                    {action.label}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
         ))}
       </div>
@@ -2424,6 +2498,7 @@ function StudioChat({
         <SummaryCard
           summary={pendingSummary}
           onConfirm={handleConfirmSummary}
+          onConfirmEdited={handleConfirmEditedSummary}
           onDiscard={() => setPendingSummary(null)}
         />
       )}
