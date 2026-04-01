@@ -517,26 +517,29 @@ function DocumentRenderResolver({
     );
   }
 
-  // 6. 有内容 → CollabEditor（协同）或 RichEditor fallback
-  if (entry.content || htmlVal) {
-    if (currentUser && canEdit) {
-      return (
-        <EditorErrorBoundary fallback={<RichEditor key={entry.id} content={htmlVal} onChange={onContentChange} editable={canEdit} />}>
-          <CollabEditor
-            key={`collab-${entry.id}`}
-            knowledgeId={entry.id}
-            initialHtml={htmlVal}
-            editable
-            userName={currentUser.username || currentUser.display_name || "用户"}
-            onSave={(html, text) => onUpdateContent(entry.id, text, html)}
-          />
-        </EditorErrorBoundary>
-      );
-    }
-    return <RichEditor key={entry.id} content={htmlVal} onChange={onContentChange} editable={canEdit} />;
+  // 6. 非媒体、非 OnlyOffice → 直接进编辑器
+  // 即使 content 为空（如新建空白文档），也必须打开编辑器让用户输入
+  if (currentUser && canEdit) {
+    return (
+      <EditorErrorBoundary fallback={<RichEditor key={entry.id} content={htmlVal} onChange={onContentChange} editable={canEdit} />}>
+        <CollabEditor
+          key={`collab-${entry.id}`}
+          knowledgeId={entry.id}
+          initialHtml={htmlVal}
+          editable
+          userName={currentUser.username || currentUser.display_name || "用户"}
+          onSave={(html, text) => onUpdateContent(entry.id, text, html)}
+        />
+      </EditorErrorBoundary>
+    );
   }
 
-  // 7. 兜底
+  // 7. 只读 — 有内容则展示
+  if (entry.content || htmlVal) {
+    return <RichEditor key={entry.id} content={htmlVal} onChange={onContentChange} editable={false} />;
+  }
+
+  // 8. 兜底 — 真正无内容且只读
   return (
     <div className="flex flex-col items-center justify-center h-64 gap-3 text-gray-400">
       <AlertTriangle size={24} />

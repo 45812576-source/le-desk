@@ -48,7 +48,9 @@ function uploadFileXHR(file: File, onProgress: (pct: number) => void, folderId?:
   return new Promise((resolve, reject) => {
     const form = new FormData();
     form.append("file", file);
-    form.append("title", file.name);
+    // title 发送不含扩展名的文件名，作为显式标题
+    const nameWithoutExt = file.name.replace(/\.[^.]+$/, "") || file.name;
+    form.append("title", nameWithoutExt);
     form.append("category", "experience");
     form.append("industry_tags", "[]");
     form.append("platform_tags", "[]");
