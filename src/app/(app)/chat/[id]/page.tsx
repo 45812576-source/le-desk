@@ -336,11 +336,11 @@ export default function ChatDetailPage() {
 
   /* ── Send message via store ── */
 
-  async function handleSend(content: string, file?: File, toolId?: number, multiFiles?: Record<string, File>) {
+  async function handleSend(content: string, files?: File[], toolId?: number, multiFiles?: Record<string, File>) {
     await useChatStore.getState().sendMessage(convId, content, {
       activeSkillIds: enabledSkillIds !== null ? Array.from(enabledSkillIds) : undefined,
       toolId,
-      file,
+      files,
       multiFiles,
       forceSkillId: workspaceType === "sandbox" && sandboxSkillId ? sandboxSkillId : undefined,
     });
@@ -367,8 +367,8 @@ export default function ChatDetailPage() {
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
     setIsDragOver(false);
-    const files = Array.from(e.dataTransfer.files).filter(isAllowedFile);
-    if (files.length > 0) handleSend("", files[0]);
+    const droppedFiles = Array.from(e.dataTransfer.files).filter(isAllowedFile);
+    if (droppedFiles.length > 0) handleSend("", droppedFiles);
   };
 
   if (loading) {

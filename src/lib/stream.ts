@@ -124,7 +124,7 @@ export async function* streamChat(
  */
 export async function* streamUpload(
   convId: number,
-  file: File,
+  files: File | File[],
   message?: string,
   options?: StreamChatOptions,
 ): AsyncGenerator<StreamEvent> {
@@ -132,13 +132,19 @@ export async function* streamUpload(
     typeof window !== "undefined" ? localStorage.getItem("token") : null;
 
   const form = new FormData();
-  // 多文件拼盘：每个 key 对应一个文件，以 file_<key> 字段名上传
+  // 多文件拼盘（工具 manifest data_source）：每个 key 对应一个文件
   if (options?.multiFiles && Object.keys(options.multiFiles).length > 0) {
     for (const [key, f] of Object.entries(options.multiFiles)) {
       form.append(`file_${key}`, f, f.name);
     }
   } else {
-    form.append("file", file);
+    // 普通上传：支持单文件或多文件，多文件用 file_0, file_1 ... 字段名
+    const fileArr = Array.isArray(files) ? files : [files];
+    if (fileArr.length === 1) {
+      form.append("file", fileArr[0]);
+    } else {
+      fileArr.forEach((f, i) => form.append(`file_${i}`, f, f.name));
+    }
   }
   if (message) form.append("message", message);
 

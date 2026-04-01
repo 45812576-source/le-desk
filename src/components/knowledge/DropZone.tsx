@@ -36,7 +36,10 @@ export default function DropZone({ onFiles, dragging }: DropZoneProps) {
           {dragging ? "松开以上传" : "拖拽文件到此处"}
         </p>
         {!dragging && (
-          <p className="text-[8px] text-[#00A3C4] mt-0.5 font-bold underline">或 点击上传</p>
+          <>
+            <p className="text-[8px] text-[#00A3C4] mt-0.5 font-bold underline">或 点击上传</p>
+            <p className="text-[7px] text-gray-400 mt-0.5">支持 ZIP 批量上传</p>
+          </>
         )}
       </div>
     </div>

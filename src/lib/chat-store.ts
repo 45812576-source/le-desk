@@ -87,6 +87,7 @@ interface ChatStore {
       activeSkillIds?: number[];
       toolId?: number;
       file?: File;
+      files?: File[];
       multiFiles?: Record<string, File>;
       forceSkillId?: number;
     }
@@ -179,7 +180,8 @@ export const useChatStore = create<ChatStore>((set, get) => ({
   async sendMessage(convId, content, opts) {
     if (getStreamState(convId).isSending) return;
 
-    const file = opts?.file;
+    // files (新多文件) 优先于 file (旧单文件兼容)
+    const filesArr = opts?.files ?? (opts?.file ? [opts.file] : []);
     const multiFiles = opts?.multiFiles;
 
     // 多文件上传
@@ -287,9 +289,10 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       return;
     }
 
-    // 单文件上传
-    if (file) {
-      const optimisticContent = content ? `${content}\n\n[文件: ${file.name}]` : `[文件: ${file.name}]`;
+    // 文件上传（单文件 / 多文件）
+    if (filesArr.length > 0) {
+      const fileLabel = filesArr.map((f) => f.name).join("、");
+      const optimisticContent = content ? `${content}\n\n[文件: ${fileLabel}]` : `[文件: ${fileLabel}]`;
       const tempId = Date.now();
       get().appendOptimisticMessage(convId, {
         id: tempId, role: "user", content: optimisticContent, created_at: new Date().toISOString(),
@@ -308,7 +311,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       const blocks: ContentBlock[] = [];
 
       try {
-        for await (const event of streamUpload(convId, file, content || undefined, { signal: abort.signal })) {
+        for await (const event of streamUpload(convId, filesArr, content || undefined, { signal: abort.signal })) {
           switch (event.type) {
             case "status": patchStreamState(convId, { streamStage: event.data.stage as string }, true); break;
             case "delta":
@@ -358,7 +361,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
           });
           const msgs = get().messagesMap.get(convId) ?? [];
           if (msgs.filter((m) => m.role === "user").length <= 1) {
-            get().updateConvTitle(convId, `[文件] ${file.name}`.slice(0, 60));
+            get().updateConvTitle(convId, `[文件] ${filesArr.map((f) => f.name).join(", ")}`.slice(0, 60));
           }
         } else if (accumulated) {
           get().appendOptimisticMessage(convId, {

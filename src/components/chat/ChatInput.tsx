@@ -23,7 +23,7 @@ interface ToolOption {
 }
 
 interface ChatInputProps {
-  onSend: (content: string, file?: File, toolId?: number, multiFiles?: Record<string, File>) => void;
+  onSend: (content: string, files?: File[], toolId?: number, multiFiles?: Record<string, File>) => void;
   disabled?: boolean;
   quote?: string | null;
   onClearQuote?: () => void;
@@ -61,7 +61,7 @@ function quotePreview(text: string) {
 
 export function ChatInput({ onSend, disabled, quote, onClearQuote, workspaceSkills = [], activeSkill, onSelectSkill, workspaceTools = [], prefill, onClearPrefill }: ChatInputProps) {
   const [value, setValue] = useState("");
-  const [file, setFile] = useState<File | null>(null);
+  const [files, setFiles] = useState<File[]>([]);
   // 多文件拼盘：key = data_source.key, value = File
   const [multiFiles, setMultiFiles] = useState<Record<string, File>>({});
   const [mentions, setMentions] = useState<KbMention[]>([]);
@@ -247,7 +247,7 @@ export function ChatInput({ onSend, disabled, quote, onClearQuote, workspaceSkil
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     const trimmed = value.trim();
-    if ((!trimmed && !file && mentions.length === 0 && !quote) || disabled || localSubmitting) return;
+    if ((!trimmed && files.length === 0 && mentions.length === 0 && !quote) || disabled || localSubmitting) return;
 
     const quotePrefix = buildQuotePrefix();
 
@@ -265,7 +265,7 @@ export function ChatInput({ onSend, disabled, quote, onClearQuote, workspaceSkil
       if (missingRequired.length > 0) return; // 必填未全部填入，不允许发送
       onSend((quotePrefix + trimmed).trim(), undefined, pendingToolId, multiFiles);
       setValue("");
-      setFile(null);
+      setFiles([]);
       setMultiFiles({});
       setMentions([]);
       setActiveTool(null);
@@ -274,10 +274,10 @@ export function ChatInput({ onSend, disabled, quote, onClearQuote, workspaceSkil
       return;
     }
 
-    if (file) {
-      onSend((quotePrefix + trimmed).trim(), file, pendingToolId);
+    if (files.length > 0) {
+      onSend((quotePrefix + trimmed).trim(), files, pendingToolId);
       setValue("");
-      setFile(null);
+      setFiles([]);
       setMultiFiles({});
       setMentions([]);
       setActiveTool(null);
@@ -296,7 +296,7 @@ export function ChatInput({ onSend, disabled, quote, onClearQuote, workspaceSkil
     }
 
     setValue("");
-    setFile(null);
+    setFiles([]);
     setMultiFiles({});
     setMentions([]);
     setActiveTool(null);
@@ -358,8 +358,8 @@ export function ChatInput({ onSend, disabled, quote, onClearQuote, workspaceSkil
   }
 
   const handleFileChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    const f = e.target.files?.[0];
-    if (f && isAllowedFile(f)) setFile(f);
+    const selected = Array.from(e.target.files ?? []).filter(isAllowedFile);
+    if (selected.length > 0) setFiles((prev) => [...prev, ...selected]);
     e.target.value = "";
   }, []);
 
@@ -380,7 +380,7 @@ export function ChatInput({ onSend, disabled, quote, onClearQuote, workspaceSkil
   const isMultiUpload = uploadSources.length > 1;
   const requiredUploadKeys = uploadSources.filter((ds) => ds.required !== false).map((ds) => ds.key);
   const multiUploadReady = !isMultiUpload || requiredUploadKeys.every((k) => !!multiFiles[k]);
-  const canSend = !isBlocked && multiUploadReady && (value.trim() || file || mentions.length > 0 || !!quote || (isMultiUpload && Object.keys(multiFiles).length > 0));
+  const canSend = !isBlocked && multiUploadReady && (value.trim() || files.length > 0 || mentions.length > 0 || !!quote || (isMultiUpload && Object.keys(multiFiles).length > 0));
 
   return (
     <form
@@ -389,7 +389,7 @@ export function ChatInput({ onSend, disabled, quote, onClearQuote, workspaceSkil
       style={{ backgroundColor: "var(--card)" }}
     >
       {/* Chips 区域：对话引用 + Skill + Tool + @ 引用 + 文件 */}
-      {(quote || activeSkill || activeTool || mentions.length > 0 || file) && (
+      {(quote || activeSkill || activeTool || mentions.length > 0 || files.length > 0) && (
         <div className="flex flex-wrap gap-1.5">
           {/* 对话气泡引用 chip */}
           {quote && (() => {
@@ -450,18 +450,18 @@ export function ChatInput({ onSend, disabled, quote, onClearQuote, workspaceSkil
               </button>
             </div>
           ))}
-          {file && (
-            <div className="flex items-center gap-1.5 px-2 py-1 border-2 border-[#00D1FF] bg-[#CCF2FF]">
-              <span className="text-[9px] font-bold text-[#1A202C] max-w-[200px] truncate">📎 {file.name}</span>
+          {files.map((f, i) => (
+            <div key={`${f.name}-${i}`} className="flex items-center gap-1.5 px-2 py-1 border-2 border-[#00D1FF] bg-[#CCF2FF]">
+              <span className="text-[9px] font-bold text-[#1A202C] max-w-[200px] truncate">📎 {f.name}</span>
               <button
                 type="button"
-                onClick={() => setFile(null)}
+                onClick={() => setFiles((prev) => prev.filter((_, idx) => idx !== i))}
                 className="text-[#00A3C4] hover:text-red-500 text-xs font-bold leading-none"
               >
                 ×
               </button>
             </div>
-          )}
+          ))}
         </div>
       )}
 
@@ -481,6 +481,7 @@ export function ChatInput({ onSend, disabled, quote, onClearQuote, workspaceSkil
           ref={fileInputRef}
           type="file"
           accept={ALLOWED_EXTS.join(",")}
+          multiple
           className="hidden"
           onChange={handleFileChange}
         />
@@ -631,7 +632,7 @@ export function ChatInput({ onSend, disabled, quote, onClearQuote, workspaceSkil
           onChange={handleChange}
           onKeyDown={handleKeyDown}
           onInput={handleInput}
-          placeholder={localSubmitting ? "正在获取知识摘要..." : file ? "补充说明（可选）" : "输入消息，@ 引用知识库，Enter 换行，Ctrl+Enter 发送"}
+          placeholder={localSubmitting ? "正在获取知识摘要..." : files.length > 0 ? "补充说明（可选）" : "输入消息，@ 引用知识库，Enter 换行，Ctrl+Enter 发送"}
           rows={1}
           disabled={isBlocked}
           className={`w-full border-2 border-[#1A202C] px-3 py-2 text-xs font-bold resize-none focus:outline-none focus:border-[#00D1FF] disabled:opacity-40 ${isLab ? "" : "rounded-md"}`}

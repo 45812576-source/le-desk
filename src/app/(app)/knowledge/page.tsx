@@ -36,7 +36,7 @@ function buildTree(folders: Folder[]): Map<number | null, Folder[]> {
 }
 
 // Simple XHR upload with progress
-function uploadFileXHR(file: File, onProgress: (pct: number) => void): Promise<{ id: number }> {
+function uploadFileXHR(file: File, onProgress: (pct: number) => void, folderId?: number | null): Promise<{ id: number }> {
   return new Promise((resolve, reject) => {
     const form = new FormData();
     form.append("file", file);
@@ -45,6 +45,7 @@ function uploadFileXHR(file: File, onProgress: (pct: number) => void): Promise<{
     form.append("industry_tags", "[]");
     form.append("platform_tags", "[]");
     form.append("topic_tags", "[]");
+    if (folderId) form.append("folder_id", String(folderId));
 
     const xhr = new XMLHttpRequest();
     xhr.open("POST", "/api/proxy/knowledge/upload");
@@ -53,8 +54,7 @@ function uploadFileXHR(file: File, onProgress: (pct: number) => void): Promise<{
     if (token) xhr.setRequestHeader("Authorization", `Bearer ${token}`);
 
     xhr.upload.onprogress = (e) => {
-      // Cap at 90%: the remaining 10% is reserved for backend processing
-      if (e.lengthComputable) onProgress(Math.min(90, Math.round((e.loaded / e.total) * 90)));
+      if (e.lengthComputable) onProgress(Math.min(95, Math.round((e.loaded / e.total) * 95)));
     };
     xhr.onload = () => {
       if (xhr.status >= 200 && xhr.status < 300) {
@@ -68,6 +68,8 @@ function uploadFileXHR(file: File, onProgress: (pct: number) => void): Promise<{
       }
     };
     xhr.onerror = () => reject(new Error("网络错误"));
+    xhr.timeout = 120_000;
+    xhr.ontimeout = () => reject(new Error("上传超时"));
     xhr.send(form);
   });
 }
@@ -281,7 +283,7 @@ function FileManagerTab() {
     fetchAll();
   }
 
-  async function handleUploadFiles(files: FileList | File[]) {
+  async function handleUploadFiles(files: FileList | File[], folderId?: number | null) {
     const fileArr = Array.from(files);
     if (fileArr.length === 0) return;
 
@@ -304,7 +306,7 @@ function FileManagerTab() {
       try {
         const result = await uploadFileXHR(file, (pct) => {
           setUploadingFiles((prev) => prev.map((f, i) => i === idx ? { ...f, progress: pct } : f));
-        });
+        }, folderId);
         setUploadingFiles((prev) => prev.map((f, i) => i === idx ? { ...f, progress: 100, status: "done" } : f));
         results.push({ file, id: result.id });
         lastUploadedId = result.id;
@@ -646,6 +648,7 @@ function FileManagerTab() {
                       onDragStart={setDraggingEntryId}
                       depth={0}
                       onContextMenu={handleContextMenu}
+                      onUploadFiles={(files, fid) => handleUploadFiles(Array.from(files), fid)}
                     />
                   ))}
 

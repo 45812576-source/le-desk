@@ -37,6 +37,7 @@ interface FolderNodeProps {
   onDragStart: (id: number) => void;
   depth: number;
   onContextMenu?: (e: React.MouseEvent, entry: KnowledgeDetail) => void;
+  onUploadFiles?: (files: FileList, folderId: number) => void;
 }
 
 export default function FolderNode({
@@ -56,6 +57,7 @@ export default function FolderNode({
   onDragStart,
   depth,
   onContextMenu,
+  onUploadFiles,
 }: FolderNodeProps) {
   const [open, setOpen] = useState(depth === 0);
   const [renaming, setRenaming] = useState(false);
@@ -87,13 +89,19 @@ export default function FolderNode({
           dropTarget && draggingEntryId !== null ? "bg-[#CCF2FF] border-l-2 border-[#00D1FF]" : "hover:bg-white"
         }`}
         style={{ paddingLeft: `${8 + depth * 16}px`, paddingRight: "8px" }}
-        onDragOver={(e) => { if (draggingEntryId !== null) { e.preventDefault(); setDropTarget(true); } }}
+        onDragOver={(e) => { e.preventDefault(); setDropTarget(true); }}
         onDragLeave={() => setDropTarget(false)}
         onDrop={(e) => {
           e.preventDefault();
           setDropTarget(false);
+          // 拖拽已有条目
           const id = parseInt(e.dataTransfer.getData("entryId"));
-          if (!isNaN(id)) { onMoveEntry(id, folder.id); setOpen(true); }
+          if (!isNaN(id)) { onMoveEntry(id, folder.id); setOpen(true); return; }
+          // 拖拽外部文件 → 上传到此文件夹
+          if (e.dataTransfer.files?.length && onUploadFiles) {
+            onUploadFiles(e.dataTransfer.files, folder.id);
+            setOpen(true);
+          }
         }}
       >
         <span
@@ -149,6 +157,7 @@ export default function FolderNode({
               onDragStart={onDragStart}
               depth={depth + 1}
               onContextMenu={onContextMenu}
+              onUploadFiles={onUploadFiles}
             />
           ))}
           {addingChild && (
