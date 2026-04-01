@@ -17,6 +17,9 @@ import AssetList from "./components/AssetList";
 import type { AssetFilter } from "./components/AssetList";
 import TableDetailPanel from "./components/TableDetail";
 import UnfiledWorkbench from "./components/manage/UnfiledWorkbench";
+import { useV2DataAssets } from "./components/shared/feature-flags";
+import DashboardKpi from "./components/DashboardKpi";
+import RiskSummaryPanel from "./components/RiskSummaryPanel";
 
 function ThemedIcon({ size }: { size: number }) {
   const { theme } = useTheme();
@@ -26,6 +29,7 @@ function ThemedIcon({ size }: { size: number }) {
 
 // ─── ManageTab (new three-column layout) ─────────────────────────────────────
 function ManageTab() {
+  const isV2 = useV2DataAssets();
   const [folders, setFolders] = useState<DataAssetFolder[]>([]);
   const [tables, setTables] = useState<DataAssetTable[]>([]);
   const [selectedFolderId, setSelectedFolderId] = useState<number | null>(null);
@@ -109,7 +113,10 @@ function ManageTab() {
   const showUnfiled = quickFilter === "unfiled" && selectedFolderId === null;
 
   return (
-    <div className="flex h-full border-2 border-[#1A202C]">
+    <div className="flex flex-col h-full">
+      {/* V2: KPI 条 */}
+      {isV2 && <DashboardKpi />}
+      <div className="flex flex-1 min-h-0 border-2 border-[#1A202C]">
       {/* Left: Folder tree */}
       <div className="w-48 flex-shrink-0 border-r-2 border-[#1A202C] bg-[#F0F4F8]">
         {loadingFolders ? (
@@ -156,6 +163,8 @@ function ManageTab() {
                 tableId={selectedTableId}
                 onRefresh={() => { fetchTables(); }}
               />
+            ) : isV2 ? (
+              <RiskSummaryPanel />
             ) : (
               <div className="flex flex-col items-center justify-center h-full text-[9px] text-gray-400 uppercase tracking-widest">
                 <div className="mb-3 opacity-40"><ThemedIcon size={32} /></div>
@@ -165,6 +174,7 @@ function ManageTab() {
           </div>
         </>
       )}
+    </div>
     </div>
   );
 }

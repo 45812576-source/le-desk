@@ -435,4 +435,239 @@ export interface TableDetail {
   role_groups: TableRoleGroup[];
   permission_policies: TablePermissionPolicy[];
   skill_grants: SkillDataGrant[];
+  // v2: 安全扩展
+  risk_assessment: RiskAssessment | null;
+  source_profile: SourceProfile | null;
+  small_sample_protection: SmallSampleProtectionConfig;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// v2: 数据资产扩展类型
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// ── 敏感分级 ──
+export type SensitivityLevel = "S0_public" | "S1_internal" | "S2_sensitive" | "S3_confidential" | "S4_restricted";
+export const SENSITIVITY_LABELS: Record<SensitivityLevel, string> = {
+  S0_public: "S0 公开",
+  S1_internal: "S1 内部",
+  S2_sensitive: "S2 敏感",
+  S3_confidential: "S3 机密",
+  S4_restricted: "S4 受限",
+};
+export const SENSITIVITY_COLORS: Record<SensitivityLevel, string> = {
+  S0_public: "",
+  S1_internal: "bg-blue-50 text-blue-500 border-blue-200",
+  S2_sensitive: "bg-yellow-50 text-yellow-600 border-yellow-200",
+  S3_confidential: "bg-orange-50 text-orange-600 border-orange-200",
+  S4_restricted: "bg-red-50 text-red-600 border-red-200",
+};
+
+// ── 字段生命周期 ──
+export type FieldLifecycleStatus = "draft" | "inferred" | "confirmed" | "deprecated" | "archived";
+export const LIFECYCLE_LABELS: Record<FieldLifecycleStatus, string> = {
+  draft: "草稿",
+  inferred: "推断",
+  confirmed: "已确认",
+  deprecated: "已弃用",
+  archived: "已归档",
+};
+export const LIFECYCLE_STYLES: Record<FieldLifecycleStatus, string> = {
+  draft: "border-dashed border-gray-300 text-gray-400",
+  inferred: "border-dashed border-blue-300 text-blue-500",
+  confirmed: "border-solid border-green-400 text-green-600",
+  deprecated: "border-solid border-orange-300 text-orange-500 line-through",
+  archived: "border-solid border-gray-300 text-gray-400 line-through",
+};
+
+// ── V2 字段扩展 ──
+export interface TableFieldDetailV2 extends TableFieldDetail {
+  sensitivity_level: SensitivityLevel;
+  lifecycle_status: FieldLifecycleStatus;
+}
+
+// ── V2 资产列表扩展 ──
+export type RiskLevel = "low" | "medium" | "high" | "critical";
+export const RISK_LEVEL_LABELS: Record<RiskLevel, string> = {
+  low: "低风险",
+  medium: "中风险",
+  high: "高风险",
+  critical: "严重",
+};
+export const RISK_LEVEL_COLORS: Record<RiskLevel, string> = {
+  low: "bg-green-50 text-green-600",
+  medium: "bg-yellow-50 text-yellow-600",
+  high: "bg-orange-50 text-orange-600",
+  critical: "bg-red-50 text-red-600",
+};
+
+export interface DataAssetTableV2 extends DataAssetTable {
+  risk_level: RiskLevel | null;
+}
+
+// ── 风险评估 ──
+export interface RiskFactor {
+  name: string;
+  score: number;
+  max_score: number;
+  description: string;
+}
+
+export interface RiskAssessment {
+  table_id: number;
+  overall_level: RiskLevel;
+  overall_score: number;
+  factors: RiskFactor[];
+  assessed_at: string;
+}
+
+// ── 数据源画像 ──
+export interface SourceProfile {
+  source_type: string;
+  connection_status: "healthy" | "degraded" | "failed";
+  last_check_at: string;
+  latency_ms: number | null;
+  error_rate: number;
+  metadata: Record<string, unknown>;
+}
+
+// ── 小样本保护 ──
+export type SmallSampleFallback = "hide_bucket" | "merge_adjacent" | "suppress_cell";
+export interface SmallSampleProtectionConfig {
+  enabled: boolean;
+  threshold: number;
+  fallback: SmallSampleFallback;
+}
+
+// ── V2 表详情扩展（通过 normalizer 注入，不改原接口 shape）──
+export interface TableDetailV2 extends Omit<TableDetail, "fields"> {
+  fields: TableFieldDetailV2[];
+  risk_assessment: RiskAssessment | null;
+  source_profile: SourceProfile | null;
+  small_sample_protection: SmallSampleProtectionConfig;
+}
+
+// ── 访问模拟 ──
+export interface AccessSimulationRequest {
+  subject_type: "user" | "role" | "skill";
+  subject_id: number;
+  resource_table_id: number;
+  resource_view_id?: number;
+  question?: string;
+}
+
+export interface InterceptedItem {
+  field_name: string;
+  reason: string;
+  action: "blocked" | "masked" | "aggregated";
+}
+
+export interface AccessSimulationResult {
+  accessible_fields: string[];
+  blocked_fields: string[];
+  disclosure_level: DisclosureLevel;
+  row_access_summary: string;
+  intercepted_items: InterceptedItem[];
+}
+
+// ── 输出审查 ──
+export type OutputReviewAction = "passed" | "blocked" | "masked" | "flagged";
+export interface OutputReviewLog {
+  id: number;
+  skill_id: number;
+  skill_name: string;
+  table_id: number;
+  action: OutputReviewAction;
+  reason: string;
+  fields_involved: string[];
+  created_at: string;
+}
+
+// ── 逻辑视图 ──
+export interface LogicalViewRun {
+  id: number;
+  view_id: number;
+  view_name: string;
+  triggered_by: string;
+  status: "success" | "failed" | "running";
+  row_count: number | null;
+  duration_ms: number | null;
+  created_at: string;
+}
+
+// ── 策略版本 ──
+export interface PolicyVersion {
+  id: number;
+  policy_id: number;
+  version: number;
+  snapshot: TablePermissionPolicy;
+  changed_by: number | null;
+  changed_by_name: string | null;
+  change_reason: string | null;
+  created_at: string;
+}
+
+// ── 审批 ──
+export type DataApprovalType = "export_sensitive" | "elevate_disclosure" | "grant_access" | "policy_change";
+export type DataApprovalStatus = "pending" | "approved" | "rejected";
+export interface DataApproval {
+  id: number;
+  approval_type: DataApprovalType;
+  status: DataApprovalStatus;
+  requester_id: number;
+  requester_name: string;
+  table_id: number;
+  table_name: string;
+  payload: Record<string, unknown>;
+  reviewer_id: number | null;
+  reviewer_name: string | null;
+  review_comment: string | null;
+  created_at: string;
+  reviewed_at: string | null;
+}
+
+// ── 字段影响 ──
+export interface FieldImpact {
+  field_id: number;
+  field_name: string;
+  used_by_views: { id: number; name: string }[];
+  used_by_policies: { id: number; role_group_name: string }[];
+  used_by_skills: { id: number; skill_name: string }[];
+  used_by_sync_rules: string[];
+}
+
+// ── 治理缺失项 ──
+export type UnfiledTaskType =
+  | "no_folder"
+  | "no_sensitivity"
+  | "no_permission"
+  | "no_description"
+  | "no_field_confirm"
+  | "stale_sync";
+export interface UnfiledTask {
+  type: UnfiledTaskType;
+  label: string;
+  severity: "info" | "warning" | "error";
+  fix_hint: string;
+}
+
+// ── 首页 KPI ──
+export interface DashboardStats {
+  unfiled_count: number;
+  high_risk_count: number;
+  pending_approval_count: number;
+  sync_failed_count: number;
+}
+
+// ── 导出规则 ──
+export type ExportFormat = "csv" | "excel" | "json";
+export interface ExportRule {
+  id: number;
+  table_id: number;
+  role_group_id: number;
+  role_group_name: string;
+  allowed_formats: ExportFormat[];
+  max_rows: number | null;
+  requires_approval: boolean;
+  watermark: boolean;
+  strip_sensitive: boolean;
 }

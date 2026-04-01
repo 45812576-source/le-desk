@@ -6,6 +6,7 @@ import { PixelButton } from "@/components/pixel/PixelButton";
 import { apiFetch } from "@/lib/api";
 import type { TableDetail, TableViewDetail, DisclosureLevel, ViewKind } from "../shared/types";
 import { DISCLOSURE_LABELS, VIEW_KIND_LABELS } from "../shared/types";
+import { useV2DataAssets } from "../shared/feature-flags";
 
 interface Props {
   detail: TableDetail;
@@ -151,11 +152,98 @@ function ViewFormPanel({
   );
 }
 
+/** V2 只读画像卡片 */
+function ViewProfileCard({ view, detail }: { view: TableViewDetail; detail: TableDetail }) {
+  const [expanded, setExpanded] = useState(false);
+
+  // 绑定的 Skill
+  const boundSkills = detail.bindings.filter((b) => b.view_id === view.id);
+  // 绑定的 Grant
+  const boundGrants = detail.skill_grants?.filter((g) => g.view_id === view.id) || [];
+  // 可见字段名
+  const fieldNames = view.visible_field_ids?.length > 0
+    ? detail.fields.filter((f) => f.id && view.visible_field_ids.includes(f.id)).map((f) => f.display_name || f.field_name)
+    : [];
+  // 允许的角色组名
+  const roleGroupNames = view.allowed_role_group_ids?.length > 0
+    ? detail.role_groups.filter((rg) => view.allowed_role_group_ids.includes(rg.id)).map((rg) => rg.name)
+    : [];
+
+  return (
+    <div className="border border-gray-200 bg-[#F8FBFD] p-2 mt-1 text-[8px]">
+      <button onClick={() => setExpanded(!expanded)} className="text-[7px] text-[#00A3C4] hover:underline mb-1">
+        {expanded ? "收起画像" : "展开画像"}
+      </button>
+      {expanded && (
+        <div className="space-y-1.5">
+          {/* 面向谁 */}
+          <div>
+            <span className="text-gray-400 font-bold uppercase">面向:</span>{" "}
+            {roleGroupNames.length > 0 ? roleGroupNames.join(", ") : <span className="text-gray-400">所有角色</span>}
+          </div>
+          {/* 用途 */}
+          <div>
+            <span className="text-gray-400 font-bold uppercase">用途:</span>{" "}
+            {view.view_purpose || <span className="text-gray-400">未说明</span>}
+          </div>
+          {/* 字段列表 */}
+          <div>
+            <span className="text-gray-400 font-bold uppercase">字段 ({fieldNames.length}):</span>
+            {fieldNames.length > 0 ? (
+              <div className="flex flex-wrap gap-1 mt-0.5">
+                {fieldNames.slice(0, 15).map((f) => (
+                  <span key={f} className="px-1 py-px bg-white border border-gray-200 rounded text-[7px]">{f}</span>
+                ))}
+                {fieldNames.length > 15 && <span className="text-gray-400">+{fieldNames.length - 15}</span>}
+              </div>
+            ) : (
+              <span className="text-gray-400 ml-1">全部字段</span>
+            )}
+          </div>
+          {/* 筛选规则 */}
+          {view.config.filters?.length > 0 && (
+            <div>
+              <span className="text-gray-400 font-bold uppercase">筛选:</span>{" "}
+              <span>{view.config.filters.length} 条规则</span>
+            </div>
+          )}
+          {/* 披露上限 */}
+          {view.disclosure_ceiling && (
+            <div>
+              <span className="text-gray-400 font-bold uppercase">披露上限:</span>{" "}
+              <span className="text-orange-500 font-bold">{view.disclosure_ceiling}</span>
+            </div>
+          )}
+          {/* 绑定的 Skill */}
+          {boundSkills.length > 0 && (
+            <div>
+              <span className="text-gray-400 font-bold uppercase">绑定 Skill:</span>
+              <div className="flex flex-wrap gap-1 mt-0.5">
+                {boundSkills.map((b) => (
+                  <span key={b.skill_id} className="px-1 py-px bg-green-50 border border-green-200 text-green-600 rounded text-[7px]">
+                    {b.skill_name}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+          {/* 影响范围 */}
+          <div className="text-[7px] text-gray-400 pt-1 border-t border-gray-200">
+            影响: {boundSkills.length} Skill · {boundGrants.length} 授权
+            {view.row_limit !== null && ` · 行上限 ${view.row_limit}`}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function ViewsTab({ detail, onRefresh }: Props) {
   const [creating, setCreating] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState<number | null>(null);
+  const isV2 = useV2DataAssets();
 
   async function handleCreate(form: ViewForm) {
     setSaving(true);
@@ -206,7 +294,6 @@ export default function ViewsTab({ detail, onRefresh }: Props) {
   async function handleDelete(viewId: number) {
     setDeleting(viewId);
     try {
-      // 先检查影响
       const impact = await apiFetch<{ binding_count: number; grant_count: number; policy_count: number }>(
         `/data-assets/views/${viewId}/impact`
       );
@@ -275,63 +362,67 @@ export default function ViewsTab({ detail, onRefresh }: Props) {
                   />
                 </div>
               ) : (
-                <div className="flex items-center gap-3 px-4 py-3 border-b border-gray-100 hover:bg-[#F0FBFF] transition-colors">
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <span className="text-[10px] font-bold">{v.name}</span>
-                      {v.is_default && <PixelBadge color="cyan">默认</PixelBadge>}
-                      {v.is_system && <PixelBadge color="gray">系统</PixelBadge>}
-                      <span className="text-[7px] font-bold px-1 py-px bg-gray-50 text-gray-400 rounded">
-                        {VIEW_KIND_LABELS[v.view_kind] || v.view_kind}
-                      </span>
-                      {v.disclosure_ceiling && (
-                        <span className="text-[7px] font-bold px-1 py-px bg-orange-50 text-orange-500 rounded">
-                          上限 {v.disclosure_ceiling}
+                <div>
+                  <div className="flex items-center gap-3 px-4 py-3 border-b border-gray-100 hover:bg-[#F0FBFF] transition-colors">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="text-[10px] font-bold">{v.name}</span>
+                        {v.is_default && <PixelBadge color="cyan">默认</PixelBadge>}
+                        {v.is_system && <PixelBadge color="gray">系统</PixelBadge>}
+                        <span className="text-[7px] font-bold px-1 py-px bg-gray-50 text-gray-400 rounded">
+                          {VIEW_KIND_LABELS[v.view_kind] || v.view_kind}
                         </span>
-                      )}
+                        {v.disclosure_ceiling && (
+                          <span className="text-[7px] font-bold px-1 py-px bg-orange-50 text-orange-500 rounded">
+                            上限 {v.disclosure_ceiling}
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2 mt-0.5 text-[8px] text-gray-400">
+                        <span>{v.view_type}</span>
+                        {v.view_purpose && <span>· {v.view_purpose}</span>}
+                        <span>· {v.visibility_scope}</span>
+                        {v.visible_field_ids?.length > 0 && (
+                          <span>· {v.visible_field_ids.length} 字段</span>
+                        )}
+                        {v.allowed_role_group_ids?.length > 0 && (
+                          <span>· {v.allowed_role_group_ids.length} 角色组</span>
+                        )}
+                      </div>
                     </div>
-                    <div className="flex items-center gap-2 mt-0.5 text-[8px] text-gray-400">
-                      <span>{v.view_type}</span>
-                      {v.view_purpose && <span>· {v.view_purpose}</span>}
-                      <span>· {v.visibility_scope}</span>
-                      {v.visible_field_ids?.length > 0 && (
-                        <span>· {v.visible_field_ids.length} 字段</span>
+                    <div className="flex items-center gap-2 flex-shrink-0">
+                      {bindingCount > 0 && (
+                        <span className="text-[8px] text-[#00A3C4] font-bold">{bindingCount} 绑定</span>
                       )}
-                      {v.allowed_role_group_ids?.length > 0 && (
-                        <span>· {v.allowed_role_group_ids.length} 角色组</span>
+                      {grantCount > 0 && (
+                        <span className="text-[8px] text-green-500 font-bold">{grantCount} 授权</span>
+                      )}
+                      {v.config.filters?.length > 0 && (
+                        <span className="text-[8px] text-gray-400">{v.config.filters.length} 筛选</span>
+                      )}
+                      {!v.is_system && (
+                        <>
+                          <button
+                            onClick={() => setEditingId(v.id)}
+                            className="text-[8px] text-gray-400 hover:text-[#00A3C4] px-1"
+                            title="编辑"
+                          >
+                            编辑
+                          </button>
+                          <button
+                            onClick={() => handleDelete(v.id)}
+                            disabled={deleting === v.id}
+                            className="text-[8px] text-gray-400 hover:text-red-500 px-1"
+                            title="删除"
+                          >
+                            {deleting === v.id ? "..." : "删除"}
+                          </button>
+                        </>
                       )}
                     </div>
                   </div>
-                  <div className="flex items-center gap-2 flex-shrink-0">
-                    {bindingCount > 0 && (
-                      <span className="text-[8px] text-[#00A3C4] font-bold">{bindingCount} 绑定</span>
-                    )}
-                    {grantCount > 0 && (
-                      <span className="text-[8px] text-green-500 font-bold">{grantCount} 授权</span>
-                    )}
-                    {v.config.filters?.length > 0 && (
-                      <span className="text-[8px] text-gray-400">{v.config.filters.length} 筛选</span>
-                    )}
-                    {!v.is_system && (
-                      <>
-                        <button
-                          onClick={() => setEditingId(v.id)}
-                          className="text-[8px] text-gray-400 hover:text-[#00A3C4] px-1"
-                          title="编辑"
-                        >
-                          编辑
-                        </button>
-                        <button
-                          onClick={() => handleDelete(v.id)}
-                          disabled={deleting === v.id}
-                          className="text-[8px] text-gray-400 hover:text-red-500 px-1"
-                          title="删除"
-                        >
-                          {deleting === v.id ? "..." : "删除"}
-                        </button>
-                      </>
-                    )}
-                  </div>
+                  {/* V2: 只读画像 */}
+                  {isV2 && <ViewProfileCard view={v} detail={detail} />}
                 </div>
               )}
             </div>

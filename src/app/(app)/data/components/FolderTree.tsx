@@ -1,14 +1,19 @@
 "use client";
 
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect, useMemo } from "react";
 import type { DataAssetFolder } from "./shared/types";
 import { apiFetch } from "@/lib/api";
+import { useV2DataAssets } from "./shared/feature-flags";
 
-export type QuickFilter = "all" | "unfiled" | "lark_sync" | "imported" | "my_tables" | "shared";
+export type QuickFilter = "all" | "unfiled" | "lark_sync" | "imported" | "my_tables" | "shared" | "high_risk" | "pending_approval" | "skill_bound" | "external_source";
 
-const QUICK_FILTERS: { id: QuickFilter; label: string; icon: string }[] = [
+const QUICK_FILTERS: { id: QuickFilter; label: string; icon: string; v2Only?: boolean }[] = [
   { id: "all", label: "全部数据表", icon: "📋" },
   { id: "unfiled", label: "未归档", icon: "📭" },
+  { id: "high_risk", label: "高风险", icon: "🔴", v2Only: true },
+  { id: "pending_approval", label: "待审批", icon: "⏳", v2Only: true },
+  { id: "skill_bound", label: "被 Skill 使用", icon: "🔗", v2Only: true },
+  { id: "external_source", label: "外部源", icon: "🌐", v2Only: true },
   { id: "lark_sync", label: "飞书同步", icon: "🔄" },
   { id: "imported", label: "本地导入", icon: "📥" },
   { id: "my_tables", label: "我负责的", icon: "👤" },
@@ -131,6 +136,8 @@ function FolderItem({
 }
 
 export default function FolderTree({ folders, selectedFolderId, quickFilter, onSelectFolder, onQuickFilterChange, onFoldersChange }: Props) {
+  const isV2 = useV2DataAssets();
+  const visibleFilters = useMemo(() => QUICK_FILTERS.filter((qf) => !qf.v2Only || isV2), [isV2]);
   const [creating, setCreating] = useState(false);
   const [newName, setNewName] = useState("");
   const newRef = useRef<HTMLInputElement>(null);
@@ -164,7 +171,7 @@ export default function FolderTree({ folders, selectedFolderId, quickFilter, onS
       </div>
       <div className="flex-1 overflow-y-auto">
         {/* 快捷筛选 */}
-        {QUICK_FILTERS.map((qf) => (
+        {visibleFilters.map((qf) => (
           <div
             key={qf.id}
             className={`flex items-center gap-1 px-2 py-1.5 cursor-pointer text-[10px] font-bold hover:bg-[#EBF4F7] transition-colors ${

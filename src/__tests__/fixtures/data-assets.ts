@@ -247,6 +247,9 @@ export function makeTableDetail(overrides: Partial<TableDetail> = {}): TableDeta
     role_groups: ROLE_GROUPS,
     permission_policies: POLICIES,
     skill_grants: SKILL_GRANTS,
+    risk_assessment: null,
+    source_profile: null,
+    small_sample_protection: { enabled: false, threshold: 5, fallback: "hide_bucket" },
     ...overrides,
   };
 }

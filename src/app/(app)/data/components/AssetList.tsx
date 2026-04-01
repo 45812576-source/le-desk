@@ -2,7 +2,9 @@
 
 import React, { useMemo, useState } from "react";
 import { PixelBadge } from "@/components/pixel/PixelBadge";
-import type { DataAssetTable } from "./shared/types";
+import type { DataAssetTable, DataAssetTableV2, RiskLevel } from "./shared/types";
+import { RISK_LEVEL_COLORS } from "./shared/types";
+import { useV2DataAssets } from "./shared/feature-flags";
 
 const SOURCE_LABELS: Record<string, { label: string; color: string }> = {
   lark_bitable: { label: "飞书", color: "bg-blue-50 text-blue-600 border-blue-200" },
@@ -25,6 +27,7 @@ export type AssetFilter = {
   sync_status?: string;
   has_warnings?: boolean;
   has_skill_binding?: boolean;
+  risk_level?: RiskLevel;
 };
 
 interface Props {
@@ -37,6 +40,7 @@ interface Props {
 }
 
 export default function AssetList({ tables, selectedTableId, onSelectTable, loading, filter, onFilterChange }: Props) {
+  const isV2 = useV2DataAssets();
   const [search, setSearch] = useState("");
   const [showFilters, setShowFilters] = useState(false);
 
@@ -61,6 +65,9 @@ export default function AssetList({ tables, selectedTableId, onSelectTable, load
     }
     if (filter?.has_skill_binding) {
       result = result.filter((t) => t.bound_skills.length > 0);
+    }
+    if (filter?.risk_level) {
+      result = result.filter((t) => (t as DataAssetTableV2).risk_level === filter.risk_level);
     }
     return result;
   }, [tables, search, filter]);
@@ -125,6 +132,17 @@ export default function AssetList({ tables, selectedTableId, onSelectTable, load
             >
               Skill 绑定
             </button>
+            {isV2 && (["high", "critical"] as RiskLevel[]).map((rl) => (
+              <button
+                key={rl}
+                onClick={() => onFilterChange({ ...filter, risk_level: filter?.risk_level === rl ? undefined : rl })}
+                className={`text-[8px] font-bold px-1.5 py-0.5 border rounded transition-colors ${
+                  filter?.risk_level === rl ? "border-red-300 text-red-600 bg-red-50" : "border-gray-200 text-gray-400"
+                }`}
+              >
+                {rl === "high" ? "高风险" : "严重"}
+              </button>
+            ))}
           </div>
         )}
       </div>
@@ -139,6 +157,8 @@ export default function AssetList({ tables, selectedTableId, onSelectTable, load
             const sync = SYNC_STATUS[t.sync_status] || SYNC_STATUS.idle;
             const hasWarnings = t.risk_warnings.length > 0;
             const isSelected = selectedTableId === t.id;
+            const riskLevel = (t as DataAssetTableV2).risk_level;
+            const riskColor = riskLevel ? RISK_LEVEL_COLORS[riskLevel] : null;
             return (
               <div
                 key={t.id}
@@ -148,6 +168,9 @@ export default function AssetList({ tables, selectedTableId, onSelectTable, load
                 }`}
               >
                 <div className="flex items-center gap-2 mb-1">
+                  {isV2 && riskColor && (
+                    <span className={`w-2 h-2 rounded-full flex-shrink-0 ${riskColor}`} title={`风险: ${riskLevel}`} />
+                  )}
                   <span className="text-[10px] font-bold truncate flex-1">{t.display_name}</span>
                   <span className={`text-[8px] font-bold px-1.5 py-px border rounded ${src.color}`}>{src.label}</span>
                 </div>
