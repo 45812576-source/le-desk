@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
+import { useRouter } from "next/navigation";
 import { PixelBadge } from "@/components/pixel/PixelBadge";
 import { PixelButton } from "@/components/pixel/PixelButton";
 import { apiFetch } from "@/lib/api";
@@ -239,6 +240,7 @@ function ViewProfileCard({ view, detail }: { view: TableViewDetail; detail: Tabl
 }
 
 export default function ViewsTab({ detail, onRefresh }: Props) {
+  const router = useRouter();
   const [creating, setCreating] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
@@ -400,6 +402,13 @@ export default function ViewsTab({ detail, onRefresh }: Props) {
                       {v.config.filters?.length > 0 && (
                         <span className="text-[8px] text-gray-400">{v.config.filters.length} 筛选</span>
                       )}
+                      <button
+                        onClick={() => router.push(`/dev-studio?view_id=${v.id}`)}
+                        className="text-[8px] text-[#00CC99] hover:text-[#00A87A] font-bold px-1"
+                        title="在 OpenCode 中使用此视图"
+                      >
+                        在 OpenCode 中使用
+                      </button>
                       {!v.is_system && (
                         <>
                           <button

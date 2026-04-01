@@ -9,6 +9,7 @@ export default function DevStudioEntryPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const fromSkill = searchParams.get("from_skill");
+  const viewId = searchParams.get("view_id");
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -26,14 +27,17 @@ export default function DevStudioEntryPage() {
           method: "POST",
           body: JSON.stringify({ workspace_id: devWs.id }),
         });
-        const qs = fromSkill ? `?from_skill=${fromSkill}` : "";
+        const qsParts: string[] = [];
+        if (fromSkill) qsParts.push(`from_skill=${fromSkill}`);
+        if (viewId) qsParts.push(`view_id=${viewId}`);
+        const qs = qsParts.length > 0 ? `?${qsParts.join("&")}` : "";
         router.replace(`/chat/${conv.id}${qs}`);
       } catch (e) {
         setError(e instanceof Error ? e.message : "启动失败");
       }
     }
     enter();
-  }, [router, fromSkill]);
+  }, [router, fromSkill, viewId]);
 
   if (error) {
     return (

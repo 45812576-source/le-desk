@@ -383,7 +383,8 @@ export default function ChatDetailPage() {
 
   if (isOpencode) {
     const fromSkillId = searchParams.get("from_skill") ? Number(searchParams.get("from_skill")) : undefined;
-    return <DevStudio convId={convId} workspaceId={opencodeWorkspaceId ?? undefined} fromSkillId={fromSkillId} />;
+    const initialViewId = searchParams.get("view_id") ? Number(searchParams.get("view_id")) : undefined;
+    return <DevStudio convId={convId} workspaceId={opencodeWorkspaceId ?? undefined} fromSkillId={fromSkillId} initialViewId={initialViewId} />;
   }
 
   if (isSkillStudio) {

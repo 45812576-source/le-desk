@@ -1392,7 +1392,7 @@ const RESTRICTED_MODELS = ["lemondata/gpt-5.4"];
 
 type Status = "loading" | "ready" | "error";
 
-export function DevStudio({ workspaceId, fromSkillId }: { convId: number; workspaceId?: number; fromSkillId?: number }) {
+export function DevStudio({ workspaceId, fromSkillId, initialViewId }: { convId: number; workspaceId?: number; fromSkillId?: number; initialViewId?: number }) {
   const { theme } = useTheme();
   const [status, setStatus] = useState<Status>("loading");
   const [opencodeUrl, setOpencodeUrl] = useState<string | null>(null);
@@ -1410,7 +1410,7 @@ export function DevStudio({ workspaceId, fromSkillId }: { convId: number; worksp
   const [showWorkdir, setShowWorkdir] = useState(false);
   const [showUploadPicker, setShowUploadPicker] = useState(false);
   const [showDataViewPanel, setShowDataViewPanel] = useState(false);
-  const [selectedViewId, setSelectedViewId] = useState<number | null>(null);
+  const [selectedViewId, setSelectedViewId] = useState<number | null>(initialViewId ?? null);
   const [uploadTargetPath, setUploadTargetPath] = useState("");
   const [uploadMsg, setUploadMsg] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
