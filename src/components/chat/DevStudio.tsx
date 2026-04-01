@@ -1,10 +1,25 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { apiFetch } from "@/lib/api";
 import { PixelButton } from "@/components/pixel/PixelButton";
 import { PixelBadge } from "@/components/pixel/PixelBadge";
 import { useTheme } from "@/lib/theme";
+
+// ─── Stable iframe: memo-ized to prevent re-mount on parent re-render ────────
+
+const StableIframe = memo(function StableIframe({ src, colorScheme }: { src: string; colorScheme: string }) {
+  return (
+    <iframe
+      src={src}
+      className="w-full h-full border-none"
+      title="OpenCode Dev Studio"
+      allow="clipboard-read; clipboard-write"
+      sandbox="allow-scripts allow-same-origin allow-forms allow-downloads allow-modals"
+      style={{ colorScheme }}
+    />
+  );
+});
 
 // ─── Transfer Table Modal ─────────────────────────────────────────────────────
 
@@ -1258,13 +1273,9 @@ export function DevStudio({ workspaceId, fromSkillId }: { convId: number; worksp
 
         {status === "ready" && opencodeUrl && (
           <>
-            <iframe
+            <StableIframe
               src={`${opencodeUrl}?t=${instanceKey}`}
-              className="w-full h-full border-none"
-              title="OpenCode Dev Studio"
-              allow="clipboard-read; clipboard-write"
-              sandbox="allow-scripts allow-same-origin allow-forms allow-downloads allow-modals"
-              style={{ colorScheme: theme === "dark" ? "dark" : "light" }}
+              colorScheme={theme === "dark" ? "dark" : "light"}
             />
             {/* 受限模型：不再显示持续遮罩，改为一次性 toast（见下方 RestrictedModelToast） */}
           </>

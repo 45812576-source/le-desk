@@ -1980,6 +1980,7 @@ function StudioChat({
   onDevStudio,
   onFileSplitDone,
   onMemoRefresh,
+  selectedSourceFile,
   onEditorTarget,
   clearRef,
   setInputRef,
@@ -1988,6 +1989,7 @@ function StudioChat({
   skillId: number | null;
   currentPrompt: string;
   editorIsDirty: boolean;
+  selectedSourceFile: string | null;
   allSkills: SkillDetail[];
   memo: SkillMemo | null;
   onApplyDraft: (draft: StudioDraft) => void;
@@ -2183,6 +2185,7 @@ function StudioChat({
           selected_skill_id: skillId ?? undefined,
           editor_prompt: currentPrompt || undefined,
           editor_is_dirty: editorIsDirty,
+          selected_source_filename: selectedSourceFile || undefined,
         }),
         signal: ctrl.signal,
       });
@@ -2825,6 +2828,7 @@ export function SkillStudio({ convId }: { convId: number }) {
           skillId={selectedSkill?.id ?? null}
           currentPrompt={prompt}
           editorIsDirty={editorIsDirty}
+          selectedSourceFile={selectedFile?.fileType === "asset" ? (selectedFile as { filename: string }).filename : null}
           allSkills={allPublishedSkills}
           memo={memo}
           onApplyDraft={handleApplyDraft}
