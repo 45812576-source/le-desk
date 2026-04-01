@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from "react";
 import { Upload } from "lucide-react";
 import { ICONS } from "@/components/pixel";
 import { PixelButton } from "@/components/pixel/PixelButton";
@@ -35,8 +35,16 @@ function buildTree(folders: Folder[]): Map<number | null, Folder[]> {
   return map;
 }
 
+interface UploadResult {
+  id: number;
+  title?: string;
+  folder_id?: number | null;
+  folder_name?: string | null;
+  doc_render_status?: string;
+}
+
 // Simple XHR upload with progress
-function uploadFileXHR(file: File, onProgress: (pct: number) => void, folderId?: number | null): Promise<{ id: number }> {
+function uploadFileXHR(file: File, onProgress: (pct: number) => void, folderId?: number | null): Promise<UploadResult> {
   return new Promise((resolve, reject) => {
     const form = new FormData();
     form.append("file", file);
@@ -88,8 +96,9 @@ function Toast({ message, onDone }: { message: string; onDone: () => void }) {
 }
 
 // ─── File Manager Tab ─────────────────────────────────────────────────────────
-function FileManagerTab() {
+const FileManagerTab = forwardRef<{ createDoc: () => void; triggerUpload: () => void }>(function FileManagerTab(_props, ref) {
   const { user: currentUser } = useAuth();
+  const uploadInputRef = useRef<HTMLInputElement>(null);
   const [treeMode, setTreeMode] = useState<TreeMode>("user");
   const [folders, setFolders] = useState<Folder[]>([]);
   const [entries, setEntries] = useState<KnowledgeDetail[]>([]);
@@ -149,7 +158,36 @@ function FileManagerTab() {
     finally { setLoading(false); }
   }, []);
 
-  useEffect(() => { fetchAll(); }, [fetchAll]);
+  // 首次加载：确保"我的知识"根目录存在 + 拉取列表
+  useEffect(() => {
+    apiFetch("/knowledge/ensure-my-folder", { method: "POST" }).catch(() => {});
+    fetchAll();
+  }, [fetchAll]);
+
+  // 新建文档
+  const createDoc = useCallback(async () => {
+    try {
+      const res = await apiFetch<{ id: number; title: string; folder_id: number | null; folder_name: string | null }>("/knowledge", {
+        method: "POST",
+        body: JSON.stringify({ title: "未命名文档", content: "", category: "experience" }),
+      });
+      setToast(`已创建「${res.title}」${res.folder_name ? `到 ${res.folder_name}` : ""}`);
+      await fetchAll();
+      // 自动选中新建的文档
+      try {
+        const full = await apiFetch<KnowledgeDetail>(`/knowledge/${res.id}`);
+        setSelectedEntry(full);
+        addRecentFile(res.id);
+      } catch {}
+    } catch (e) {
+      setToast(e instanceof Error ? `创建失败: ${e.message}` : "创建文档失败");
+    }
+  }, [fetchAll]);
+
+  useImperativeHandle(ref, () => ({
+    createDoc,
+    triggerUpload: () => uploadInputRef.current?.click(),
+  }), [createDoc]);
 
   // Lasso handlers
   function handleTreeMouseDown(e: React.MouseEvent<HTMLDivElement>) {
@@ -298,8 +336,7 @@ function FileManagerTab() {
 
     // Upload with max 3 concurrent
     const CONCURRENCY = 3;
-    let lastUploadedId = 0;
-    const results: { file: File; id: number }[] = [];
+    const results: UploadResult[] = [];
 
     async function uploadOne(file: File, idx: number) {
       try {
@@ -307,8 +344,7 @@ function FileManagerTab() {
           setUploadingFiles((prev) => prev.map((f, i) => i === idx ? { ...f, progress: pct } : f));
         }, folderId);
         setUploadingFiles((prev) => prev.map((f, i) => i === idx ? { ...f, progress: 100, status: "done" } : f));
-        results.push({ file, id: result.id });
-        lastUploadedId = result.id;
+        results.push(result);
       } catch {
         setUploadingFiles((prev) => prev.map((f, i) => i === idx ? { ...f, status: "error" } : f));
       }
@@ -326,13 +362,17 @@ function FileManagerTab() {
 
     const doneCount = results.length;
     if (doneCount > 0) {
-      setToast(`已上传 ${doneCount} 个文件`);
+      // 结构化反馈
+      const last = results[results.length - 1];
+      const folderHint = last?.folder_name ? ` → ${last.folder_name}` : "";
+      const renderHint = last?.doc_render_status === "pending" ? "，云文档转换中" : "";
+      setToast(`已上传 ${doneCount} 个文件${folderHint}${renderHint}`);
       // Auto-select last uploaded
-      if (lastUploadedId) {
+      if (last?.id) {
         try {
-          const full = await apiFetch<KnowledgeDetail>(`/knowledge/${lastUploadedId}`);
+          const full = await apiFetch<KnowledgeDetail>(`/knowledge/${last.id}`);
           setSelectedEntry(full);
-          addRecentFile(lastUploadedId);
+          addRecentFile(last.id);
         } catch {}
       }
     }
@@ -814,13 +854,28 @@ function FileManagerTab() {
 
       {/* Toast */}
       {toast && <Toast message={toast} onDone={() => setToast(null)} />}
+
+      {/* Hidden upload input for header button */}
+      <input
+        ref={uploadInputRef}
+        type="file"
+        multiple
+        className="hidden"
+        onChange={(e) => {
+          if (e.target.files && e.target.files.length > 0) {
+            handleUploadFiles(e.target.files);
+            e.target.value = "";
+          }
+        }}
+      />
     </div>
   );
-}
+});
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
 export default function KnowledgePage() {
   const [tab, setTab] = useState<Tab>("files");
+  const fileManagerRef = useRef<{ createDoc: () => void; triggerUpload: () => void } | null>(null);
 
   return (
     <div className="h-full flex flex-col">
@@ -833,10 +888,20 @@ export default function KnowledgePage() {
           <PixelButton variant={tab === "files" ? "primary" : "secondary"} size="sm" onClick={() => setTab("files")}>知识文件</PixelButton>
           <PixelButton variant={tab === "search" ? "primary" : "secondary"} size="sm" onClick={() => setTab("search")}>知识搜索</PixelButton>
         </div>
+        {tab === "files" && (
+          <div className="flex gap-1 ml-auto">
+            <PixelButton variant="secondary" size="sm" onClick={() => fileManagerRef.current?.triggerUpload()}>
+              <Upload size={12} className="mr-1 inline" />上传文档
+            </PixelButton>
+            <PixelButton variant="primary" size="sm" onClick={() => fileManagerRef.current?.createDoc()}>
+              + 新建文档
+            </PixelButton>
+          </div>
+        )}
       </div>
       {tab === "files" ? (
         <div className="flex-1 min-h-0 overflow-hidden">
-          <FileManagerTab />
+          <FileManagerTab ref={fileManagerRef} />
         </div>
       ) : (
         <div className="flex-1 overflow-auto p-6">

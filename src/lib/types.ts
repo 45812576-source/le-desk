@@ -254,6 +254,7 @@ export interface BoundTool {
 
 export interface KnowledgeDetail extends KnowledgeEntry {
   folder_id: number | null;
+  folder_name: string | null;
   review_level: number;
   review_level_label: string;
   review_stage: string;

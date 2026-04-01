@@ -399,30 +399,45 @@ function DocumentRenderResolver({
   const renderStatus = entry.doc_render_status;
   const isMedia = entry.oss_key && MEDIA_EXTS.has(ext);
 
-  // 1. 正在转换中
+  // 1. 正在转换中 — 显示进度提示，同时允许编辑正文 fallback
   if (renderStatus === "processing" || renderStatus === "pending") {
     return (
-      <div className="flex flex-col items-center justify-center h-64 gap-3">
-        <Loader2 size={24} className="text-[#00D1FF] animate-spin" />
-        <p className="text-[11px] text-gray-500">正在转换为云文档...</p>
-        <p className="text-[9px] text-gray-400">转换完成后可直接在线预览和编辑</p>
+      <div className="flex flex-col h-full">
+        <div className="flex items-center gap-2 px-4 py-2 bg-[#F0F9FF] border-b border-[#00D1FF]/20 flex-shrink-0">
+          <Loader2 size={14} className="text-[#00D1FF] animate-spin" />
+          <span className="text-[10px] text-[#00A3C4] font-medium">云文档转换中，转换完成后可在线预览和协同编辑</span>
+        </div>
+        {/* 转换中也允许编辑正文 */}
+        {(entry.content || htmlVal) ? (
+          <RichEditor key={entry.id} content={htmlVal} onChange={onContentChange} editable={canEdit} />
+        ) : (
+          <div className="flex flex-col items-center justify-center h-48 gap-3 text-gray-400">
+            <Loader2 size={24} className="text-[#00D1FF] animate-spin" />
+            <p className="text-[9px]">正在解析文档内容...</p>
+          </div>
+        )}
       </div>
     );
   }
 
-  // 2. 转换失败 — 显示原因 + 回退
+  // 2. 转换失败 — 显示原因 + 回退编辑
   if (renderStatus === "failed") {
     return (
       <div className="flex flex-col h-full">
         <RenderFailedBanner entry={entry} />
-        {/* 回退到下层渲染 */}
+        {/* 回退到下层渲染：即使转换失败也允许编辑 */}
         {isMedia ? (
           <div className="flex-1 overflow-y-auto">
             <DocumentViewer entry={entry} />
           </div>
-        ) : entry.content ? (
+        ) : (entry.content || htmlVal) ? (
           <RichEditor key={entry.id} content={htmlVal} onChange={onContentChange} editable={canEdit} />
-        ) : null}
+        ) : (
+          <div className="flex flex-col items-center justify-center h-48 gap-3 text-gray-400">
+            <AlertTriangle size={20} />
+            <p className="text-[10px]">云文档转换失败，暂无可编辑内容</p>
+          </div>
+        )}
       </div>
     );
   }
