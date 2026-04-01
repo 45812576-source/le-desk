@@ -377,14 +377,20 @@ export default function PreviewPanel({
 
       {/* Document area — 多级渲染 */}
       <div className="flex-1 min-h-0 overflow-hidden">
-        <DocumentRenderResolver
-          entry={entry}
-          htmlVal={htmlVal}
-          canEdit={canEdit && !isLarkDoc}
-          onContentChange={handleContentChange}
-          currentUser={currentUser}
-          onUpdateContent={onUpdateContent}
-        />
+        {permLoading ? (
+          <div className="flex items-center justify-center h-32">
+            <Loader2 size={20} className="text-[#00D1FF] animate-spin" />
+          </div>
+        ) : (
+          <DocumentRenderResolver
+            entry={entry}
+            htmlVal={htmlVal}
+            canEdit={canEdit && !isLarkDoc}
+            onContentChange={handleContentChange}
+            currentUser={currentUser}
+            onUpdateContent={onUpdateContent}
+          />
+        )}
       </div>
     </div>
   );
