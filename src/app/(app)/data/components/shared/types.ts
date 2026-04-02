@@ -858,6 +858,58 @@ export interface GovernanceObjectLite {
   feedback_score?: number;
 }
 
+// ─── 协同基线 ──────────────────────────────────────────────────────────────────
+
+export interface CollaborationBaselineFieldTemplate {
+  field_key: string;
+  field_label: string;
+  is_required: boolean;
+  visibility_mode: string;
+  update_cycle?: string | null;
+}
+
+export interface CollaborationBaselineLibrary {
+  library_id: number;
+  library_code: string;
+  library_name: string;
+  objective_id: number;
+  object_type: string;
+  doc_count: number;
+  table_count: number;
+  field_coverage: number;
+  required_field_count: number;
+  filled_field_count: number;
+  consumer_departments: number[];
+  dependency_library_codes: string[];
+  default_update_cycle?: string | null;
+  last_updated?: string | null;
+  update_compliance?: number | null;
+  field_templates: CollaborationBaselineFieldTemplate[];
+}
+
+export interface CollaborationBaselineObjectType {
+  object_type_id: number;
+  object_type_code: string;
+  object_type_name: string;
+  dimension_count: number;
+  dimension_schema: string[];
+  facet_count: number;
+  active_object_count: number;
+}
+
+export interface CollaborationBaselineSummary {
+  total_libraries: number;
+  avg_field_coverage: number;
+  update_compliance_rate: number;
+  total_cross_dept_objects: number;
+}
+
+export interface CollaborationBaselineResponse {
+  summary: CollaborationBaselineSummary;
+  libraries: CollaborationBaselineLibrary[];
+  object_types: CollaborationBaselineObjectType[];
+}
+
 export interface GovernanceObjectDetail extends GovernanceObjectLite {
   facets: Array<{
     id: number;

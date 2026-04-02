@@ -25,7 +25,7 @@ import GovernanceWorkbench from "@/components/knowledge/GovernanceWorkbench";
 import GovernanceReviewWorkbench from "@/components/governance/GovernanceReviewWorkbench";
 
 type Tab = "files" | "search";
-type TreeMode = "user" | "rag";
+type TreeMode = "user" | "rag" | "governance";
 
 function buildTree(folders: Folder[]): Map<number | null, Folder[]> {
   const map = new Map<number | null, Folder[]>();
@@ -156,6 +156,9 @@ const FileManagerTab = forwardRef<{ createDoc: () => void; triggerUpload: () => 
   const [autoFilingResult, setAutoFilingResult] = useState<{ filed: number; skipped: number; low_confidence: number; batch_id: string; suggestions: Array<{ id: number; knowledge_id: number; title: string; suggested_folder_id: number; confidence: number; reason: string }> } | null>(null);
   const [pendingSuggestions, setPendingSuggestions] = useState<Array<{ id: number; knowledge_id: number; title: string; suggested_folder_id: number; suggested_folder_path: string; confidence: number; reason: string }>>([]);
   const [showPendingSuggestions, setShowPendingSuggestions] = useState(false);
+
+  // Governance tree blueprint
+  const [governanceBlueprint, setGovernanceBlueprint] = useState<import("@/app/(app)/data/components/shared/types").GovernanceBlueprintLite | null>(null);
 
   const handleSelectEntry = useCallback(async (e: KnowledgeDetail) => {
     setSelectedEntry(e);
@@ -300,8 +303,9 @@ const FileManagerTab = forwardRef<{ createDoc: () => void; triggerUpload: () => 
     // Text filter
     if (filterText.trim()) {
       const q = filterText.toLowerCase();
-      const matchText = (e.ai_title || e.title || "").toLowerCase().includes(q) ||
-                         (e.source_file || "").toLowerCase().includes(q);
+      const matchText = (e.title || "").toLowerCase().includes(q) ||
+                         (e.source_file || "").toLowerCase().includes(q) ||
+                         (e.understanding_summary_short || "").toLowerCase().includes(q);
       if (!matchText) return false;
     }
     // Source filter
@@ -542,6 +546,17 @@ const FileManagerTab = forwardRef<{ createDoc: () => void; triggerUpload: () => 
             >
               系统归档
             </button>
+            <button
+              onClick={() => {
+                setTreeMode("governance");
+                if (!governanceBlueprint) {
+                  apiFetch<import("@/app/(app)/data/components/shared/types").GovernanceBlueprintLite>("/knowledge-governance/blueprint").then(setGovernanceBlueprint).catch(() => {});
+                }
+              }}
+              className={`flex-1 py-1 text-[8px] font-bold uppercase tracking-widest transition-colors ${treeMode === "governance" ? "bg-[#0077B6] text-white" : "bg-white text-gray-500 hover:bg-[#F0F4F8]"}`}
+            >
+              治理目录
+            </button>
           </div>
 
           {/* Filter + Actions */}
@@ -761,7 +776,14 @@ const FileManagerTab = forwardRef<{ createDoc: () => void; triggerUpload: () => 
         {/* RAG taxonomy view */}
         {treeMode === "rag" && (
           loading ? <SkeletonLoader variant="tree" /> : (
-            <TaxonomyTreeView entries={entries} selectedEntry={selectedEntry} onSelectEntry={handleSelectEntry} />
+            <TaxonomyTreeView entries={entries} selectedEntry={selectedEntry} onSelectEntry={handleSelectEntry} mode="taxonomy" />
+          )
+        )}
+
+        {/* Governance tree view */}
+        {treeMode === "governance" && (
+          loading ? <SkeletonLoader variant="tree" /> : (
+            <TaxonomyTreeView entries={entries} selectedEntry={selectedEntry} onSelectEntry={handleSelectEntry} mode="governance" blueprint={governanceBlueprint} />
           )
         )}
 

@@ -3,6 +3,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 
 import { apiFetch } from "@/lib/api";
+import CollaborationBaseline from "./CollaborationBaseline";
 
 import type {
   GovernanceBlueprintLite,
@@ -16,6 +17,7 @@ import type {
 } from "@/app/(app)/data/components/shared/types";
 
 type SubjectTypeFilter = "all" | "knowledge" | "business_table";
+type WorkbenchTab = "governance" | "baseline";
 
 const OBJECTIVE_ORDER = ["company_common", "professional_capability", "outsource_intel", "business_line_execution"];
 
@@ -48,6 +50,7 @@ export default function GovernanceReviewWorkbench({
   const [showFrozenOnly, setShowFrozenOnly] = useState(false);
   const [businessLineFilter, setBusinessLineFilter] = useState("");
   const [actioningId, setActioningId] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<WorkbenchTab>("governance");
 
   async function load() {
     setLoading(true);
@@ -109,7 +112,22 @@ export default function GovernanceReviewWorkbench({
   return (
     <div className={summaryClassName}>
       <div className="px-4 py-3 border-b border-gray-200 flex items-center gap-2">
-        <span className="text-[9px] font-bold uppercase tracking-widest text-[#0077B6]">统一治理审查台</span>
+        <div className="flex items-center gap-0.5 mr-2">
+          {(["governance", "baseline"] as WorkbenchTab[]).map((tab) => (
+            <button
+              key={tab}
+              onClick={() => setActiveTab(tab)}
+              className={`px-2 py-1 text-[8px] font-bold uppercase tracking-widest border ${
+                activeTab === tab
+                  ? "border-[#0077B6] text-[#0077B6] bg-[#EAF7FF]"
+                  : "border-gray-200 text-gray-500 bg-white hover:bg-gray-50"
+              }`}
+            >
+              {tab === "governance" ? "治理审查" : "协同基线"}
+            </button>
+          ))}
+        </div>
+        <span className="text-[9px] font-bold uppercase tracking-widest text-[#0077B6]">{activeTab === "governance" ? "统一治理审查台" : "协同基线全局视图"}</span>
         <span className="text-[8px] text-gray-400">待审建议 {filteredSuggestions.length}</span>
         <span className="text-[8px] text-amber-600">对象缺口 {gapOverview?.object_gaps.length || 0}</span>
         <div className="ml-auto flex items-center gap-1">
@@ -152,7 +170,13 @@ export default function GovernanceReviewWorkbench({
         </div>
       </div>
 
-      <div className={mode === "page" ? "flex-1 min-h-0 overflow-auto" : "max-h-80 overflow-y-auto"}>
+      {activeTab === "baseline" && (
+        <div className={mode === "page" ? "flex-1 min-h-0" : "max-h-80 overflow-y-auto"}>
+          <CollaborationBaseline />
+        </div>
+      )}
+
+      {activeTab === "governance" && <div className={mode === "page" ? "flex-1 min-h-0 overflow-auto" : "max-h-80 overflow-y-auto"}>
         {blueprint && (
           <section className="p-4 border-b border-gray-100 space-y-2 bg-[#FCFEFF]">
             <div className="text-[9px] font-bold uppercase tracking-widest text-slate-600">治理蓝图骨架</div>
@@ -371,7 +395,7 @@ export default function GovernanceReviewWorkbench({
             />
           ))}
         </section>
-      </div>
+      </div>}
     </div>
   );
 }
