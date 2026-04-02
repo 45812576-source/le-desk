@@ -26,6 +26,7 @@ export default function GovernanceWorkbench({ currentUser, selectedKnowledgeId, 
   const [running, setRunning] = useState(false);
   const [repairingGapId, setRepairingGapId] = useState<string | null>(null);
 
+  const [collapsed, setCollapsed] = useState(true);
   const isAdmin = currentUser?.role === "super_admin" || currentUser?.role === "dept_admin";
 
   async function load() {
@@ -69,7 +70,8 @@ export default function GovernanceWorkbench({ currentUser, selectedKnowledgeId, 
 
   return (
     <div className="border-t border-gray-200 bg-[#FAFCFE]">
-      <div className="px-4 py-2 border-b border-gray-200 flex items-center gap-2">
+      <div className="px-4 py-2 border-b border-gray-200 flex items-center gap-2 cursor-pointer select-none" onClick={() => setCollapsed(v => !v)}>
+        <span className={`text-[8px] text-gray-400 transition-transform ${collapsed ? "" : "rotate-90"}`}>▶</span>
         <span className="text-[9px] font-bold uppercase tracking-widest text-[#0077B6]">治理审查台</span>
         <span className="text-[8px] text-gray-400">待审建议 {suggestions.length}</span>
         {gapOverview && (
@@ -94,7 +96,7 @@ export default function GovernanceWorkbench({ currentUser, selectedKnowledgeId, 
         </button>
       </div>
 
-      <div className="max-h-64 overflow-y-auto divide-y divide-gray-100">
+      {collapsed ? null : <div className="max-h-64 overflow-y-auto divide-y divide-gray-100">
         {gapOverview && (gapOverview.object_gaps.length > 0 || gapOverview.conflict_count > 0) && (
           <div className="px-4 py-2 bg-amber-50 border-b border-amber-200 space-y-1">
             {gapOverview.object_gaps.slice(0, 3).map((gap) => (
@@ -219,7 +221,7 @@ export default function GovernanceWorkbench({ currentUser, selectedKnowledgeId, 
             </div>
           );
         })}
-      </div>
+      </div>}
     </div>
   );
 }
