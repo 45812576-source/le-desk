@@ -4,7 +4,7 @@ import { Component, useEffect, useRef, useState, useCallback, type ReactNode } f
 import { Eye, Download, Cloud, CloudOff, Lock, Send, Clock, RefreshCw, AlertTriangle, Loader2, Link2 } from "lucide-react";
 import { PixelIcon, ICONS, PixelBadge } from "@/components/pixel";
 import { useTheme } from "@/lib/theme";
-import type { EditPermissionCheck, KnowledgeDetail, User } from "@/lib/types";
+import type { EditPermissionCheck, KnowledgeDetail, KnowledgeShareLink, User } from "@/lib/types";
 import { apiFetch } from "@/lib/api";
 import { RichEditor } from "@/components/knowledge/RichEditor";
 import { CollabEditor } from "@/components/knowledge/CollabEditor";
@@ -106,6 +106,9 @@ export default function PreviewPanel({
   const [permCheck, setPermCheck] = useState<EditPermissionCheck | null>(null);
   const [permLoading, setPermLoading] = useState(false);
   const [requestingEdit, setRequestingEdit] = useState(false);
+  const [shareLink, setShareLink] = useState<KnowledgeShareLink | null>(null);
+  const [shareLoading, setShareLoading] = useState(false);
+  const [showSharePanel, setShowSharePanel] = useState(false);
 
   const entryId = entry?.id ?? null;
 
@@ -118,6 +121,7 @@ export default function PreviewPanel({
   useEffect(() => {
     if (!entry) {
       setPermCheck(null); // eslint-disable-line react-hooks/set-state-in-effect -- reset on null entry
+      setShareLink(null); // eslint-disable-line react-hooks/set-state-in-effect -- reset on null entry
       return;
     }
     let cancelled = false;
@@ -128,6 +132,19 @@ export default function PreviewPanel({
       .finally(() => { if (!cancelled) setPermLoading(false); });
     return () => { cancelled = true; };
   }, [entry, entryId]);
+
+  useEffect(() => {
+    if (!entry) return;
+    let cancelled = false;
+    apiFetch<KnowledgeShareLink[]>(`/knowledge/${entry.id}/share-links`)
+      .then((data) => {
+        if (!cancelled) setShareLink(data.find((item) => item.is_active) || null);
+      })
+      .catch(() => {
+        if (!cancelled) setShareLink(null);
+      });
+    return () => { cancelled = true; };
+  }, [entry]);
 
   const canEdit = permCheck?.can_edit ?? false;
 
@@ -387,6 +404,70 @@ export default function PreviewPanel({
             >
               删除
             </button>
+          )}
+          {entry && (
+            <div className="relative">
+              <button
+                onClick={async () => {
+                  setShowSharePanel((v) => !v);
+                  if (!shareLink && !shareLoading) {
+                    setShareLoading(true);
+                    try {
+                      const created = await apiFetch<KnowledgeShareLink>(`/knowledge/${entry.id}/share-links`, { method: "POST" });
+                      setShareLink(created);
+                    } catch {}
+                    setShareLoading(false);
+                  }
+                }}
+                className="px-2 py-1 rounded-md text-[10px] font-medium text-[#00A3C4] hover:bg-[#F0F9FF] transition-colors"
+              >
+                分享链接
+              </button>
+              {showSharePanel && (
+                <div className="absolute right-0 top-full mt-1 z-50 bg-white border border-gray-200 rounded-lg shadow-lg min-w-[280px] p-3 space-y-2">
+                  <div className="text-[10px] font-semibold text-gray-500">
+                    {shareLink ? "当前分享已开启" : shareLoading ? "生成链接中..." : "暂无分享链接"}
+                  </div>
+                  <div className="text-[10px] break-all text-gray-600 bg-gray-50 border border-gray-100 rounded px-2 py-2">
+                    {shareLink?.share_url || "点击上方按钮生成分享链接"}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      disabled={!shareLink}
+                      onClick={async () => {
+                        if (!shareLink?.share_url) return;
+                        await navigator.clipboard.writeText(shareLink.share_url);
+                      }}
+                      className="px-2 py-1 text-[9px] font-bold border border-[#00A3C4] text-[#00A3C4] hover:bg-[#F0F9FF] disabled:opacity-50"
+                    >
+                      复制链接
+                    </button>
+                    <button
+                      disabled={!shareLink}
+                      onClick={() => {
+                        if (!shareLink?.share_url) return;
+                        window.open(shareLink.share_url, "_blank");
+                      }}
+                      className="px-2 py-1 text-[9px] font-bold border border-gray-300 text-gray-600 hover:bg-gray-50 disabled:opacity-50"
+                    >
+                      浏览器打开
+                    </button>
+                    <button
+                      disabled={!shareLink}
+                      onClick={async () => {
+                        if (!shareLink) return;
+                        await apiFetch(`/knowledge/share-links/${shareLink.id}`, { method: "DELETE" });
+                        setShareLink(null);
+                        setShowSharePanel(false);
+                      }}
+                      className="ml-auto px-2 py-1 text-[9px] font-bold border border-red-300 text-red-500 hover:bg-red-50 disabled:opacity-50"
+                    >
+                      关闭分享
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
           )}
         </div>
       </div>

@@ -283,6 +283,33 @@ export interface KnowledgeDetail extends KnowledgeEntry {
   };
 }
 
+export interface KnowledgeShareLink {
+  id: number;
+  share_token: string;
+  share_url: string;
+  is_active: boolean;
+  access_scope: string;
+  expires_at: string | null;
+  created_at: string | null;
+  last_accessed_at?: string | null;
+  access_count?: number;
+}
+
+export interface PublicKnowledgeDetail {
+  title: string;
+  content: string;
+  content_html: string | null;
+  source_type: string | null;
+  source_origin_label: string | null;
+  updated_at: string | null;
+  created_at: string | null;
+  doc_render_status: string | null;
+  share_meta: {
+    access_scope: string;
+    expires_at: string | null;
+  };
+}
+
 export interface ModelConfig {
   id: number;
   name: string;
