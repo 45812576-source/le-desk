@@ -43,6 +43,18 @@ interface UploadResult {
   doc_render_status?: string;
 }
 
+interface LarkImportResult {
+  id: number;
+  title: string;
+  folder_id: number | null;
+  folder_name: string | null;
+  source_type: string;
+  doc_render_status: string | null;
+  doc_render_mode: string | null;
+  external_edit_mode?: "detached_copy" | "linked_readonly" | null;
+  lark_doc_url?: string | null;
+}
+
 // Simple XHR upload with progress
 function uploadFileXHR(file: File, onProgress: (pct: number) => void, folderId?: number | null): Promise<UploadResult> {
   return new Promise((resolve, reject) => {
@@ -114,6 +126,10 @@ const FileManagerTab = forwardRef<{ createDoc: () => void; triggerUpload: () => 
   const [rootDropTarget, setRootDropTarget] = useState(false);
   const [uploadingFiles, setUploadingFiles] = useState<UploadingFile[]>([]);
   const [toast, setToast] = useState<string | null>(null);
+  const [showLarkImport, setShowLarkImport] = useState(false);
+  const [larkUrls, setLarkUrls] = useState("");
+  const [larkImporting, setLarkImporting] = useState(false);
+  const [larkImportStatus, setLarkImportStatus] = useState("准备导入");
 
   // Context menu state
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; entry: KnowledgeDetail } | null>(null);
@@ -423,6 +439,60 @@ const FileManagerTab = forwardRef<{ createDoc: () => void; triggerUpload: () => 
     }
   }
 
+  async function handleImportLarkLinks() {
+    const urls = larkUrls.split("\n").map((item) => item.trim()).filter(Boolean);
+    if (urls.length === 0) {
+      setToast("请先粘贴飞书链接");
+      return;
+    }
+
+    setLarkImporting(true);
+    try {
+      if (urls.length === 1) {
+        setLarkImportStatus("解析链接中");
+        const res = await apiFetch<LarkImportResult>("/knowledge/import-from-lark", {
+          method: "POST",
+          body: JSON.stringify({
+            url: urls[0],
+            folder_id: selectedEntry?.folder_id ?? null,
+          }),
+        });
+        setLarkImportStatus("已导入，可编辑");
+        await fetchAll(true);
+        const full = await apiFetch<KnowledgeDetail>(`/knowledge/${res.id}`);
+        setSelectedEntry(full);
+        addRecentFile(res.id);
+        setToast(`已导入飞书文档「${res.title}」`);
+      } else {
+        setLarkImportStatus("批量导入中");
+        const res = await apiFetch<{ total: number; results: Array<{ url: string; ok: boolean; id?: number; title?: string; error?: string }> }>("/knowledge/import-from-lark/batch", {
+          method: "POST",
+          body: JSON.stringify({
+            urls,
+            folder_id: selectedEntry?.folder_id ?? null,
+          }),
+        });
+        const okCount = res.results.filter((item) => item.ok).length;
+        const failCount = res.results.length - okCount;
+        await fetchAll(true);
+        const lastOk = [...res.results].reverse().find((item) => item.ok && item.id);
+        if (lastOk?.id) {
+          const full = await apiFetch<KnowledgeDetail>(`/knowledge/${lastOk.id}`);
+          setSelectedEntry(full);
+          addRecentFile(lastOk.id);
+        }
+        setLarkImportStatus(failCount > 0 ? `部分失败：${failCount} 条` : "已导入，可编辑");
+        setToast(`飞书链接导入完成：成功 ${okCount}，失败 ${failCount}`);
+      }
+      setLarkUrls("");
+    } catch (e) {
+      setLarkImportStatus("导入失败");
+      setToast(e instanceof Error ? `飞书导入失败: ${e.message}` : "飞书导入失败");
+    } finally {
+      setLarkImporting(false);
+    }
+  }
+
   function handleContextMenu(e: React.MouseEvent, entry: KnowledgeDetail) {
     setContextMenu({ x: e.clientX, y: e.clientY, entry });
   }
@@ -510,6 +580,14 @@ const FileManagerTab = forwardRef<{ createDoc: () => void; triggerUpload: () => 
                   知识文件
                 </span>
                 <div className="flex items-center gap-1">
+                  <button
+                    onClick={() => setShowLarkImport((v) => !v)}
+                    className={`flex items-center gap-1 px-2 py-0.5 border-2 text-[9px] font-bold uppercase transition-colors ${
+                      showLarkImport ? "border-[#00A3C4] bg-[#00A3C4] text-white" : "border-[#00A3C4] bg-[#F0F9FF] text-[#00A3C4] hover:bg-[#00A3C4] hover:text-white"
+                    }`}
+                  >
+                    导入飞书链接
+                  </button>
                   {selectedIds.size > 0 && (
                     <>
                       <button
@@ -548,6 +626,26 @@ const FileManagerTab = forwardRef<{ createDoc: () => void; triggerUpload: () => 
                     + 文件夹
                   </button>
                 </div>
+              </div>
+            </div>
+          )}
+          {treeMode === "user" && showLarkImport && (
+            <div className="px-2 pb-2 space-y-1.5 border-t border-gray-200">
+              <textarea
+                value={larkUrls}
+                onChange={(e) => setLarkUrls(e.target.value)}
+                placeholder="粘贴飞书链接，支持单条或多条，一行一个"
+                className="w-full min-h-[84px] text-[10px] border border-gray-300 px-2 py-2 focus:outline-none focus:border-[#00D1FF] bg-white resize-y"
+              />
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-[9px] text-gray-500">{larkImporting ? larkImportStatus : "支持 docx / wiki / sheet / file"}</span>
+                <button
+                  onClick={handleImportLarkLinks}
+                  disabled={larkImporting}
+                  className="px-2 py-1 border-2 border-[#00CC99] bg-[#00CC99]/10 text-[#00CC99] text-[9px] font-bold uppercase hover:bg-[#00CC99] hover:text-white transition-colors disabled:opacity-50"
+                >
+                  {larkImporting ? "导入中..." : "开始导入"}
+                </button>
               </div>
             </div>
           )}

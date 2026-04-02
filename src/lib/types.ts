@@ -113,6 +113,9 @@ export interface KnowledgeEntry {
   lark_doc_token?: string | null;
   lark_sync_interval?: number | null;
   lark_last_synced_at?: number | null;
+  external_edit_mode?: "detached_copy" | "linked_readonly" | null;
+  source_origin_label?: string | null;
+  can_refresh_from_source?: boolean;
   // 能力标志
   can_open_onlyoffice?: boolean;
   can_retry_render?: boolean;

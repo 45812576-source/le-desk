@@ -112,6 +112,7 @@ export default function PreviewPanel({
   const ext = (entry?.file_ext || "").toLowerCase();
   const isMediaFile = entry?.oss_key && MEDIA_EXTS.has(ext);
   const isLarkDoc = entry?.source_type === "lark_doc";
+  const isDetachedLarkCopy = isLarkDoc && entry?.external_edit_mode === "detached_copy";
 
   // Fetch edit permission from backend when entry changes
   useEffect(() => {
@@ -240,7 +241,7 @@ export default function PreviewPanel({
         )}
 
         {/* Save status indicator / read-only badge / request edit */}
-        {!isMediaFile && !isLarkDoc && (
+        {!isMediaFile && (
           <div className="flex items-center gap-1.5 text-[10px]">
             {!canEdit && !permCheck?.pending_request && (
               <>
@@ -286,8 +287,15 @@ export default function PreviewPanel({
 
         {isLarkDoc && (
           <div className="flex items-center gap-1 text-[10px]">
-            <Lock size={12} className="text-[#00A3C4]" />
-            <span className="text-[#00A3C4]">飞书只读</span>
+            <Link2 size={12} className="text-[#00A3C4]" />
+            <span className="text-[#00A3C4]">来源: 飞书</span>
+          </div>
+        )}
+
+        {isDetachedLarkCopy && (
+          <div className="flex items-center gap-1 text-[10px]">
+            <Cloud size={12} className="text-[#00CC99]" />
+            <span className="text-[#00CC99]">模式: 工作台副本</span>
           </div>
         )}
 
@@ -423,7 +431,7 @@ export default function PreviewPanel({
           <DocumentRenderResolver
             entry={entry}
             htmlVal={htmlVal}
-            canEdit={canEdit && !isLarkDoc}
+            canEdit={canEdit}
             onContentChange={handleContentChange}
             currentUser={currentUser}
             onUpdateContent={onUpdateContent}
@@ -673,7 +681,7 @@ function LarkSyncBar({ entry }: { entry: KnowledgeDetail }) {
   return (
     <div className="flex items-center gap-2 px-5 py-1.5 border-b border-gray-100 flex-shrink-0 text-[10px]">
       <Link2 size={12} className="text-[#00A3C4]" />
-      <span className="text-[#00A3C4] font-medium">飞书同步</span>
+      <span className="text-[#00A3C4] font-medium">飞书来源</span>
 
       {entry.sync_status === "ok" && (
         <span className="text-green-500">正常</span>
@@ -700,7 +708,7 @@ function LarkSyncBar({ entry }: { entry: KnowledgeDetail }) {
         className="ml-auto flex items-center gap-1 px-2 py-0.5 text-[9px] text-[#00A3C4] hover:bg-[#F0F9FF] rounded transition-colors disabled:opacity-50"
       >
         <RefreshCw size={10} className={syncing ? "animate-spin" : ""} />
-        {syncing ? "同步中..." : "手动同步"}
+        {syncing ? "刷新中..." : "从飞书刷新"}
       </button>
 
       {entry.lark_doc_url && (
