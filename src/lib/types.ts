@@ -125,6 +125,28 @@ export interface KnowledgeEntry {
   // 能力标志
   can_open_onlyoffice?: boolean;
   can_retry_render?: boolean;
+  // 文档理解 Profile
+  understanding_display_title?: string | null;
+  understanding_document_type?: string | null;
+  understanding_permission_domain?: string | null;
+  understanding_desensitization_level?: string | null;
+  understanding_contains_sensitive_data?: boolean;
+  understanding_content_tags?: {
+    subject_tag?: string;
+    object_tag?: string;
+    scenario_tag?: string;
+    action_tag?: string;
+    industry_or_domain_tag?: string;
+  } | null;
+  understanding_summary_short?: string | null;
+  understanding_summary_search?: string | null;
+  understanding_status?: "pending" | "running" | "success" | "partial" | "failed" | null;
+  understanding_data_type_hits?: Array<{ type: string; label: string; count: number; samples?: string[] }> | null;
+  understanding_visibility_recommendation?: string | null;
+  understanding_suggested_tags?: string[] | null;
+  understanding_title_confidence?: number | null;
+  understanding_title_source?: string | null;
+  understanding_summary_sensitivity_mode?: string | null;
 }
 
 export interface Workspace {

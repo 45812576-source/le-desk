@@ -933,7 +933,7 @@ const FileManagerTab = forwardRef<{ createDoc: () => void; triggerUpload: () => 
                         if (!entry) return null;
                         return (
                           <div key={kid} className="flex items-center gap-2 text-[9px] border-b border-gray-200 pb-1">
-                            <span className="flex-1 truncate font-bold">{entry.ai_title || entry.title}</span>
+                            <span className="flex-1 truncate font-bold">{entry.title}</span>
                             {suggestion ? (
                               <>
                                 <span className="text-[#00A3C4] truncate max-w-[120px]">→ {suggestion.suggested_folder_path}</span>

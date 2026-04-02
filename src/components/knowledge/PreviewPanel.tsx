@@ -514,7 +514,7 @@ export default function PreviewPanel({
       </div>
 
       {/* AI summary (collapsed by default, minimal) */}
-      {(entry.ai_summary || entry.ai_tags) && (
+      {(entry.ai_summary || entry.ai_tags || entry.understanding_status) && (
         <AiSummaryBar entry={entry} />
       )}
 
@@ -921,6 +921,30 @@ function AiSummaryBar({ entry }: { entry: KnowledgeDetail }) {
     ...(entry.ai_tags?.topic || []),
   ];
 
+  const ct = entry.understanding_content_tags;
+  const contentTagList = ct ? [ct.subject_tag, ct.object_tag, ct.scenario_tag, ct.action_tag, ct.industry_or_domain_tag].filter(Boolean) as string[] : [];
+  const dataHits = entry.understanding_data_type_hits || [];
+
+  const DOC_TYPE_LABELS: Record<string, string> = {
+    policy: "制度/政策", sop: "SOP", contract: "合同/协议", proposal: "方案/提案", report: "报告",
+    meeting_note: "会议纪要", customer_material: "客户材料", product_doc: "产品文档", finance_doc: "财务文档",
+    hr_doc: "人事文档", case_study: "案例/复盘", training_material: "培训材料", external_intel: "外部情报",
+    data_export: "数据导出", form_template: "表单/模板", media_plan: "媒介方案", creative_brief: "创意简报",
+    pitch_deck: "比稿方案", campaign_review: "项目复盘", vendor_material: "供应商材料", legal_doc: "法务文档", other: "其他",
+  };
+  const PERM_DOMAIN_LABELS: Record<string, string> = {
+    public: "全员可见", department: "部门内可见", team: "团队可见",
+    owner_only: "仅创建者", confidential: "机密-需审批",
+  };
+  const DESENS_LABELS: Record<string, string> = { D0: "公开", D1: "内部", D2: "敏感", D3: "机密", D4: "绝密" };
+  const DESENS_COLORS: Record<string, string> = {
+    D0: "bg-green-50 text-green-600 border-green-200",
+    D1: "bg-blue-50 text-blue-600 border-blue-200",
+    D2: "bg-yellow-50 text-yellow-600 border-yellow-200",
+    D3: "bg-orange-50 text-orange-600 border-orange-200",
+    D4: "bg-red-50 text-red-600 border-red-200",
+  };
+
   return (
     <div className="border-b border-gray-100 flex-shrink-0">
       <button
@@ -928,31 +952,132 @@ function AiSummaryBar({ entry }: { entry: KnowledgeDetail }) {
         className="w-full flex items-center gap-2 px-5 py-1.5 text-left hover:bg-gray-50 transition-colors"
       >
         <span className="text-[9px] font-semibold text-[#00A3C4] uppercase tracking-wider">AI</span>
-        {!expanded && allTags.length > 0 && (
-          <div className="flex gap-1 overflow-hidden flex-1">
-            {allTags.slice(0, 4).map((tag, i) => (
+        {!expanded && (
+          <div className="flex gap-1 overflow-hidden flex-1 items-center">
+            {entry.understanding_document_type && DOC_TYPE_LABELS[entry.understanding_document_type] && (
+              <span className="px-1.5 py-0.5 bg-indigo-50 text-[8px] text-indigo-500 rounded-sm whitespace-nowrap border border-indigo-100">{DOC_TYPE_LABELS[entry.understanding_document_type]}</span>
+            )}
+            {entry.understanding_desensitization_level && (
+              <span className={`px-1.5 py-0.5 text-[8px] rounded-sm whitespace-nowrap border ${DESENS_COLORS[entry.understanding_desensitization_level] || ""}`}>{entry.understanding_desensitization_level} {DESENS_LABELS[entry.understanding_desensitization_level] || ""}</span>
+            )}
+            {contentTagList.slice(0, 3).map((tag, i) => (
               <span key={i} className="px-1.5 py-0.5 bg-[#F0F9FF] text-[8px] text-[#00A3C4] rounded-sm whitespace-nowrap">{tag}</span>
             ))}
-            {allTags.length > 4 && <span className="text-[8px] text-gray-400">+{allTags.length - 4}</span>}
+            {allTags.length > 0 && contentTagList.length === 0 && allTags.slice(0, 4).map((tag, i) => (
+              <span key={i} className="px-1.5 py-0.5 bg-[#F0F9FF] text-[8px] text-[#00A3C4] rounded-sm whitespace-nowrap">{tag}</span>
+            ))}
           </div>
         )}
-        <span className="text-[8px] text-gray-400 ml-auto">{expanded ? "收起" : "展开"}</span>
+        <span className="text-[8px] text-gray-400 ml-auto flex-shrink-0">{expanded ? "收起" : "展开"}</span>
       </button>
       {expanded && (
         <div className="px-5 pb-2.5 space-y-2">
-          {entry.ai_summary && (
+          {/* 文档理解摘要 */}
+          {entry.understanding_summary_short && (
+            <p className="text-[11px] text-gray-600 leading-relaxed">{entry.understanding_summary_short}</p>
+          )}
+          {!entry.understanding_summary_short && entry.ai_summary && (
             <p className="text-[11px] text-gray-600 leading-relaxed">{entry.ai_summary}</p>
           )}
-          {allTags.length > 0 && (
-            <div className="flex flex-wrap gap-1">
-              {allTags.map((tag, i) => (
-                <span key={i} className="px-1.5 py-0.5 bg-[#F0F9FF] border border-[#00D1FF]/20 text-[9px] text-[#00A3C4] rounded-sm">{tag}</span>
-              ))}
+
+          {/* 文档类型 + 脱敏级别 */}
+          {(entry.understanding_document_type || entry.understanding_desensitization_level) && (
+            <div className="flex items-center gap-2 flex-wrap">
+              {entry.understanding_document_type && DOC_TYPE_LABELS[entry.understanding_document_type] && (
+                <span className="px-2 py-0.5 bg-indigo-50 text-[9px] text-indigo-600 rounded border border-indigo-100">
+                  文档类型: {DOC_TYPE_LABELS[entry.understanding_document_type]}
+                </span>
+              )}
+              {entry.understanding_desensitization_level && (
+                <span className={`px-2 py-0.5 text-[9px] rounded border ${DESENS_COLORS[entry.understanding_desensitization_level] || ""}`}>
+                  脱敏级别: {entry.understanding_desensitization_level} ({DESENS_LABELS[entry.understanding_desensitization_level] || ""})
+                </span>
+              )}
+              {entry.understanding_permission_domain && (
+                <span className="px-2 py-0.5 bg-teal-50 text-[9px] text-teal-600 rounded border border-teal-100">
+                  权限域: {PERM_DOMAIN_LABELS[entry.understanding_permission_domain] || entry.understanding_permission_domain}
+                </span>
+              )}
+              {entry.understanding_visibility_recommendation && (
+                <span className="px-2 py-0.5 bg-gray-50 text-[9px] text-gray-500 rounded border border-gray-200">
+                  建议可见性: {PERM_DOMAIN_LABELS[entry.understanding_visibility_recommendation] || entry.understanding_visibility_recommendation}
+                </span>
+              )}
             </div>
           )}
+
+          {/* 5维内容标签 */}
+          {contentTagList.length > 0 && (
+            <div className="space-y-1">
+              <div className="text-[9px] text-gray-400 font-medium">内容标签</div>
+              <div className="flex flex-wrap gap-1">
+                {ct?.subject_tag && <span className="px-1.5 py-0.5 bg-purple-50 border border-purple-100 text-[9px] text-purple-600 rounded-sm">主体: {ct.subject_tag}</span>}
+                {ct?.object_tag && <span className="px-1.5 py-0.5 bg-sky-50 border border-sky-100 text-[9px] text-sky-600 rounded-sm">对象: {ct.object_tag}</span>}
+                {ct?.scenario_tag && <span className="px-1.5 py-0.5 bg-emerald-50 border border-emerald-100 text-[9px] text-emerald-600 rounded-sm">场景: {ct.scenario_tag}</span>}
+                {ct?.action_tag && <span className="px-1.5 py-0.5 bg-amber-50 border border-amber-100 text-[9px] text-amber-600 rounded-sm">动作: {ct.action_tag}</span>}
+                {ct?.industry_or_domain_tag && <span className="px-1.5 py-0.5 bg-rose-50 border border-rose-100 text-[9px] text-rose-600 rounded-sm">领域: {ct.industry_or_domain_tag}</span>}
+              </div>
+            </div>
+          )}
+
+          {/* 数据类型命中 */}
+          {dataHits.length > 0 && (
+            <div className="space-y-1">
+              <div className="text-[9px] text-gray-400 font-medium">检测到的数据类型</div>
+              <div className="flex flex-wrap gap-1">
+                {dataHits.map((hit, i) => (
+                  <span key={i} className="px-1.5 py-0.5 bg-red-50 border border-red-100 text-[9px] text-red-600 rounded-sm">
+                    {hit.label} ×{hit.count}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* 检索摘要 */}
+          {entry.understanding_summary_search && (
+            <div className="space-y-1">
+              <div className="text-[9px] text-gray-400 font-medium">检索摘要</div>
+              <p className="text-[10px] text-gray-500 leading-relaxed bg-gray-50 rounded p-2">{entry.understanding_summary_search}</p>
+            </div>
+          )}
+
+          {/* 建议标签（低置信度/词表外） */}
+          {(entry.understanding_suggested_tags?.length ?? 0) > 0 && (
+            <div className="space-y-1">
+              <div className="text-[9px] text-gray-400 font-medium">建议标签</div>
+              <div className="flex flex-wrap gap-1">
+                {entry.understanding_suggested_tags!.map((tag, i) => (
+                  <span key={i} className="px-1.5 py-0.5 bg-gray-50 border border-gray-200 border-dashed text-[9px] text-gray-500 rounded-sm">{tag}</span>
+                ))}
+              </div>
+            </div>
+          )}
+
           {entry.quality_score != null && (
             <div className="text-[9px] text-gray-400">质量分 {(entry.quality_score * 100).toFixed(0)}%</div>
           )}
+
+          {/* 理解状态 + 重跑按钮 */}
+          <div className="flex items-center gap-2">
+            {entry.understanding_status && entry.understanding_status !== "success" && (
+              <span className="text-[8px] text-gray-400">
+                理解状态: {entry.understanding_status === "running" ? "处理中..." : entry.understanding_status === "partial" ? "部分完成" : entry.understanding_status === "failed" ? "失败" : entry.understanding_status}
+              </span>
+            )}
+            {entry.understanding_status && entry.understanding_status !== "running" && (
+              <button
+                onClick={async () => {
+                  try {
+                    await apiFetch(`/knowledge/${entry.id}/understand`, { method: "POST" });
+                  } catch {}
+                }}
+                className="text-[8px] text-[#00A3C4] hover:underline"
+              >
+                {entry.understanding_status === "success" ? "重新理解" : "重跑理解"}
+              </button>
+            )}
+          </div>
         </div>
       )}
     </div>

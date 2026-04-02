@@ -32,7 +32,8 @@ export default function FileRow({
 }: FileRowProps) {
   const ext = entry.file_ext || (entry.source_file?.includes(".") ? `.${entry.source_file.split(".").pop()}` : "");
   const extLabel = ext.replace(/^\./, "").toUpperCase() || "TXT";
-  const displayTitle = entry.title || entry.ai_title || entry.source_file || "未命名";
+  // 标题统一读 title（后端已收口为 display_title 口径）
+  const displayTitle = entry.title || "未命名";
   const [renaming, setRenaming] = useState(false);
   const [nameVal, setNameVal] = useState(entry.title);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -54,6 +55,26 @@ export default function FileRow({
   // 渲染/同步状态
   const renderStatus = entry.doc_render_status;
   const syncStatus = entry.sync_status;
+
+  // 文档理解标签
+  const docType = entry.understanding_document_type;
+  const desensLevel = entry.understanding_desensitization_level;
+  const summaryShort = entry.understanding_summary_short;
+
+  const DOC_TYPE_LABELS: Record<string, string> = {
+    policy: "制度", sop: "SOP", contract: "合同", proposal: "方案", report: "报告",
+    meeting_note: "会议", customer_material: "客户", product_doc: "产品", finance_doc: "财务",
+    hr_doc: "人事", case_study: "案例", training_material: "培训", external_intel: "情报",
+    data_export: "导出", form_template: "模板", media_plan: "媒介", creative_brief: "创意",
+    pitch_deck: "比稿", campaign_review: "复盘", vendor_material: "供应商", legal_doc: "法务", other: "其他",
+  };
+  const DESENS_COLORS: Record<string, string> = {
+    D0: "bg-green-50 text-green-600 border-green-200",
+    D1: "bg-blue-50 text-blue-600 border-blue-200",
+    D2: "bg-yellow-50 text-yellow-600 border-yellow-200",
+    D3: "bg-orange-50 text-orange-600 border-orange-200",
+    D4: "bg-red-50 text-red-600 border-red-200",
+  };
 
   const BOARD_LABELS: Record<string, string> = {
     A: "A. 渠道与平台", B: "B. 投放策略与方法论", C: "C. 行业与客户知识",
@@ -104,6 +125,12 @@ export default function FileRow({
             )}
           </div>
           <div className="flex items-center gap-1 mt-0.5">
+            {docType && DOC_TYPE_LABELS[docType] && (
+              <span className="text-[7px] px-1 py-px rounded bg-indigo-50 text-indigo-500 flex-shrink-0 border border-indigo-100">{DOC_TYPE_LABELS[docType]}</span>
+            )}
+            {desensLevel && desensLevel !== "D0" && (
+              <span className={`text-[7px] px-1 py-px rounded flex-shrink-0 border ${DESENS_COLORS[desensLevel] || "bg-gray-50 text-gray-400 border-gray-200"}`}>{desensLevel}</span>
+            )}
             {meta && <span className="text-[10px] text-gray-400 truncate">{meta}</span>}
             {renderStatus === "processing" || renderStatus === "pending" ? (
               <span className="text-[8px] text-blue-400 flex-shrink-0">转换中</span>
@@ -117,6 +144,7 @@ export default function FileRow({
             ) : null}
           </div>
           {archivePath && <div className="text-[9px] text-gray-400/70 truncate mt-0.5 font-mono">{archivePath}</div>}
+          {summaryShort && <div className="text-[9px] text-gray-400 truncate mt-0.5">{summaryShort}</div>}
         </div>
       )}
       {!renaming && (

@@ -64,7 +64,7 @@ export default function ContextMenu({
       style={{ left: adjustedX, top: adjustedY }}
     >
       <div className="px-3 py-1.5 border-b border-gray-100 text-[9px] font-bold text-gray-500 uppercase tracking-widest truncate max-w-[180px]">
-        {entry.title || entry.ai_title || "文件"}
+        {entry.title || "文件"}
       </div>
       {items.map((item, i) => {
         if (item === null) {

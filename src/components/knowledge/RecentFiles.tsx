@@ -62,7 +62,7 @@ export default function RecentFiles({ entries, onSelect, selectedId }: RecentFil
                 }`}
               >
                 <FileTypeIcon ext={ext} size={12} />
-                <span className="text-[10px] truncate flex-1">{e.title || e.ai_title || "未命名"}</span>
+                <span className="text-[10px] truncate flex-1">{e.title || "未命名"}</span>
               </div>
             );
           })}
