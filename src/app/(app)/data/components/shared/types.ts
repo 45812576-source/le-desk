@@ -218,6 +218,11 @@ export interface DataAssetTable {
   created_at: string | null;
   role_group_count?: number;
   view_count?: number;
+  governance_objective_id?: number | null;
+  resource_library_id?: number | null;
+  object_type_id?: number | null;
+  governance_status?: "ungoverned" | "suggested" | "aligned" | "needs_review" | null;
+  governance_note?: string | null;
 }
 
 export interface TableFieldDetail {
@@ -439,6 +444,11 @@ export interface TableDetail {
   risk_assessment: RiskAssessment | null;
   source_profile: SourceProfile | null;
   small_sample_protection: SmallSampleProtectionConfig;
+  governance_objective_id?: number | null;
+  resource_library_id?: number | null;
+  object_type_id?: number | null;
+  governance_status?: "ungoverned" | "suggested" | "aligned" | "needs_review" | null;
+  governance_note?: string | null;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -670,4 +680,201 @@ export interface ExportRule {
   requires_approval: boolean;
   watermark: boolean;
   strip_sensitive: boolean;
+}
+
+export interface GovernanceObjectiveLite {
+  id: number;
+  name: string;
+  code: string;
+  description?: string | null;
+  level: string;
+}
+
+export interface GovernanceResourceLibraryLite {
+  id: number;
+  objective_id: number;
+  name: string;
+  code: string;
+  description?: string | null;
+  object_type: string;
+  default_update_cycle?: string | null;
+}
+
+export interface GovernanceSuggestionTaskLite {
+  id: number;
+  subject_type: string;
+  subject_id: number;
+  task_type: string;
+  status: string;
+  objective_id?: number | null;
+  resource_library_id?: number | null;
+  object_type_id?: number | null;
+  suggested_payload?: Record<string, unknown>;
+  reason?: string | null;
+  confidence?: number;
+  created_at?: string | null;
+}
+
+export interface GovernanceReinforcementMeta {
+  strategy_key: string;
+  strategy_group: string;
+  base_confidence: number;
+  boost: number;
+  success_rate?: number | null;
+  samples: number;
+}
+
+export interface GovernanceGapAction {
+  action: string;
+  label: string;
+  target_object_id: number;
+  description: string;
+}
+
+export interface GovernanceObjectGap {
+  object_id: number;
+  display_name: string;
+  gap_type: string;
+  reason: string;
+  recommended_actions: GovernanceGapAction[];
+}
+
+export interface GovernanceGapOverview {
+  pending_suggestions: number;
+  object_gaps: GovernanceObjectGap[];
+  conflict_count: number;
+}
+
+export interface GovernanceStrategyStatLite {
+  id: number;
+  strategy_key: string;
+  strategy_group: string;
+  subject_type?: string | null;
+  objective_code?: string | null;
+  library_code?: string | null;
+  department_id?: number | null;
+  business_line?: string | null;
+  is_frozen?: boolean;
+  manual_bias?: number;
+  total_count: number;
+  success_count: number;
+  reject_count: number;
+  cumulative_reward: number;
+  last_reward: number;
+  success_rate: number;
+  last_event_at?: string | null;
+}
+
+export interface GovernanceFeedbackEventLite {
+  id: number;
+  suggestion_id?: number | null;
+  subject_type: string;
+  subject_id: number;
+  strategy_key: string;
+  event_type: string;
+  reward_score: number;
+  note?: string | null;
+  created_by?: number | null;
+  created_at?: string | null;
+}
+
+export interface GovernanceBlueprintLite {
+  seed_blueprint: Array<Record<string, unknown>>;
+  objectives: GovernanceObjectiveLite[];
+  resource_libraries: GovernanceResourceLibraryLite[];
+  object_types: Array<{
+    id: number;
+    code: string;
+    name: string;
+    description?: string | null;
+    baseline_fields?: string[];
+    default_consumption_modes?: string[];
+  }>;
+  field_templates?: Array<{
+    id: number;
+    object_type_id: number;
+    field_key: string;
+    field_label: string;
+    field_type: string;
+    is_required: boolean;
+    is_editable: boolean;
+    visibility_mode: string;
+    update_cycle?: string | null;
+    consumer_modes?: string[];
+    description?: string | null;
+    example_values?: string[];
+    sort_order?: number;
+  }>;
+  department_missions?: Array<{
+    id: number;
+    department_id: number;
+    objective_id?: number | null;
+    name: string;
+    code: string;
+    core_role?: string | null;
+    mission_statement?: string | null;
+    upstream_dependencies?: string[];
+    downstream_deliverables?: string[];
+  }>;
+  krs?: Array<{
+    id: number;
+    mission_id: number;
+    objective_id?: number | null;
+    name: string;
+    code: string;
+    description?: string | null;
+    metric_definition?: string | null;
+    target_value?: string | null;
+    time_horizon?: string | null;
+    owner_role?: string | null;
+    sort_order?: number;
+  }>;
+  required_elements?: Array<{
+    id: number;
+    kr_id: number;
+    name: string;
+    code: string;
+    element_type: string;
+    description?: string | null;
+    required_library_codes?: string[];
+    required_object_types?: string[];
+    suggested_update_cycle?: string | null;
+    sort_order?: number;
+  }>;
+}
+
+export interface GovernanceObjectLite {
+  id: number;
+  object_type_id: number;
+  canonical_key: string;
+  display_name: string;
+  business_line?: string | null;
+  department_id?: number | null;
+  owner_id?: number | null;
+  lifecycle_status: string;
+  object_payload?: Record<string, unknown>;
+  score?: number;
+  matched_business_line?: boolean;
+  feedback_score?: number;
+}
+
+export interface GovernanceObjectDetail extends GovernanceObjectLite {
+  facets: Array<{
+    id: number;
+    resource_library_id: number;
+    facet_key: string;
+    facet_name: string;
+    field_values: Record<string, unknown>;
+    consumer_scenarios: string[];
+    visibility_mode: string;
+    is_editable: boolean;
+    update_cycle?: string | null;
+    source_subjects: Array<{ type: string; id: number }>;
+  }>;
+  collaboration_baseline?: {
+    knowledge_entries: Array<{ id: number; title: string; updated_at?: string | null }>;
+    business_tables: Array<{ id: number; display_name: string; table_name: string; updated_at?: string | null }>;
+    projects: Array<{ id: number; name: string; updated_at?: string | null }>;
+    tasks: Array<{ id: number; title: string; status?: string | null; updated_at?: string | null }>;
+  };
 }

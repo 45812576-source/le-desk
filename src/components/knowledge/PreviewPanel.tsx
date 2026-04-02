@@ -4,11 +4,21 @@ import { Component, useEffect, useRef, useState, useCallback, type ReactNode } f
 import { Eye, Download, Cloud, CloudOff, Lock, Send, Clock, RefreshCw, AlertTriangle, Loader2, Link2 } from "lucide-react";
 import { PixelIcon, ICONS, PixelBadge } from "@/components/pixel";
 import { useTheme } from "@/lib/theme";
-import type { EditPermissionCheck, KnowledgeDetail, KnowledgeShareLink, User } from "@/lib/types";
+import type {
+  EditPermissionCheck,
+  GovernanceBlueprintPayload,
+  GovernanceObjective,
+  GovernanceResourceLibrary,
+  GovernanceSuggestionTask,
+  KnowledgeDetail,
+  KnowledgeShareLink,
+  User,
+} from "@/lib/types";
 import { apiFetch } from "@/lib/api";
 import { RichEditor } from "@/components/knowledge/RichEditor";
 import { CollabEditor } from "@/components/knowledge/CollabEditor";
 import DocumentViewer from "@/components/knowledge/DocumentViewer";
+import GovernanceReviewCard from "@/components/governance/GovernanceReviewCard";
 
 // ─── ErrorBoundary for editor fallback ──────────────────────────────────────
 class EditorErrorBoundary extends Component<
@@ -109,6 +119,10 @@ export default function PreviewPanel({
   const [shareLink, setShareLink] = useState<KnowledgeShareLink | null>(null);
   const [shareLoading, setShareLoading] = useState(false);
   const [showSharePanel, setShowSharePanel] = useState(false);
+  const [governanceBlueprint, setGovernanceBlueprint] = useState<GovernanceBlueprintPayload | null>(null);
+  const [governanceSuggestions, setGovernanceSuggestions] = useState<GovernanceSuggestionTask[]>([]);
+  const [governanceLoading, setGovernanceLoading] = useState(false);
+  const [governanceActionLoading, setGovernanceActionLoading] = useState(false);
 
   const entryId = entry?.id ?? null;
 
@@ -145,6 +159,33 @@ export default function PreviewPanel({
       });
     return () => { cancelled = true; };
   }, [entry]);
+
+  useEffect(() => {
+    if (!entry || !currentUser || (currentUser.role !== "super_admin" && currentUser.role !== "dept_admin")) {
+      setGovernanceSuggestions([]);
+      return;
+    }
+    let cancelled = false;
+    setGovernanceLoading(true);
+    Promise.all([
+      apiFetch<GovernanceBlueprintPayload>("/knowledge-governance/blueprint"),
+      apiFetch<GovernanceSuggestionTask[]>(`/knowledge-governance/suggestions?subject_type=knowledge&subject_id=${entry.id}`),
+    ])
+      .then(([blueprint, suggestions]) => {
+        if (cancelled) return;
+        setGovernanceBlueprint(blueprint);
+        setGovernanceSuggestions(suggestions);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setGovernanceBlueprint(null);
+        setGovernanceSuggestions([]);
+      })
+      .finally(() => {
+        if (!cancelled) setGovernanceLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, [entry, currentUser]);
 
   const canEdit = permCheck?.can_edit ?? false;
 
@@ -475,6 +516,71 @@ export default function PreviewPanel({
       {/* AI summary (collapsed by default, minimal) */}
       {(entry.ai_summary || entry.ai_tags) && (
         <AiSummaryBar entry={entry} />
+      )}
+
+      {entry.is_in_my_knowledge && entry.status === "pending" && (
+        <div className="px-5 py-2 border-b border-yellow-200 bg-yellow-50 text-[10px] text-yellow-700">
+          该文档已进入「我的知识」，当前状态为待审核。审核通过前，其他员工不会按全员可见规则看到它。
+        </div>
+      )}
+
+      {entry && currentUser && (currentUser.role === "super_admin" || currentUser.role === "dept_admin") && (
+        <div className="px-5 py-3 border-b border-gray-100 bg-[#F8FCFF]">
+          <GovernanceReviewCard
+          subjectType="knowledge"
+          subjectId={entry.id}
+          subjectLabel={`知识文档 #${entry.id}`}
+          state={entry}
+          blueprint={governanceBlueprint}
+          suggestions={governanceSuggestions}
+          loading={governanceLoading}
+          actionLoading={governanceActionLoading}
+          onGenerate={async () => {
+            setGovernanceActionLoading(true);
+            try {
+              await apiFetch(`/knowledge-governance/knowledge/${entry.id}/suggest`, { method: "POST" });
+              const [blueprint, suggestions] = await Promise.all([
+                apiFetch<GovernanceBlueprintPayload>("/knowledge-governance/blueprint"),
+                apiFetch<GovernanceSuggestionTask[]>(`/knowledge-governance/suggestions?subject_type=knowledge&subject_id=${entry.id}`),
+              ]);
+              setGovernanceBlueprint(blueprint);
+              setGovernanceSuggestions(suggestions);
+            } finally {
+              setGovernanceActionLoading(false);
+            }
+          }}
+          onApply={async (objectiveId, resourceLibraryId, note) => {
+            setGovernanceActionLoading(true);
+            try {
+              await apiFetch("/knowledge-governance/apply", {
+                method: "POST",
+                body: JSON.stringify({
+                  subject_type: "knowledge",
+                  subject_id: entry.id,
+                  objective_id: objectiveId,
+                  resource_library_id: resourceLibraryId,
+                  governance_status: "aligned",
+                  governance_note: note,
+                }),
+              });
+              const [blueprint, suggestions] = await Promise.all([
+                apiFetch<GovernanceBlueprintPayload>("/knowledge-governance/blueprint"),
+                apiFetch<GovernanceSuggestionTask[]>(`/knowledge-governance/suggestions?subject_type=knowledge&subject_id=${entry.id}`),
+              ]);
+              setGovernanceBlueprint(blueprint);
+              setGovernanceSuggestions(suggestions);
+            } finally {
+              setGovernanceActionLoading(false);
+            }
+          }}
+          onBound={async () => {
+            const full = await apiFetch<KnowledgeDetail>(`/knowledge/${entry.id}`);
+            setGovernanceSuggestions(await apiFetch<GovernanceSuggestionTask[]>(`/knowledge-governance/suggestions?subject_type=knowledge&subject_id=${entry.id}`));
+            setGovernanceBlueprint(await apiFetch<GovernanceBlueprintPayload>("/knowledge-governance/blueprint"));
+            setHtmlVal(full.content_html || toHtml(full.content ?? ""));
+          }}
+          />
+        </div>
       )}
 
       {currentUser?.role === "super_admin" && entry.visibility_scope && (

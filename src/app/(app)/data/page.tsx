@@ -20,6 +20,7 @@ import UnfiledWorkbench from "./components/manage/UnfiledWorkbench";
 import { useV2DataAssets } from "./components/shared/feature-flags";
 import DashboardKpi from "./components/DashboardKpi";
 import RiskSummaryPanel from "./components/RiskSummaryPanel";
+import GovernanceReviewWorkbench from "@/components/governance/GovernanceReviewWorkbench";
 
 function ThemedIcon({ size }: { size: number }) {
   const { theme } = useTheme();
@@ -39,6 +40,7 @@ function ManageTab() {
   const [loadingFolders, setLoadingFolders] = useState(true);
   const [loadingTables, setLoadingTables] = useState(true);
   const [folderError, setFolderError] = useState(false);
+  const [showGovernanceWorkbench, setShowGovernanceWorkbench] = useState(false);
 
   const fetchFolders = useCallback(async () => {
     setLoadingFolders(true);
@@ -116,6 +118,26 @@ function ManageTab() {
     <div className="flex flex-col h-full">
       {/* V2: KPI 条 */}
       {isV2 && <DashboardKpi />}
+      <div className="px-3 py-2 border-b border-[#1A202C] bg-white flex items-center justify-end">
+        <button
+          onClick={() => setShowGovernanceWorkbench((v) => !v)}
+          className={`px-2 py-1 text-[8px] font-bold border ${
+            showGovernanceWorkbench
+              ? "border-[#0077B6] bg-[#EAF7FF] text-[#0077B6]"
+              : "border-gray-300 bg-white text-gray-600"
+          }`}
+        >
+          {showGovernanceWorkbench ? "关闭统一治理台" : "打开统一治理台"}
+        </button>
+      </div>
+      {showGovernanceWorkbench && (
+        <div className="border-b-2 border-[#1A202C] bg-white">
+          <GovernanceReviewWorkbench
+            mode="embedded"
+            onSelectTable={(id) => setSelectedTableId(id)}
+          />
+        </div>
+      )}
       <div className="flex flex-1 min-h-0 border-2 border-[#1A202C]">
       {/* Left: Folder tree */}
       <div className="w-48 flex-shrink-0 border-r-2 border-[#1A202C] bg-[#F0F4F8]">

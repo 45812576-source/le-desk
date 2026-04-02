@@ -116,6 +116,12 @@ export interface KnowledgeEntry {
   external_edit_mode?: "detached_copy" | "linked_readonly" | null;
   source_origin_label?: string | null;
   can_refresh_from_source?: boolean;
+  governance_objective_id?: number | null;
+  resource_library_id?: number | null;
+  object_type_id?: number | null;
+  governance_status?: "ungoverned" | "suggested" | "aligned" | "needs_review" | null;
+  governance_confidence?: number | null;
+  governance_note?: string | null;
   // 能力标志
   can_open_onlyoffice?: boolean;
   can_retry_render?: boolean;
@@ -258,6 +264,7 @@ export interface BoundTool {
 export interface KnowledgeDetail extends KnowledgeEntry {
   folder_id: number | null;
   folder_name: string | null;
+  is_in_my_knowledge?: boolean;
   raw_title?: string | null;
   business_unit?: string | null;
   folder_business_unit?: string | null;
@@ -837,4 +844,66 @@ export interface SandboxReport {
   report_hash: string | null;
   knowledge_entry_id: number | null;
   created_at: string | null;
+}
+
+export interface GovernanceObjective {
+  id: number;
+  name: string;
+  code: string;
+  description?: string | null;
+  level: string;
+  parent_id?: number | null;
+  department_id?: number | null;
+  business_line?: string | null;
+  objective_role?: string | null;
+  sort_order?: number;
+  is_active?: boolean;
+}
+
+export interface GovernanceResourceLibrary {
+  id: number;
+  objective_id: number;
+  name: string;
+  code: string;
+  description?: string | null;
+  library_type?: string;
+  object_type: string;
+  governance_mode?: string;
+  default_visibility?: string;
+  default_update_cycle?: string | null;
+  field_schema?: Array<Record<string, unknown>>;
+  consumption_scenarios?: string[];
+  collaboration_baseline?: Record<string, unknown>;
+  classification_hints?: Record<string, unknown>;
+  is_active?: boolean;
+}
+
+export interface GovernanceSuggestionTask {
+  id: number;
+  subject_type: string;
+  subject_id: number;
+  task_type: string;
+  status: string;
+  objective_id?: number | null;
+  resource_library_id?: number | null;
+  object_type_id?: number | null;
+  suggested_payload?: Record<string, unknown>;
+  reason?: string | null;
+  confidence?: number;
+  created_at?: string | null;
+}
+
+export interface GovernanceBlueprintPayload {
+  seed_blueprint: Array<Record<string, unknown>>;
+  objectives: GovernanceObjective[];
+  resource_libraries: GovernanceResourceLibrary[];
+  object_types: Array<{
+    id: number;
+    code: string;
+    name: string;
+    description?: string | null;
+    dimension_schema?: Array<Record<string, unknown>>;
+    baseline_fields?: string[];
+    default_consumption_modes?: string[];
+  }>;
 }

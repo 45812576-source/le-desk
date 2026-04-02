@@ -6,6 +6,7 @@ import { apiFetch } from "@/lib/api";
 import { useV2DataAssets } from "../shared/feature-flags";
 import type { TableDetail } from "../shared/types";
 import HeaderBar from "./HeaderBar";
+import GovernancePanel from "./GovernancePanel";
 import OverviewTab from "./OverviewTab";
 import PreviewTab from "./PreviewTab";
 import FieldsTab from "./FieldsTab";
@@ -171,6 +172,7 @@ export default function TableDetailPanel({ tableId, onRefresh }: Props) {
     <div className="flex flex-col h-full">
       {/* HeaderBar 总览条 */}
       <HeaderBar detail={detail} />
+      <GovernancePanel detail={detail} onRefresh={handleRefresh} />
 
       {/* 一级导航：分组 */}
       <div className="flex gap-0 border-b-2 border-[#1A202C] flex-shrink-0">
