@@ -43,6 +43,9 @@ interface UploadResult {
   folder_id?: number | null;
   folder_name?: string | null;
   doc_render_status?: string;
+  has_editable_fallback?: boolean;
+  render_pending?: boolean;
+  content_available?: boolean;
 }
 
 interface LarkImportResult {
@@ -168,6 +171,35 @@ const FileManagerTab = forwardRef<{ createDoc: () => void; triggerUpload: () => 
       setSelectedEntry(full);
     } catch {}
   }, []);
+
+  // 轮询 render 状态：当 selectedEntry 为 pending/processing 时，每 3 秒检查一次，60 秒超时
+  useEffect(() => {
+    if (!selectedEntry) return;
+    const status = selectedEntry.doc_render_status;
+    if (status !== "pending" && status !== "processing") return;
+
+    let cancelled = false;
+    const pollInterval = setInterval(async () => {
+      if (cancelled) return;
+      try {
+        const fresh = await apiFetch<KnowledgeDetail>(`/knowledge/${selectedEntry.id}`);
+        if (cancelled) return;
+        if (fresh.doc_render_status === "ready" || fresh.doc_render_status === "failed") {
+          setSelectedEntry(fresh);
+          setEntries(prev => prev.map(e => e.id === fresh.id ? { ...e, doc_render_status: fresh.doc_render_status, doc_render_mode: fresh.doc_render_mode } : e));
+          clearInterval(pollInterval);
+        }
+      } catch {}
+    }, 3000);
+
+    const timeout = setTimeout(() => { clearInterval(pollInterval); }, 60_000);
+
+    return () => {
+      cancelled = true;
+      clearInterval(pollInterval);
+      clearTimeout(timeout);
+    };
+  }, [selectedEntry?.id, selectedEntry?.doc_render_status]);
 
   const fetchAll = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
@@ -998,6 +1030,13 @@ const FileManagerTab = forwardRef<{ createDoc: () => void; triggerUpload: () => 
             onRename={handleRenameEntry}
             folders={treeMode === "rag" ? systemFolders : userFolders}
             onMoveToFolder={treeMode === "rag" && currentUser?.role === "super_admin" ? handleMoveEntry : undefined}
+            onRetryRender={selectedEntry ? async () => {
+              try {
+                const fresh = await apiFetch<KnowledgeDetail>(`/knowledge/${selectedEntry.id}`);
+                setSelectedEntry(fresh);
+                setEntries(prev => prev.map(e => e.id === fresh.id ? { ...e, doc_render_status: fresh.doc_render_status, doc_render_mode: fresh.doc_render_mode } : e));
+              } catch {}
+            } : undefined}
           />
         </div>
         <GovernanceWorkbench

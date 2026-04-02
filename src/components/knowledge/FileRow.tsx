@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { Loader2, AlertTriangle } from "lucide-react";
 import type { KnowledgeDetail } from "@/lib/types";
 import { formatFileSize, formatRelativeDate } from "@/lib/format";
 import FileTypeIcon from "./FileTypeIcon";
@@ -133,9 +134,13 @@ export default function FileRow({
             )}
             {meta && <span className="text-[10px] text-gray-400 truncate">{meta}</span>}
             {renderStatus === "processing" || renderStatus === "pending" ? (
-              <span className="text-[8px] text-blue-400 flex-shrink-0">转换中</span>
+              <span className="inline-flex items-center gap-0.5 text-[8px] text-blue-400 flex-shrink-0">
+                <Loader2 size={8} className="animate-spin" />转换中
+              </span>
             ) : renderStatus === "failed" ? (
-              <span className="text-[8px] text-red-400 flex-shrink-0">转换失败</span>
+              <span className="inline-flex items-center gap-0.5 text-[8px] text-red-400 flex-shrink-0">
+                <AlertTriangle size={8} />转换失败
+              </span>
             ) : null}
             {syncStatus === "syncing" ? (
               <span className="text-[8px] text-blue-400 flex-shrink-0">同步中</span>

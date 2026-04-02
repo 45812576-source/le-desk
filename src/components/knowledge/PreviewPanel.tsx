@@ -92,6 +92,7 @@ interface PreviewPanelProps {
   onRename: (id: number, title: string) => void;
   folders?: Folder[];
   onMoveToFolder?: (entryId: number, folderId: number | null) => void;
+  onRetryRender?: () => void;
 }
 
 export default function PreviewPanel({
@@ -102,6 +103,7 @@ export default function PreviewPanel({
   onRename,
   folders,
   onMoveToFolder,
+  onRetryRender,
 }: PreviewPanelProps) {
   const [htmlVal, setHtmlVal] = useState("");
   const [editingTitle, setEditingTitle] = useState(false);
@@ -622,6 +624,7 @@ export default function PreviewPanel({
             onContentChange={handleContentChange}
             currentUser={currentUser}
             onUpdateContent={onUpdateContent}
+            onRetry={onRetryRender}
           />
         )}
       </div>
@@ -661,6 +664,7 @@ function DocumentRenderResolver({
   onContentChange,
   currentUser,
   onUpdateContent,
+  onRetry,
 }: {
   entry: KnowledgeDetail;
   htmlVal: string;
@@ -668,6 +672,7 @@ function DocumentRenderResolver({
   onContentChange: (html: string) => void;
   currentUser: User | null;
   onUpdateContent: (id: number, content: string, contentHtml?: string) => Promise<void>;
+  onRetry?: () => void;
 }) {
   const ext = (entry.file_ext || "").toLowerCase();
   const renderStatus = entry.doc_render_status;
@@ -675,14 +680,17 @@ function DocumentRenderResolver({
 
   // 1. 正在转换中 — 显示进度提示，同时允许编辑正文 fallback
   if (renderStatus === "processing" || renderStatus === "pending") {
+    const hasFallback = !!(entry.content || htmlVal);
     return (
       <div className="flex flex-col h-full">
         <div className="flex items-center gap-2 px-4 py-2 bg-[#F0F9FF] border-b border-[#00D1FF]/20 flex-shrink-0">
           <Loader2 size={14} className="text-[#00D1FF] animate-spin" />
-          <span className="text-[10px] text-[#00A3C4] font-medium">云文档转换中，转换完成后可在线预览和协同编辑</span>
+          <span className="text-[10px] text-[#00A3C4] font-medium">
+            {hasFallback ? "已生成可编辑副本，云文档转换中" : "正在解析文档内容..."}
+          </span>
         </div>
         {/* 转换中也允许编辑正文 */}
-        {(entry.content || htmlVal) ? (
+        {hasFallback ? (
           <RichEditor key={entry.id} content={htmlVal} onChange={onContentChange} editable={canEdit} />
         ) : (
           <div className="flex flex-col items-center justify-center h-48 gap-3 text-gray-400">
@@ -698,7 +706,7 @@ function DocumentRenderResolver({
   if (renderStatus === "failed") {
     return (
       <div className="flex flex-col h-full">
-        <RenderFailedBanner entry={entry} />
+        <RenderFailedBanner entry={entry} onRetry={onRetry} />
         {/* 回退到下层渲染：即使转换失败也允许编辑 */}
         {isMedia ? (
           <div className="flex-1 overflow-y-auto">
@@ -802,14 +810,14 @@ function DocumentRenderResolver({
 }
 
 // 转换失败提示栏
-function RenderFailedBanner({ entry }: { entry: KnowledgeDetail }) {
+function RenderFailedBanner({ entry, onRetry }: { entry: KnowledgeDetail; onRetry?: () => void }) {
   const [retrying, setRetrying] = useState(false);
 
   async function handleRetry() {
     setRetrying(true);
     try {
       await apiFetch(`/knowledge/${entry.id}/render`, { method: "POST" });
-      window.location.reload();
+      onRetry?.();
     } catch {}
     setRetrying(false);
   }
