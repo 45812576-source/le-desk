@@ -301,6 +301,18 @@ export default function PreviewPanel({
           </span>
         )}
 
+        {entry.business_unit && (
+          <span className="text-[8px] font-semibold px-1.5 py-0.5 rounded bg-sky-50 text-sky-600 border border-sky-200">
+            事业部: {entry.business_unit}
+          </span>
+        )}
+
+        {entry.doc_render_mode === "pdf_vision_ocr" && (
+          <span className="text-[8px] font-semibold px-1.5 py-0.5 rounded bg-violet-50 text-violet-600 border border-violet-200">
+            已通过视觉模型提取
+          </span>
+        )}
+
         {entry.file_ext && (
           <span className="text-[8px] font-semibold px-1.5 py-0.5 rounded bg-gray-100 text-gray-500">
             {entry.file_ext.replace(".", "").toUpperCase()}
@@ -383,6 +395,15 @@ export default function PreviewPanel({
             : `该文档当前仅按未审批规则对创建者/本部门可见。owner=${entry.visibility_scope.owner_id ?? "-"} dept=${entry.visibility_scope.department_id ?? "-"}`}
           {entry.raw_title && entry.raw_title !== entry.title && (
             <span className="ml-2 text-gray-400">原始标题: {entry.raw_title}</span>
+          )}
+          {entry.business_unit && (
+            <span className="ml-2 text-gray-500">文档事业部: {entry.business_unit}</span>
+          )}
+          {entry.folder_business_unit && (
+            <span className="ml-2 text-gray-500">目录事业部: {entry.folder_business_unit}</span>
+          )}
+          {entry.business_unit && entry.folder_business_unit && entry.business_unit !== entry.folder_business_unit && (
+            <span className="ml-2 text-red-500 font-semibold">跨事业部错挂风险</span>
           )}
         </div>
       )}

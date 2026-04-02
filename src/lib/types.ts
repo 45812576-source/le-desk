@@ -256,6 +256,8 @@ export interface KnowledgeDetail extends KnowledgeEntry {
   folder_id: number | null;
   folder_name: string | null;
   raw_title?: string | null;
+  business_unit?: string | null;
+  folder_business_unit?: string | null;
   review_level: number;
   review_level_label: string;
   review_stage: string;
