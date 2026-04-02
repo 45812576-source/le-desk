@@ -419,6 +419,7 @@ function ViewerFallback({ entry }: { entry: KnowledgeDetail }) {
   );
 }
 
+
 // ─── 多级渲染 Resolver ────────────────────────────────────────────────────────
 function DocumentRenderResolver({
   entry,

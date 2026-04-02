@@ -12,6 +12,9 @@ interface Folder {
   name: string;
   parent_id: number | null;
   sort_order: number;
+  is_system?: number;
+  taxonomy_board?: string | null;
+  taxonomy_code?: string | null;
 }
 
 function ThemedFolderIcon({ size }: { size: number }) {

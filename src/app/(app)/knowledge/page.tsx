@@ -302,8 +302,11 @@ const FileManagerTab = forwardRef<{ createDoc: () => void; triggerUpload: () => 
     return true;
   });
 
-  const tree = buildTree(folders);
+  const userFolders = folders.filter((f) => !f.is_system);
+  const systemFolders = folders.filter((f) => Boolean(f.is_system));
+  const tree = buildTree(userFolders);
   const rootFiles = filteredEntries.filter((e) => !e.folder_id);
+  const visibleRootFiles = rootFiles.filter((e) => !systemFolders.some((f) => f.id === e.folder_id));
 
   function openNewFolder() {
     setNewFolderParentId(null);
@@ -748,7 +751,7 @@ const FileManagerTab = forwardRef<{ createDoc: () => void; triggerUpload: () => 
                     {rootDropTarget && draggingEntryId !== null && (
                       <div className="mx-2 my-1 border-2 border-dashed border-[#00D1FF] px-2 py-1 text-center text-[9px] font-bold text-[#00A3C4] uppercase tracking-widest">移出文件夹</div>
                     )}
-                    {rootFiles.map((e) => (
+                    {visibleRootFiles.map((e) => (
                       <FileRow
                         key={e.id}
                         entry={e}
@@ -823,7 +826,7 @@ const FileManagerTab = forwardRef<{ createDoc: () => void; triggerUpload: () => 
                   )}
 
                   {/* Empty state */}
-                  {(tree.get(null) ?? []).length === 0 && rootFiles.length === 0 && myEntries.length === 0 && uploadingFiles.length === 0 && (
+                  {(tree.get(null) ?? []).length === 0 && visibleRootFiles.length === 0 && filteredEntries.filter((e) => !systemFolders.some((f) => f.id === e.folder_id)).length === 0 && uploadingFiles.length === 0 && (
                     <div className="flex flex-col items-center justify-center h-48 gap-3 text-[9px] text-gray-400 uppercase tracking-widest">
                       <div className="opacity-30"><Upload size={32} /></div>
                       <p>还没有知识文件</p>
@@ -848,7 +851,7 @@ const FileManagerTab = forwardRef<{ createDoc: () => void; triggerUpload: () => 
         onUpdateContent={handleUpdateContent}
         onDelete={handleDeleteEntry}
         onRename={handleRenameEntry}
-        folders={treeMode === "rag" && currentUser?.role === "super_admin" ? folders : folders}
+        folders={treeMode === "rag" ? systemFolders : userFolders}
         onMoveToFolder={treeMode === "rag" && currentUser?.role === "super_admin" ? handleMoveEntry : undefined}
       />
 
