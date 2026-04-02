@@ -295,6 +295,12 @@ export default function PreviewPanel({
           {entry.status === "approved" ? "已通过" : entry.status === "pending" ? "待审核" : entry.status}
         </PixelBadge>
 
+        {currentUser?.role === "super_admin" && entry.visibility_scope && (
+          <span className="text-[8px] font-semibold px-1.5 py-0.5 rounded bg-amber-50 text-amber-600 border border-amber-200">
+            可见性: {entry.visibility_scope.scope}
+          </span>
+        )}
+
         {entry.file_ext && (
           <span className="text-[8px] font-semibold px-1.5 py-0.5 rounded bg-gray-100 text-gray-500">
             {entry.file_ext.replace(".", "").toUpperCase()}
@@ -368,6 +374,17 @@ export default function PreviewPanel({
       {/* AI summary (collapsed by default, minimal) */}
       {(entry.ai_summary || entry.ai_tags) && (
         <AiSummaryBar entry={entry} />
+      )}
+
+      {currentUser?.role === "super_admin" && entry.visibility_scope && (
+        <div className="px-5 py-2 border-b border-gray-100 text-[10px] text-gray-500 bg-amber-50/50">
+          {entry.visibility_scope.reason === "approved"
+            ? "该文档当前按已审批文档规则可被其他员工看到。"
+            : `该文档当前仅按未审批规则对创建者/本部门可见。owner=${entry.visibility_scope.owner_id ?? "-"} dept=${entry.visibility_scope.department_id ?? "-"}`}
+          {entry.raw_title && entry.raw_title !== entry.title && (
+            <span className="ml-2 text-gray-400">原始标题: {entry.raw_title}</span>
+          )}
+        </div>
       )}
 
       {/* 飞书同步状态栏 */}

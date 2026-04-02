@@ -32,7 +32,7 @@ export default function FileRow({
 }: FileRowProps) {
   const ext = entry.file_ext || (entry.source_file?.includes(".") ? `.${entry.source_file.split(".").pop()}` : "");
   const extLabel = ext.replace(/^\./, "").toUpperCase() || "TXT";
-  const displayTitle = entry.ai_title || entry.title || entry.source_file || "未命名";
+  const displayTitle = entry.title || entry.ai_title || entry.source_file || "未命名";
   const [renaming, setRenaming] = useState(false);
   const [nameVal, setNameVal] = useState(entry.title);
   const inputRef = useRef<HTMLInputElement>(null);

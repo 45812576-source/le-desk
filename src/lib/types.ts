@@ -255,6 +255,7 @@ export interface BoundTool {
 export interface KnowledgeDetail extends KnowledgeEntry {
   folder_id: number | null;
   folder_name: string | null;
+  raw_title?: string | null;
   review_level: number;
   review_level_label: string;
   review_stage: string;
@@ -269,6 +270,12 @@ export interface KnowledgeDetail extends KnowledgeEntry {
   taxonomy_board: string | null;
   taxonomy_code: string | null;
   taxonomy_path: string[];
+  visibility_scope?: {
+    scope: string;
+    reason: string;
+    owner_id?: number;
+    department_id?: number;
+  };
 }
 
 export interface ModelConfig {
