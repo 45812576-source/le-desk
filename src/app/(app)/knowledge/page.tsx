@@ -215,14 +215,14 @@ const FileManagerTab = forwardRef<{ createDoc: () => void; triggerUpload: () => 
       setFoldersError(null);
       setEntriesError(null);
       try {
-        const fds = await apiFetch<Folder[]>("/knowledge/folders");
+        const fds = await apiFetch<Folder[]>("/knowledge/folders?owner_only=true");
         setFolders(Array.isArray(fds) ? fds : []);
       } catch (err) {
         setFolders([]);
         setFoldersError(err instanceof Error ? err.message : "文件夹加载失败");
       }
       try {
-        const ens = await apiFetch<KnowledgeDetail[]>("/knowledge");
+        const ens = await apiFetch<KnowledgeDetail[]>("/knowledge?owner_only=true");
         setEntries(Array.isArray(ens) ? ens : []);
       } catch (err) {
         setEntries([]);
