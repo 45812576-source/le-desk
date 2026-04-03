@@ -34,6 +34,7 @@ const LUCIDE_ICONS: Record<string, React.ElementType> = {
   "/app-market":              AppWindow,
   "/admin/intel":             Globe2,
   "/approvals":               FileCheck2,
+  "/admin/knowledge-governance": BookOpen,
   "/admin/contributions":     BarChart2,
   "/admin/audit":             ScrollText,
   "/admin/users":             Users,
@@ -280,7 +281,9 @@ export function Sidebar({ user, taskPending = 0, onLogout }: SidebarProps) {
               <NavItem href="/admin/assets" label="AI 资产管理" icon={ICONS.skillsAdmin} {...navItemProps} />
               <NavItem href="/admin/workspaces" label="工作台管理" icon={ICONS.workspaceAdmin} {...navItemProps} />
               <NavItem href="/admin/contributions" label="贡献排行" icon={ICONS.contrib} {...navItemProps} />
+              <NavItem href="/admin/knowledge-governance" label="知识目录治理" icon={ICONS.knowledgeMy} {...navItemProps} />
               <NavItem href="/admin/audit" label="操作审计" icon={ICONS.audit} {...navItemProps} />
+              <NavItem href="/admin/mask-feedback" label="脱敏纠错审查" icon={ICONS.audit} {...navItemProps} />
               <NavItem href="/admin/users" label="用户管理" icon={ICONS.users} {...navItemProps} />
             </NavGroup>
           )}

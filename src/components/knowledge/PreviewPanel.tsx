@@ -1011,6 +1011,9 @@ function AiSummaryBar({ entry }: { entry: KnowledgeDetail }) {
                   建议可见性: {PERM_DOMAIN_LABELS[entry.understanding_visibility_recommendation] || entry.understanding_visibility_recommendation}
                 </span>
               )}
+              {entry.understanding_desensitization_level && (
+                <MaskFeedbackButton entry={entry} currentUser={currentUser} />
+              )}
             </div>
           )}
 
@@ -1089,5 +1092,128 @@ function AiSummaryBar({ entry }: { entry: KnowledgeDetail }) {
         </div>
       )}
     </div>
+  );
+}
+
+// ─── 脱敏纠错按钮 + 浮层表单 ────────────────────────────────────────────────
+
+const DESENS_OPTIONS = ["D0", "D1", "D2", "D3", "D4"];
+
+function MaskFeedbackButton({ entry, currentUser }: { entry: KnowledgeDetail; currentUser: User | null }) {
+  const [open, setOpen] = useState(false);
+  const [suggested, setSuggested] = useState(entry.understanding_desensitization_level || "D1");
+  const [reason, setReason] = useState("");
+  const [evidence, setEvidence] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [done, setDone] = useState(false);
+
+  if (!currentUser) return null;
+
+  async function handleSubmit() {
+    if (!reason.trim()) return;
+    setSubmitting(true);
+    try {
+      await apiFetch("/knowledge/mask-feedback", {
+        method: "POST",
+        body: JSON.stringify({
+          knowledge_id: entry.id,
+          suggested_desensitization_level: suggested,
+          reason: reason.trim(),
+          evidence_snippet: evidence.trim() || undefined,
+        }),
+      });
+      setDone(true);
+      setTimeout(() => { setOpen(false); setDone(false); }, 2000);
+    } catch {
+      // silent
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <>
+      <button
+        onClick={() => setOpen(true)}
+        className="px-2 py-0.5 bg-amber-50 text-[9px] text-amber-600 rounded border border-amber-200 hover:bg-amber-100 transition-colors"
+      >
+        脱敏纠错
+      </button>
+      {open && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30" onClick={() => setOpen(false)}>
+          <div className="bg-white rounded-lg border-2 border-[#1A202C] w-[400px] max-h-[80vh] overflow-y-auto shadow-xl" onClick={(e) => e.stopPropagation()}>
+            <div className="px-4 py-3 border-b-2 border-[#1A202C]">
+              <div className="text-[10px] font-bold uppercase tracking-wider">脱敏纠错建议</div>
+            </div>
+            <div className="p-4 space-y-3">
+              {/* 当前判定（只读） */}
+              <div>
+                <div className="text-[9px] text-gray-400 font-medium mb-1">当前判定</div>
+                <div className="flex gap-2">
+                  <span className="px-2 py-0.5 bg-gray-100 text-[9px] text-gray-600 rounded">
+                    脱敏等级: {entry.understanding_desensitization_level || "-"}
+                  </span>
+                  {entry.understanding_data_type_hits && entry.understanding_data_type_hits.length > 0 && (
+                    <span className="px-2 py-0.5 bg-gray-100 text-[9px] text-gray-500 rounded">
+                      {entry.understanding_data_type_hits.length} 个数据类型命中
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              {/* 建议等级 */}
+              <div>
+                <div className="text-[9px] text-gray-400 font-medium mb-1">建议脱敏等级</div>
+                <select
+                  value={suggested}
+                  onChange={(e) => setSuggested(e.target.value)}
+                  className="w-full px-2 py-1 text-[10px] border border-gray-300 rounded focus:border-[#00A3C4] focus:outline-none"
+                >
+                  {DESENS_OPTIONS.map((d) => (
+                    <option key={d} value={d}>{d}</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* 原因 */}
+              <div>
+                <div className="text-[9px] text-gray-400 font-medium mb-1">原因 <span className="text-red-400">*</span></div>
+                <textarea
+                  value={reason}
+                  onChange={(e) => setReason(e.target.value)}
+                  placeholder="请说明为什么当前脱敏等级不准确..."
+                  className="w-full px-2 py-1 text-[10px] border border-gray-300 rounded h-16 resize-none focus:border-[#00A3C4] focus:outline-none"
+                />
+              </div>
+
+              {/* 证据片段 */}
+              <div>
+                <div className="text-[9px] text-gray-400 font-medium mb-1">证据片段（可选）</div>
+                <textarea
+                  value={evidence}
+                  onChange={(e) => setEvidence(e.target.value)}
+                  placeholder="粘贴文档中相关内容片段..."
+                  className="w-full px-2 py-1 text-[10px] border border-gray-300 rounded h-12 resize-none focus:border-[#00A3C4] focus:outline-none"
+                />
+              </div>
+
+              {done && (
+                <div className="text-[9px] text-green-600 font-bold">建议已提交，等待管理员审核</div>
+              )}
+            </div>
+            <div className="flex justify-end gap-2 px-4 py-3 border-t border-gray-200">
+              <button onClick={() => setOpen(false)} className="px-3 py-1 text-[9px] text-gray-500 border border-gray-300 rounded hover:bg-gray-50">取消</button>
+              <button
+                onClick={handleSubmit}
+                disabled={!reason.trim() || submitting || done}
+                className="px-3 py-1 text-[9px] text-white bg-[#00A3C4] rounded hover:bg-[#008DAA] disabled:opacity-50"
+              >
+                {submitting ? "提交中..." : "提交建议"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   );
 }

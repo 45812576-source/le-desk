@@ -6,6 +6,7 @@ import { PixelButton } from "@/components/pixel/PixelButton";
 import type {
   SandboxSession,
   SandboxReport,
+  SkillPublishPrecheck,
 } from "@/lib/types";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
@@ -19,7 +20,7 @@ interface SandboxTestModalProps {
   passedLabel?: string;
 }
 
-type WizardStep = 0 | 1 | 2 | 3 | 4 | 5;
+type WizardStep = 0 | 1 | 2 | 3 | 4 | 5 | 6;
 
 // ─── Main Modal ─────────────────────────────────────────────────────────────
 
@@ -36,6 +37,7 @@ export function SandboxTestModal({
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [wizardStep, setWizardStep] = useState<WizardStep>(0);
+  const [precheck, setPrecheck] = useState<SkillPublishPrecheck | null>(null);
 
   // ── Step 0: 开始测试 ──
 
@@ -221,7 +223,7 @@ export function SandboxTestModal({
             <Step5Report
               session={session}
               report={report}
-              passedLabel={passedLabel}
+              passedLabel={type === "skill" ? "下一步：知识引用检查" : passedLabel}
               onSubmitApproval={async () => {
                 setLoading(true);
                 setError(null);
@@ -230,7 +232,22 @@ export function SandboxTestModal({
                     `/sandbox/interactive/${session.session_id}/submit-approval`,
                     { method: "POST" }
                   );
-                  onPassed();
+                  // 沙箱审批通过后，进入知识引用安全检查
+                  if (type === "skill") {
+                    try {
+                      const pc = await apiFetch<SkillPublishPrecheck>(
+                        `/skills/${id}/publish-precheck`,
+                        { method: "POST" }
+                      );
+                      setPrecheck(pc);
+                      setWizardStep(6);
+                    } catch {
+                      // precheck 失败不阻塞（可能无知识引用）
+                      onPassed();
+                    }
+                  } else {
+                    onPassed();
+                  }
                 } catch (err) {
                   setError(err instanceof Error ? err.message : "提交审批失败");
                 } finally {
@@ -240,9 +257,14 @@ export function SandboxTestModal({
               loading={loading}
             />
           )}
+          {wizardStep === 6 && precheck && (
+            <Step6KnowledgePrecheck
+              precheck={precheck}
+              onPassed={onPassed}
+              blocked={precheck.blocked}
+            />
+          )}
         </div>
-
-        {/* Footer */}
         <div className="flex items-center gap-2 px-4 py-3 border-t-2 border-[#1A202C]">
           <PixelButton variant="secondary" onClick={onCancel}>关闭</PixelButton>
         </div>
@@ -1188,6 +1210,118 @@ function ScoreBar({ label, score, threshold }: { label: string; score: number; t
       <span className={`text-[7px] font-bold w-6 text-right ${passed ? "text-green-600" : "text-red-500"}`}>
         {Math.round(score)}
       </span>
+    </div>
+  );
+}
+
+// ─── Step 6: 知识引用安全检查 ───────────────────────────────────────────────
+
+const DESENS_STEP_COLORS: Record<string, string> = {
+  D0: "bg-gray-50 text-gray-500 border-gray-200",
+  D1: "bg-blue-50 text-blue-600 border-blue-200",
+  D2: "bg-yellow-50 text-yellow-600 border-yellow-200",
+  D3: "bg-orange-50 text-orange-600 border-orange-200",
+  D4: "bg-red-50 text-red-600 border-red-200",
+};
+
+function Step6KnowledgePrecheck({
+  precheck,
+  onPassed,
+  blocked,
+}: {
+  precheck: SkillPublishPrecheck;
+  onPassed: () => void;
+  blocked: boolean;
+}) {
+  const { risk_summary: rs, references, block_reasons } = precheck;
+
+  return (
+    <div className="space-y-3">
+      <div className="text-[9px] font-bold uppercase tracking-widest text-[#00A3C4] mb-1">
+        知识引用安全检查
+      </div>
+
+      {/* 风险摘要 */}
+      <div className="grid grid-cols-4 gap-2">
+        {[
+          { label: "高敏感文件", value: rs.high_sensitivity_count, warn: rs.high_sensitivity_count > 0 },
+          { label: "缺脱敏配置", value: rs.missing_mask_config_count, warn: rs.missing_mask_config_count > 0 },
+          { label: "超出管理范围", value: rs.out_of_scope_count, warn: rs.out_of_scope_count > 0 },
+          { label: "未确认", value: rs.unconfirmed_count, warn: rs.unconfirmed_count > 0 },
+        ].map((item) => (
+          <div
+            key={item.label}
+            className={`text-center p-2 rounded border ${item.warn ? "border-red-200 bg-red-50" : "border-green-200 bg-green-50"}`}
+          >
+            <div className={`text-[14px] font-bold ${item.warn ? "text-red-600" : "text-green-600"}`}>{item.value}</div>
+            <div className="text-[8px] text-gray-500">{item.label}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* 阻断原因 */}
+      {blocked && block_reasons.length > 0 && (
+        <div className="border border-red-200 bg-red-50 rounded p-2 space-y-1">
+          <div className="text-[9px] font-bold text-red-600">发布被阻断</div>
+          {block_reasons.map((r, i) => (
+            <div key={i} className="text-[8px] text-red-500">• {r}</div>
+          ))}
+        </div>
+      )}
+
+      {/* 引用文件表格 */}
+      {references.length > 0 && (
+        <div className="border border-gray-200 rounded overflow-hidden">
+          <table className="w-full text-[8px]">
+            <thead>
+              <tr className="bg-gray-50 border-b border-gray-200">
+                <th className="text-left px-2 py-1 font-bold text-gray-600">文件名</th>
+                <th className="text-left px-2 py-1 font-bold text-gray-600">目录</th>
+                <th className="text-center px-2 py-1 font-bold text-gray-600">脱敏等级</th>
+                <th className="text-left px-2 py-1 font-bold text-gray-600">命中数据类型</th>
+                <th className="text-center px-2 py-1 font-bold text-gray-600">管理范围</th>
+              </tr>
+            </thead>
+            <tbody>
+              {references.map((ref) => (
+                <tr key={ref.knowledge_id} className="border-b border-gray-100 hover:bg-gray-50">
+                  <td className="px-2 py-1 font-medium text-gray-700 max-w-[140px] truncate">{ref.title}</td>
+                  <td className="px-2 py-1 text-gray-500 max-w-[120px] truncate">{ref.folder_path || "-"}</td>
+                  <td className="px-2 py-1 text-center">
+                    {ref.desensitization_level ? (
+                      <span className={`inline-block px-1.5 py-0.5 rounded border text-[7px] font-bold ${DESENS_STEP_COLORS[ref.desensitization_level] || ""}`}>
+                        {ref.desensitization_level}
+                      </span>
+                    ) : <span className="text-gray-300">-</span>}
+                  </td>
+                  <td className="px-2 py-1 text-gray-500">
+                    {ref.data_type_hits.length > 0 ? ref.data_type_hits.map((h) => h.label).join(", ") : "-"}
+                  </td>
+                  <td className="px-2 py-1 text-center">
+                    {ref.manager_scope_ok
+                      ? <span className="text-green-600 font-bold">✓</span>
+                      : <span className="text-red-500 font-bold">✗</span>}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {references.length === 0 && !blocked && (
+        <div className="text-center py-4 text-[9px] text-gray-400">该 Skill 未引用知识文件，无需安全检查</div>
+      )}
+
+      <div className="flex justify-end pt-1">
+        {blocked ? (
+          <div className="text-[9px] text-red-500 font-bold">请先解决上述阻断问题后再发布</div>
+        ) : (
+          <PixelButton onClick={onPassed}>
+            {references.length > 0 ? "安全检查通过，继续发布" : "继续发布"}
+          </PixelButton>
+        )}
+      </div>
     </div>
   );
 }

@@ -149,6 +149,56 @@ export interface KnowledgeEntry {
   understanding_summary_sensitivity_mode?: string | null;
 }
 
+// ── Skill 知识引用安全检查 ──────────────────────────────────────────────────
+
+export interface SkillKnowledgeReference {
+  knowledge_id: number;
+  title: string;
+  folder_id: number | null;
+  folder_path: string;
+  document_type: string | null;
+  permission_domain: string | null;
+  desensitization_level: string | null;
+  data_type_hits: Array<{ type: string; label: string; count: number }>;
+  effective_mask_rules: Array<{ data_type: string; mask_action: string; label?: string }>;
+  mask_rule_source: string | null;
+  manager_scope_ok: boolean;
+}
+
+export interface SkillPublishPrecheck {
+  blocked: boolean;
+  block_reasons: string[];
+  references: SkillKnowledgeReference[];
+  risk_summary: {
+    high_sensitivity_count: number;
+    missing_mask_config_count: number;
+    out_of_scope_count: number;
+    unconfirmed_count: number;
+  };
+  policy_snapshot?: Record<string, unknown>;
+}
+
+export interface KnowledgeMaskFeedback {
+  id: number;
+  knowledge_id: number;
+  knowledge_title?: string | null;
+  submitted_by: number;
+  submitter_name?: string | null;
+  current_desensitization_level: string | null;
+  current_data_type_hits?: Array<Record<string, unknown>>;
+  suggested_desensitization_level: string;
+  suggested_data_type_adjustments?: Array<Record<string, unknown>>;
+  reason: string;
+  evidence_snippet?: string | null;
+  status: "pending" | "approved" | "rejected";
+  reviewed_by?: number | null;
+  reviewer_name?: string | null;
+  review_note?: string | null;
+  review_action?: string | null;
+  reviewed_at?: string | null;
+  created_at: string;
+}
+
 export interface Workspace {
   id: number;
   name: string;
@@ -866,6 +916,120 @@ export interface SandboxReport {
   report_hash: string | null;
   knowledge_entry_id: number | null;
   created_at: string | null;
+}
+
+// ─── 知识管理后台 V1.5 ────────────────────────────────────────────────────
+
+export interface KnowledgeFolderGrant {
+  id: number;
+  folder_id: number;
+  folder_name: string;
+  grantee_user_id: number;
+  grantee_name: string;
+  scope: "subtree";
+  can_manage_children: boolean;
+  can_delete_descendants: boolean;
+  created_by: number;
+  created_at: string;
+}
+
+export interface KnowledgeRerunJob {
+  id: number;
+  trigger_type: string;
+  target_folder_id: number;
+  target_folder_name: string;
+  status: "pending" | "running" | "success" | "failed";
+  affected_count: number;
+  reclassified_count: number;
+  renamed_count: number;
+  failed_count: number;
+  skipped_count: number;
+  created_at: string;
+  finished_at: string | null;
+}
+
+export interface FolderAuditLog {
+  id: number;
+  folder_id: number;
+  folder_name: string;
+  action: string;
+  old_value: Record<string, unknown>;
+  new_value: Record<string, unknown>;
+  performed_by: number;
+  performer_name: string;
+  created_at: string;
+}
+
+export interface FolderTreeNode {
+  id: number;
+  name: string;
+  parent_id: number | null;
+  sort_order: number;
+  is_system: number;
+  taxonomy_board: string | null;
+  taxonomy_code: string | null;
+  entry_count: number;
+  manager_count: number;
+  created_at: string | null;
+  children: FolderTreeNode[];
+}
+
+export interface FolderImpact {
+  folder_id: number;
+  folder_name: string;
+  child_folder_count: number;
+  entry_count: number;
+  grant_count: number;
+}
+
+// ─── 标签治理 V1.5 ──────────────────────────────────────────────────────────
+
+export type TagCategory = "industry" | "platform" | "topic" | "scenario" | "custom";
+export type TagRelationType = "synonym" | "broader" | "narrower" | "related";
+
+export interface KnowledgeTag {
+  id: number;
+  name: string;
+  code: string;
+  category: TagCategory;
+  parent_id: number | null;
+  description: string | null;
+  sort_order: number;
+  is_active: number;
+  created_at: string | null;
+  children?: KnowledgeTag[];
+}
+
+export interface KnowledgeTagRelation {
+  id: number;
+  source_tag_id: number;
+  source_tag_name: string | null;
+  source_tag_code: string | null;
+  target_tag_id: number;
+  target_tag_name: string | null;
+  target_tag_code: string | null;
+  relation_type: TagRelationType;
+  confidence: number;
+  created_at: string | null;
+}
+
+export interface TagRelationEntry {
+  id: number;
+  direction: "outgoing" | "incoming";
+  relation_type: TagRelationType;
+  related_tag_id: number;
+  related_tag_name: string | null;
+  related_tag_code: string | null;
+  confidence: number;
+}
+
+export interface TagClosureNode {
+  id: number;
+  name: string;
+  code: string;
+  category: TagCategory | null;
+  depth: number;
+  path: string[];
 }
 
 export interface GovernanceObjective {
