@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useMemo } from "react";
+import React, { useMemo, useState } from "react";
 import { apiFetch } from "@/lib/api";
 
 import type {
@@ -102,9 +102,14 @@ export default function GovernanceReviewCard({
   const roots = ["company_common", "professional_capability", "outsource_intel", "business_line_execution"];
   const objectCandidates = useMemo(() => [] as GovernanceObjectLite[], []);
 
+  const [expanded, setExpanded] = useState(false);
+
   return (
     <div className="border border-gray-200 rounded bg-[#F8FCFF]">
-      <div className="px-3 py-2 border-b border-gray-200 flex items-center gap-2">
+      <div
+        className="px-3 py-2 border-b border-gray-200 flex items-center gap-2 cursor-pointer select-none hover:bg-[#EAF7FF] transition-colors"
+        onClick={() => setExpanded((v) => !v)}
+      >
         <span className="text-[9px] font-bold uppercase tracking-widest text-[#0077B6]">{title}</span>
         <span className="text-[8px] text-gray-400">{subjectLabel}</span>
         <span className={`ml-auto px-1.5 py-0.5 rounded text-[8px] font-bold ${
@@ -116,9 +121,10 @@ export default function GovernanceReviewCard({
         }`}>
           {state.governance_status || "ungoverned"}
         </span>
+        <span className="text-[8px] text-gray-400 ml-1">{expanded ? "▲" : "▼"}</span>
       </div>
 
-      <div className="p-3 space-y-3">
+      {expanded && <div className="p-3 space-y-3">
         <div className="flex flex-wrap gap-2 text-[9px]">
           <span className="px-2 py-1 rounded border border-sky-200 bg-sky-50 text-sky-700">
             当前目标: {currentObjective?.name || "未挂载"}
@@ -239,7 +245,7 @@ export default function GovernanceReviewCard({
             onBound={onBound}
           />
         )}
-      </div>
+      </div>}
     </div>
   );
 }
