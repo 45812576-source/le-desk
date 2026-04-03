@@ -679,7 +679,8 @@ function DocumentRenderResolver({
   const isMedia = entry.oss_key && MEDIA_EXTS.has(ext);
 
   // 1. 正在转换中 — 显示进度提示，同时允许编辑正文 fallback
-  if (renderStatus === "processing" || renderStatus === "pending") {
+  //    仅当有实际文件（oss_key）时才视为真正在转换；无文件的手动文档跳过
+  if ((renderStatus === "processing" || renderStatus === "pending") && entry.oss_key) {
     const hasFallback = !!(entry.content || htmlVal);
     return (
       <div className="flex flex-col h-full">

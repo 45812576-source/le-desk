@@ -133,7 +133,7 @@ export default function FileRow({
               <span className={`text-[7px] px-1 py-px rounded flex-shrink-0 border ${DESENS_COLORS[desensLevel] || "bg-gray-50 text-gray-400 border-gray-200"}`}>{desensLevel}</span>
             )}
             {meta && <span className="text-[10px] text-gray-400 truncate">{meta}</span>}
-            {renderStatus === "processing" || renderStatus === "pending" ? (
+            {(renderStatus === "processing" || renderStatus === "pending") && entry.oss_key ? (
               <span className="inline-flex items-center gap-0.5 text-[8px] text-blue-400 flex-shrink-0">
                 <Loader2 size={8} className="animate-spin" />转换中
               </span>

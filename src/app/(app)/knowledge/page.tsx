@@ -183,6 +183,8 @@ const FileManagerTab = forwardRef<{ createDoc: () => void; triggerUpload: () => 
     if (!selectedEntry) return;
     const status = selectedEntry.doc_render_status;
     if (status !== "pending" && status !== "processing") return;
+    // 无文件的手动文档不需要轮询渲染状态
+    if (!selectedEntry.oss_key) return;
 
     let cancelled = false;
     const pollInterval = setInterval(async () => {
@@ -655,7 +657,7 @@ const FileManagerTab = forwardRef<{ createDoc: () => void; triggerUpload: () => 
                 </span>
                 <div className="flex items-center gap-1">
                   <button
-                    onClick={() => setShowLarkImport((v) => !v)}
+                    onClick={() => { setShowLarkImport((v) => !v); setLarkImportStatus("准备导入"); }}
                     className={`flex items-center gap-1 px-2 py-0.5 border-2 text-[9px] font-bold uppercase transition-colors ${
                       showLarkImport ? "border-[#00A3C4] bg-[#00A3C4] text-white" : "border-[#00A3C4] bg-[#F0F9FF] text-[#00A3C4] hover:bg-[#00A3C4] hover:text-white"
                     }`}
@@ -712,7 +714,7 @@ const FileManagerTab = forwardRef<{ createDoc: () => void; triggerUpload: () => 
                 className="w-full min-h-[84px] text-[10px] border border-gray-300 px-2 py-2 focus:outline-none focus:border-[#00D1FF] bg-white resize-y"
               />
               <div className="flex items-center justify-between gap-2">
-                <span className="text-[9px] text-gray-500">{larkImporting ? larkImportStatus : "支持 docx / wiki / sheet / file"}</span>
+                <span className={`text-[9px] ${larkImportStatus === "导入失败" || larkImportStatus.startsWith("部分失败") ? "text-red-500 font-semibold" : larkImportStatus === "已导入，可编辑" ? "text-[#00CC99] font-semibold" : "text-gray-500"}`}>{larkImporting || larkImportStatus !== "准备导入" ? larkImportStatus : "支持 docx / wiki / sheet / file"}</span>
                 <button
                   onClick={handleImportLarkLinks}
                   disabled={larkImporting}
