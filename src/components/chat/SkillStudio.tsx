@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { ChevronDown, ChevronRight, File, FileCode, Upload, Trash2, Zap, BookOpen, FileText, Lightbulb, Terminal, Layout, Plus, Download, Package, X, Search, ExternalLink } from "lucide-react";
 import { PixelButton } from "@/components/pixel/PixelButton";
 import { PixelBadge } from "@/components/pixel/PixelBadge";
-import { apiFetch, getToken } from "@/lib/api";
+import { apiFetch, getToken, dispatchAuthExpired } from "@/lib/api";
 import type { SkillDetail, SkillVersion, BoundTool, SkillMemo } from "@/lib/types";
 import { useTheme } from "@/lib/theme";
 import { ICONS, PixelIcon } from "@/components/pixel";
@@ -2229,8 +2229,7 @@ function StudioChat({
       clearTimeout(timeout);
       if (!resp.ok) {
         if (resp.status === 401) {
-          localStorage.removeItem("token");
-          localStorage.removeItem("cached_user");
+          dispatchAuthExpired();
         }
         setMessages((prev) => prev.map((m, i) =>
           i === msgIdx ? { ...m, text: resp.status === 401 ? "登录已过期，请重新登录" : `发送失败 (${resp.status})`, loading: false } : m

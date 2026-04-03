@@ -53,17 +53,38 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         const res = await fetch("/api/proxy/auth/me", {
           headers: { Authorization: `Bearer ${saved}` },
         });
-        if (!res.ok) throw new Error("invalid");
+        if (res.status === 401) {
+          // Token 确实无效才清除
+          localStorage.removeItem("token");
+          localStorage.removeItem("cached_user");
+          setState({ user: null, token: null, loading: false });
+          return;
+        }
+        if (!res.ok) throw new Error("network");
         const user: User = await res.json();
         localStorage.setItem("cached_user", JSON.stringify(user));
         setState({ user, token: saved, loading: false });
       } catch {
-        localStorage.removeItem("token");
-        localStorage.removeItem("cached_user");
-        setState({ user: null, token: null, loading: false });
+        // 网络错误（后端暂时不可用）— 保留 cached user 继续使用，不登出
+        if (cached) {
+          setState({ user: cached, token: saved, loading: false });
+        } else {
+          setState({ user: null, token: null, loading: false });
+        }
       }
     }
     initAuth();
+  }, []);
+
+  // 全局 auth:expired 事件 — apiFetch / stream 遇到 401 时统一触发
+  useEffect(() => {
+    function handleExpired() {
+      localStorage.removeItem("token");
+      localStorage.removeItem("cached_user");
+      setState({ user: null, token: null, loading: false });
+    }
+    window.addEventListener("auth:expired", handleExpired);
+    return () => window.removeEventListener("auth:expired", handleExpired);
   }, []);
 
   const login = useCallback(async (username: string, password: string) => {

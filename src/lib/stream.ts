@@ -41,6 +41,8 @@ export interface StreamChatOptions {
   forceSkillId?: number;
 }
 
+import { dispatchAuthExpired } from "./api";
+
 const API_BASE = "/api/proxy";
 
 export async function* streamChat(
@@ -72,8 +74,7 @@ export async function* streamChat(
   if (!resp.ok) {
     const text = await resp.text().catch(() => "");
     if (resp.status === 401) {
-      localStorage.removeItem("token");
-      localStorage.removeItem("cached_user");
+      dispatchAuthExpired();
     }
     yield {
       type: "error",
@@ -163,8 +164,7 @@ export async function* streamUpload(
   if (!resp.ok) {
     const text = await resp.text().catch(() => "");
     if (resp.status === 401) {
-      localStorage.removeItem("token");
-      localStorage.removeItem("cached_user");
+      dispatchAuthExpired();
     }
     yield {
       type: "error",

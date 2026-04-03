@@ -10,6 +10,11 @@ export class ApiError extends Error {
   }
 }
 
+/** 全局 401 事件 — AuthProvider 统一监听并处理登出 */
+export function dispatchAuthExpired() {
+  window.dispatchEvent(new CustomEvent("auth:expired"));
+}
+
 export async function apiFetch<T = unknown>(
   path: string,
   options: {
@@ -38,8 +43,7 @@ export async function apiFetch<T = unknown>(
 
   if (!res.ok) {
     if (res.status === 401) {
-      localStorage.removeItem("token");
-      localStorage.removeItem("cached_user");
+      dispatchAuthExpired();
       throw new ApiError(401, "登录已过期，请重新登录");
     }
     const text = await res.text().catch(() => "");
