@@ -1,10 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { PixelButton } from "@/components/pixel/PixelButton";
 import { PixelBadge } from "@/components/pixel/PixelBadge";
 import { PixelSelect } from "@/components/pixel/PixelSelect";
-import { apiFetch, getToken } from "@/lib/api";
+import { apiFetch } from "@/lib/api";
 import type { SkillDetail, SkillVersion } from "@/lib/types";
 import { CommentsPanel } from "@/components/skill/CommentsPanel";
 
@@ -21,14 +21,6 @@ const STATUS_COLOR: Record<string, "cyan" | "green" | "yellow" | "red" | "gray">
   archived: "red",
 };
 
-interface UploadResult {
-  filename: string;
-  action?: string;
-  id?: number;
-  name?: string;
-  version?: number;
-  error?: string;
-}
 
 const CAT_COLOR: Record<string, string> = {
   example: "border-[#00CC99] text-[#00CC99] bg-green-50",
@@ -44,8 +36,6 @@ export default function SkillTab() {
   const [detailLoading, setDetailLoading] = useState(false);
   const [versions, setVersions] = useState<SkillVersion[]>([]);
   const [sourceFiles, setSourceFiles] = useState<{ filename: string; category: string }[]>([]);
-  const [uploading, setUploading] = useState(false);
-  const [uploadResults, setUploadResults] = useState<UploadResult[] | null>(null);
   const [activeTab, setActiveTab] = useState<"versions" | "files" | "comments" | "usage" | "policy">("versions");
   const [usageData, setUsageData] = useState<{
     skill_name: string;
@@ -64,7 +54,6 @@ export default function SkillTab() {
   const [policyConnections, setPolicyConnections] = useState<AgentConnection[]>([]);
   const [policyLoading, setPolicyLoading] = useState(false);
   const [positions, setPositions] = useState<Position[]>([]);
-  const fileRef = useRef<HTMLInputElement>(null);
 
   const fetchSkills = useCallback(() => {
     setLoading(true);
@@ -144,37 +133,6 @@ export default function SkillTab() {
       fetchSkills();
     } catch (e) { alert(`批量发布失败：${e instanceof Error ? e.message : "未知错误"}`); }
     finally { setBatchPublishing(false); }
-  }
-
-  async function handleUpload(files: FileList | null) {
-    if (!files || files.length === 0) return;
-    setUploading(true);
-    setUploadResults(null);
-    const formData = new FormData();
-    const isBatch = files.length > 1;
-    if (isBatch) {
-      for (let i = 0; i < files.length; i++) formData.append("files", files[i]);
-    } else {
-      formData.append("file", files[0]);
-    }
-    try {
-      const token = getToken();
-      const endpoint = isBatch ? "/skills/batch-upload-md" : "/skills/upload-md";
-      const res = await fetch(`/api/proxy${endpoint}`, {
-        method: "POST",
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-        body: formData,
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        setUploadResults([{ filename: files[0]?.name || "unknown", error: data.detail || "上传失败" }]);
-        return;
-      }
-      if (isBatch) setUploadResults(data.results);
-      else setUploadResults([{ filename: files[0].name, action: data.action, id: data.id, name: data.name, version: data.version }]);
-      fetchSkills();
-    } catch { setUploadResults([{ filename: "unknown", error: "网络错误" }]); }
-    finally { setUploading(false); if (fileRef.current) fileRef.current.value = ""; }
   }
 
   async function loadUsage(id: number) {
@@ -274,32 +232,8 @@ export default function SkillTab() {
             {batchPublishing ? "发布中..." : `批量发布 (${checkedIds.size})`}
           </PixelButton>
         )}
-        <PixelButton variant="secondary" size="sm" disabled={uploading} onClick={() => fileRef.current?.click()}>
-          {uploading ? "上传中..." : "上传 .md"}
-        </PixelButton>
-        <input ref={fileRef} type="file" accept=".md" multiple className="hidden" onChange={(e) => handleUpload(e.target.files)} />
       </div>
 
-      {/* Upload results */}
-      {uploadResults && (
-        <div className="mb-3 flex-shrink-0 border-2 border-[#1A202C] bg-white p-3">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-[9px] font-bold uppercase tracking-widest text-[#00A3C4]">上传结果</span>
-            <button onClick={() => setUploadResults(null)} className="text-[9px] font-bold text-gray-400 hover:text-[#1A202C]">x 关闭</button>
-          </div>
-          <div className="space-y-1">
-            {uploadResults.map((r, i) => (
-              <div key={i} className="text-[10px] font-bold flex items-center gap-2">
-                <span className="text-gray-500 truncate max-w-[200px]">{r.filename}</span>
-                {r.error
-                  ? <span className="text-red-500">{r.error}</span>
-                  : <span className="text-green-600">{r.action === "created" ? "新建" : "更新"} [{r.name}] v{r.version}</span>
-                }
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
 
       <div className="flex gap-6 flex-1 min-h-0">
         {/* Left: list */}
