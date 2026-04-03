@@ -466,20 +466,22 @@ export default function PreviewPanel({
               >
                 分享链接
               </button>
-              {showSharePanel && (
+              {showSharePanel && (() => {
+                const frontendShareUrl = shareLink ? `${window.location.origin}/s/knowledge/${shareLink.share_token}` : "";
+                return (
                 <div className="absolute right-0 top-full mt-1 z-50 bg-white border border-gray-200 rounded-lg shadow-lg min-w-[280px] p-3 space-y-2">
                   <div className="text-[10px] font-semibold text-gray-500">
                     {shareLink ? "当前分享已开启" : shareLoading ? "生成链接中..." : "暂无分享链接"}
                   </div>
                   <div className="text-[10px] break-all text-gray-600 bg-gray-50 border border-gray-100 rounded px-2 py-2">
-                    {shareLink?.share_url || "点击上方按钮生成分享链接"}
+                    {frontendShareUrl || "点击上方按钮生成分享链接"}
                   </div>
                   <div className="flex items-center gap-2">
                     <button
                       disabled={!shareLink}
                       onClick={async () => {
-                        if (!shareLink?.share_url) return;
-                        await navigator.clipboard.writeText(shareLink.share_url);
+                        if (!frontendShareUrl) return;
+                        await navigator.clipboard.writeText(frontendShareUrl);
                       }}
                       className="px-2 py-1 text-[9px] font-bold border border-[#00A3C4] text-[#00A3C4] hover:bg-[#F0F9FF] disabled:opacity-50"
                     >
@@ -488,8 +490,8 @@ export default function PreviewPanel({
                     <button
                       disabled={!shareLink}
                       onClick={() => {
-                        if (!shareLink?.share_url) return;
-                        window.open(shareLink.share_url, "_blank");
+                        if (!frontendShareUrl) return;
+                        window.open(frontendShareUrl, "_blank");
                       }}
                       className="px-2 py-1 text-[9px] font-bold border border-gray-300 text-gray-600 hover:bg-gray-50 disabled:opacity-50"
                     >
@@ -509,7 +511,8 @@ export default function PreviewPanel({
                     </button>
                   </div>
                 </div>
-              )}
+                );
+              })()}
             </div>
           )}
         </div>

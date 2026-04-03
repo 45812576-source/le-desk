@@ -1,7 +1,7 @@
 "use client";
 
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from "react";
-import { Upload } from "lucide-react";
+import { Upload, Link2 } from "lucide-react";
 import { ICONS } from "@/components/pixel";
 import { PixelButton } from "@/components/pixel/PixelButton";
 import { ThemedPageIcon } from "@/components/layout/PageShell";
@@ -115,7 +115,7 @@ function Toast({ message, onDone }: { message: string; onDone: () => void }) {
 }
 
 // ─── File Manager Tab ─────────────────────────────────────────────────────────
-const FileManagerTab = forwardRef<{ createDoc: () => void; triggerUpload: () => void }>(function FileManagerTab(_props, ref) {
+const FileManagerTab = forwardRef<{ createDoc: () => void; triggerUpload: () => void; toggleLarkImport: () => void }>(function FileManagerTab(_props, ref) {
   const { user: currentUser } = useAuth();
   const uploadInputRef = useRef<HTMLInputElement>(null);
   const [treeMode, setTreeMode] = useState<TreeMode>("user");
@@ -304,6 +304,7 @@ const FileManagerTab = forwardRef<{ createDoc: () => void; triggerUpload: () => 
   useImperativeHandle(ref, () => ({
     createDoc,
     triggerUpload: () => uploadInputRef.current?.click(),
+    toggleLarkImport: () => { setShowLarkImport((v) => !v); setLarkImportStatus("准备导入"); },
   }), [createDoc]);
 
   // Lasso handlers
@@ -550,6 +551,7 @@ const FileManagerTab = forwardRef<{ createDoc: () => void; triggerUpload: () => 
         setToast(`飞书链接导入完成：成功 ${okCount}，失败 ${failCount}`);
       }
       setLarkUrls("");
+      setShowLarkImport(false);
     } catch (e) {
       setLarkImportStatus("导入失败");
       setToast(e instanceof Error ? `飞书导入失败: ${e.message}` : "飞书导入失败");
@@ -656,14 +658,6 @@ const FileManagerTab = forwardRef<{ createDoc: () => void; triggerUpload: () => 
                   知识文件
                 </span>
                 <div className="flex items-center gap-1">
-                  <button
-                    onClick={() => { setShowLarkImport((v) => !v); setLarkImportStatus("准备导入"); }}
-                    className={`flex items-center gap-1 px-2 py-0.5 border-2 text-[9px] font-bold uppercase transition-colors ${
-                      showLarkImport ? "border-[#00A3C4] bg-[#00A3C4] text-white" : "border-[#00A3C4] bg-[#F0F9FF] text-[#00A3C4] hover:bg-[#00A3C4] hover:text-white"
-                    }`}
-                  >
-                    导入飞书链接
-                  </button>
                   {selectedIds.size > 0 && (
                     <>
                       <button
@@ -705,23 +699,47 @@ const FileManagerTab = forwardRef<{ createDoc: () => void; triggerUpload: () => 
               </div>
             </div>
           )}
-          {treeMode === "user" && showLarkImport && (
-            <div className="px-2 pb-2 space-y-1.5 border-t border-gray-200">
-              <textarea
-                value={larkUrls}
-                onChange={(e) => setLarkUrls(e.target.value)}
-                placeholder="粘贴飞书链接，支持单条或多条，一行一个"
-                className="w-full min-h-[84px] text-[10px] border border-gray-300 px-2 py-2 focus:outline-none focus:border-[#00D1FF] bg-white resize-y"
-              />
-              <div className="flex items-center justify-between gap-2">
-                <span className={`text-[9px] ${larkImportStatus === "导入失败" || larkImportStatus.startsWith("部分失败") ? "text-red-500 font-semibold" : larkImportStatus === "已导入，可编辑" ? "text-[#00CC99] font-semibold" : "text-gray-500"}`}>{larkImporting || larkImportStatus !== "准备导入" ? larkImportStatus : "支持 docx / wiki / sheet / file"}</span>
-                <button
-                  onClick={handleImportLarkLinks}
-                  disabled={larkImporting}
-                  className="px-2 py-1 border-2 border-[#00CC99] bg-[#00CC99]/10 text-[#00CC99] text-[9px] font-bold uppercase hover:bg-[#00CC99] hover:text-white transition-colors disabled:opacity-50"
-                >
-                  {larkImporting ? "导入中..." : "开始导入"}
-                </button>
+          {/* 飞书导入弹窗 */}
+          {showLarkImport && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30" onClick={() => { if (!larkImporting) { setShowLarkImport(false); } }}>
+              <div className="bg-white border-2 border-[#1A202C] w-[420px] shadow-lg" onClick={(e) => e.stopPropagation()}>
+                <div className="flex items-center justify-between px-4 py-3 border-b-2 border-[#1A202C]">
+                  <div className="flex items-center gap-2">
+                    <Link2 size={14} className="text-[#00A3C4]" />
+                    <span className="text-[11px] font-bold uppercase tracking-widest text-[#1A202C]">导入飞书文档</span>
+                  </div>
+                  <button
+                    onClick={() => { if (!larkImporting) { setShowLarkImport(false); } }}
+                    className="text-gray-400 hover:text-[#1A202C] text-lg font-bold leading-none"
+                  >×</button>
+                </div>
+                <div className="px-4 py-3 space-y-3">
+                  <textarea
+                    value={larkUrls}
+                    onChange={(e) => setLarkUrls(e.target.value)}
+                    placeholder="粘贴飞书链接，支持单条或多条，一行一个"
+                    className="w-full min-h-[120px] text-[11px] border-2 border-gray-300 px-3 py-2 focus:outline-none focus:border-[#00D1FF] bg-white resize-y"
+                    autoFocus
+                  />
+                  <div className="flex items-center justify-between gap-2">
+                    <span className={`text-[10px] ${larkImportStatus === "导入失败" || larkImportStatus.startsWith("部分失败") ? "text-red-500 font-semibold" : larkImportStatus === "已导入，可编辑" ? "text-[#00CC99] font-semibold" : "text-gray-500"}`}>
+                      {larkImporting || larkImportStatus !== "准备导入" ? larkImportStatus : "支持 docx / wiki / sheet / file"}
+                    </span>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => { if (!larkImporting) { setShowLarkImport(false); } }}
+                        className="px-3 py-1.5 border-2 border-gray-300 text-gray-500 text-[10px] font-bold uppercase hover:bg-gray-100 transition-colors"
+                      >取消</button>
+                      <button
+                        onClick={handleImportLarkLinks}
+                        disabled={larkImporting}
+                        className="px-3 py-1.5 border-2 border-[#00CC99] bg-[#00CC99] text-white text-[10px] font-bold uppercase hover:opacity-80 transition-colors disabled:opacity-50"
+                      >
+                        {larkImporting ? "导入中..." : "开始导入"}
+                      </button>
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
           )}
@@ -1155,7 +1173,7 @@ const FileManagerTab = forwardRef<{ createDoc: () => void; triggerUpload: () => 
 // ─── Main Page ────────────────────────────────────────────────────────────────
 export default function KnowledgePage() {
   const [tab, setTab] = useState<Tab>("files");
-  const fileManagerRef = useRef<{ createDoc: () => void; triggerUpload: () => void } | null>(null);
+  const fileManagerRef = useRef<{ createDoc: () => void; triggerUpload: () => void; toggleLarkImport: () => void } | null>(null);
 
   return (
     <div className="h-full flex flex-col">
@@ -1172,6 +1190,9 @@ export default function KnowledgePage() {
           <div className="flex gap-1 ml-auto">
             <PixelButton variant="secondary" size="sm" onClick={() => fileManagerRef.current?.triggerUpload()}>
               <Upload size={12} className="mr-1 inline" />上传文档
+            </PixelButton>
+            <PixelButton variant="secondary" size="sm" onClick={() => fileManagerRef.current?.toggleLarkImport()}>
+              <Link2 size={12} className="mr-1 inline" />飞书导入
             </PixelButton>
             <PixelButton variant="primary" size="sm" onClick={() => fileManagerRef.current?.createDoc()}>
               + 新建文档
