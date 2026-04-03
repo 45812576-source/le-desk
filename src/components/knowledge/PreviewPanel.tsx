@@ -692,7 +692,9 @@ function DocumentRenderResolver({
         </div>
         {/* 转换中也允许编辑正文 */}
         {hasFallback ? (
-          <RichEditor key={entry.id} content={htmlVal} onChange={onContentChange} editable={canEdit} />
+          <div className="flex-1 min-h-0">
+            <RichEditor key={entry.id} content={htmlVal} onChange={onContentChange} editable={canEdit} />
+          </div>
         ) : (
           <div className="flex flex-col items-center justify-center h-48 gap-3 text-gray-400">
             <Loader2 size={24} className="text-[#00D1FF] animate-spin" />
@@ -714,7 +716,9 @@ function DocumentRenderResolver({
             <DocumentViewer entry={entry} />
           </div>
         ) : (entry.content || htmlVal) ? (
-          <RichEditor key={entry.id} content={htmlVal} onChange={onContentChange} editable={canEdit} />
+          <div className="flex-1 min-h-0">
+            <RichEditor key={entry.id} content={htmlVal} onChange={onContentChange} editable={canEdit} />
+          </div>
         ) : (
           <div className="flex flex-col items-center justify-center h-48 gap-3 text-gray-400">
             <AlertTriangle size={20} />
