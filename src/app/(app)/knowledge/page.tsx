@@ -123,6 +123,9 @@ const FileManagerTab = forwardRef<{ createDoc: () => void; triggerUpload: () => 
   const [entries, setEntries] = useState<KnowledgeDetail[]>([]);
   const [selectedEntry, setSelectedEntry] = useState<KnowledgeDetail | null>(null);
   const [loading, setLoading] = useState(true);
+  const [foldersError, setFoldersError] = useState<string | null>(null);
+  const [entriesError, setEntriesError] = useState<string | null>(null);
+  const [selectedEntryError, setSelectedEntryError] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
   const [newFolderParentId, setNewFolderParentId] = useState<number | null | undefined>(undefined);
   const [newFolderName, setNewFolderName] = useState("");
@@ -165,11 +168,14 @@ const FileManagerTab = forwardRef<{ createDoc: () => void; triggerUpload: () => 
 
   const handleSelectEntry = useCallback(async (e: KnowledgeDetail) => {
     setSelectedEntry(e);
+    setSelectedEntryError(null);
     addRecentFile(e.id);
     try {
       const full = await apiFetch<KnowledgeDetail>(`/knowledge/${e.id}`);
       setSelectedEntry(full);
-    } catch {}
+    } catch (err) {
+      setSelectedEntryError(err instanceof Error ? err.message : "文档详情加载失败");
+    }
   }, []);
 
   // 轮询 render 状态：当 selectedEntry 为 pending/processing 时，每 3 秒检查一次，60 秒超时
@@ -204,12 +210,22 @@ const FileManagerTab = forwardRef<{ createDoc: () => void; triggerUpload: () => 
   const fetchAll = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
     try {
-      const [fds, ens] = await Promise.all([
-        apiFetch<Folder[]>("/knowledge/folders"),
-        apiFetch<KnowledgeDetail[]>("/knowledge"),
-      ]);
-      setFolders(Array.isArray(fds) ? fds : []);
-      setEntries(Array.isArray(ens) ? ens : []);
+      setFoldersError(null);
+      setEntriesError(null);
+      try {
+        const fds = await apiFetch<Folder[]>("/knowledge/folders");
+        setFolders(Array.isArray(fds) ? fds : []);
+      } catch (err) {
+        setFolders([]);
+        setFoldersError(err instanceof Error ? err.message : "文件夹加载失败");
+      }
+      try {
+        const ens = await apiFetch<KnowledgeDetail[]>("/knowledge");
+        setEntries(Array.isArray(ens) ? ens : []);
+      } catch (err) {
+        setEntries([]);
+        setEntriesError(err instanceof Error ? err.message : "知识文件加载失败");
+      }
     } catch {}
     finally { if (!silent) setLoading(false); }
   }, []);
@@ -274,7 +290,10 @@ const FileManagerTab = forwardRef<{ createDoc: () => void; triggerUpload: () => 
       try {
         const full = await apiFetch<KnowledgeDetail>(`/knowledge/${res.id}`);
         setSelectedEntry(full);
-      } catch {}
+        setSelectedEntryError(null);
+      } catch {
+        setSelectedEntryError("文档已创建，但详情暂时加载失败");
+      }
     } catch (e) {
       setToast(e instanceof Error ? `创建失败: ${e.message}` : "创建文档失败");
     }
@@ -472,8 +491,11 @@ const FileManagerTab = forwardRef<{ createDoc: () => void; triggerUpload: () => 
         try {
           const full = await apiFetch<KnowledgeDetail>(`/knowledge/${last.id}`);
           setSelectedEntry(full);
+          setSelectedEntryError(null);
           addRecentFile(last.id);
-        } catch {}
+        } catch {
+          setSelectedEntryError("文件已上传，但详情暂时加载失败");
+        }
       }
     }
   }
@@ -500,6 +522,7 @@ const FileManagerTab = forwardRef<{ createDoc: () => void; triggerUpload: () => 
         await fetchAll(true);
         const full = await apiFetch<KnowledgeDetail>(`/knowledge/${res.id}`);
         setSelectedEntry(full);
+        setSelectedEntryError(null);
         addRecentFile(res.id);
         setToast(`已导入飞书文档「${res.title}」`);
       } else {
@@ -518,6 +541,7 @@ const FileManagerTab = forwardRef<{ createDoc: () => void; triggerUpload: () => 
         if (lastOk?.id) {
           const full = await apiFetch<KnowledgeDetail>(`/knowledge/${lastOk.id}`);
           setSelectedEntry(full);
+          setSelectedEntryError(null);
           addRecentFile(lastOk.id);
         }
         setLarkImportStatus(failCount > 0 ? `部分失败：${failCount} 条` : "已导入，可编辑");
@@ -853,6 +877,16 @@ const FileManagerTab = forwardRef<{ createDoc: () => void; triggerUpload: () => 
                 <SkeletonLoader variant="tree" />
               ) : (
                 <>
+                  {foldersError && (
+                    <div className="mx-2 mt-2 px-2 py-2 border border-amber-300 bg-amber-50 text-[9px] text-amber-700">
+                      目录加载失败，已降级展示文件列表：{foldersError}
+                    </div>
+                  )}
+                  {entriesError && (
+                    <div className="mx-2 mt-2 px-2 py-2 border border-red-300 bg-red-50 text-[9px] text-red-700">
+                      知识文件加载失败：{entriesError}
+                    </div>
+                  )}
                   {newFolderParentId === null && (
                     <div className="flex items-center gap-1 px-2 py-1 border-b border-[#CBD5E0]">
                       <input
@@ -1022,6 +1056,11 @@ const FileManagerTab = forwardRef<{ createDoc: () => void; triggerUpload: () => 
           />
         )}
         <div className="flex-1 min-h-0">
+          {selectedEntryError && (
+            <div className="mx-3 mt-3 px-3 py-2 border border-red-300 bg-red-50 text-[10px] text-red-700">
+              文档打开失败：{selectedEntryError}
+            </div>
+          )}
           <PreviewPanel
             entry={selectedEntry}
             currentUser={currentUser}
