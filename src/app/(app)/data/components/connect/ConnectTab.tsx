@@ -4,10 +4,11 @@ import React, { useState } from "react";
 import BitablePanel from "./BitablePanel";
 import DbPanel from "./DbPanel";
 import CreateBlankPanel from "./CreateBlankPanel";
+import UploadFilePanel from "./UploadFilePanel";
 import { ConnectMode } from "../shared/types";
 import { useV2DataAssets } from "../shared/feature-flags";
 
-type ConnectMode3 = ConnectMode | "blank";
+type ConnectMode3 = ConnectMode | "blank" | "upload";
 
 function SecurityConfigSection() {
   const [open, setOpen] = useState(false);
@@ -57,9 +58,10 @@ function SecurityConfigSection() {
 
 function ConnectTab({ onAdded }: { onAdded: () => void }) {
   const isV2 = useV2DataAssets();
-  const [mode, setMode] = useState<ConnectMode3>("bitable");
+  const [mode, setMode] = useState<ConnectMode3>("upload");
 
   const MODES: { key: ConnectMode3; icon: string; label: string }[] = [
+    { key: "upload",   icon: "📄", label: "上传文件" },
     { key: "bitable", icon: "🪁", label: "飞书多维表格" },
     { key: "db",      icon: "🗄", label: "外部数据库" },
     { key: "blank",   icon: "✦", label: "新建空白表" },
@@ -84,7 +86,8 @@ function ConnectTab({ onAdded }: { onAdded: () => void }) {
         ))}
       </div>
 
-      {mode === "bitable" ? <BitablePanel onAdded={onAdded} /> :
+      {mode === "upload" ? <UploadFilePanel onAdded={onAdded} /> :
+       mode === "bitable" ? <BitablePanel onAdded={onAdded} /> :
        mode === "db" ? <DbPanel onAdded={onAdded} /> :
        <CreateBlankPanel onAdded={onAdded} />}
 
