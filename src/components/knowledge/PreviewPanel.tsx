@@ -517,7 +517,7 @@ export default function PreviewPanel({
 
       {/* AI summary (collapsed by default, minimal) */}
       {(entry.ai_summary || entry.ai_tags || entry.understanding_status) && (
-        <AiSummaryBar entry={entry} />
+        <AiSummaryBar entry={entry} currentUser={currentUser} />
       )}
 
       {entry.is_in_my_knowledge && entry.status === "pending" && (
@@ -921,7 +921,7 @@ function LarkSyncBar({ entry }: { entry: KnowledgeDetail }) {
 }
 
 // Collapsible AI summary bar
-function AiSummaryBar({ entry }: { entry: KnowledgeDetail }) {
+function AiSummaryBar({ entry, currentUser }: { entry: KnowledgeDetail; currentUser: User | null }) {
   const [expanded, setExpanded] = useState(false);
   const allTags = [
     ...(entry.ai_tags?.industry || []),
