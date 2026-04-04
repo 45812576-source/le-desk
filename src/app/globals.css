@@ -231,9 +231,9 @@
 [data-theme="dark"] {
   font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 
-  .bg-white, .bg-white\/40, .bg-white\/50, .bg-white\/60, .bg-white\/80 { background-color: var(--card); }
-  .bg-\[\#F0F4F8\], .bg-\[\#EBF4F7\], .bg-\[\#F8FAFC\], .bg-\[\#FAFBFC\], .bg-\[\#F8FBFD\], .bg-\[\#F8FCFE\], .bg-\[\#FAFCFD\] { background-color: var(--background); }
-  .bg-gray-50, .bg-gray-100 { background-color: var(--muted); }
+  .bg-white, .bg-white\/40, .bg-white\/50, .bg-white\/60, .bg-white\/80 { background-color: var(--card) !important; }
+  .bg-\[\#F0F4F8\], .bg-\[\#EBF4F7\], .bg-\[\#F8FAFC\], .bg-\[\#FAFBFC\], .bg-\[\#F8FBFD\], .bg-\[\#F8FCFE\], .bg-\[\#FAFCFD\] { background-color: var(--background) !important; }
+  .bg-gray-50, .bg-gray-100 { background-color: var(--muted) !important; }
   /* hover 变体：table 行 & 按钮 hover 白条修复 */
   .hover\:bg-gray-50:hover, .hover\:bg-gray-100:hover { background-color: var(--muted) !important; color: var(--foreground); }
   .hover\:bg-white:hover, .hover\:bg-white\/60:hover, .hover\:bg-white\/50:hover { background-color: var(--secondary) !important; color: var(--secondary-foreground); }
@@ -242,15 +242,15 @@
   .hover\:bg-\[\#CCF2FF\]:hover { background-color: var(--accent) !important; color: var(--accent-foreground); }
 
   /* dark 下 Lab 深色主按钮 → secondary（深色卡片），文字用 foreground */
-  .bg-\[\#1A202C\] { background-color: var(--secondary); color: var(--secondary-foreground); }
+  .bg-\[\#1A202C\] { background-color: var(--secondary) !important; color: var(--secondary-foreground); }
   /* text-white / text-[#1A202C] 在 bg-[#1A202C] 内部也用 secondary-foreground */
   .bg-\[\#1A202C\] .text-white { color: var(--secondary-foreground); }
   .bg-\[\#1A202C\] .text-\[\#1A202C\] { color: var(--secondary-foreground); }
 
-  .bg-\[\#00D1FF\], .bg-\[\#00A3C4\] { background-color: var(--muted); }
-  .bg-\[\#CCF2FF\] { background-color: var(--accent); color: var(--accent-foreground); }
-  .bg-\[\#00CC99\], .bg-\[\#00A87A\] { background-color: var(--muted); }
-  .bg-\[\#6B46C1\], .bg-\[\#805AD5\], .bg-\[\#E9D8FD\] { background-color: var(--secondary); }
+  .bg-\[\#00D1FF\], .bg-\[\#00A3C4\] { background-color: var(--muted) !important; }
+  .bg-\[\#CCF2FF\] { background-color: var(--accent) !important; color: var(--accent-foreground); }
+  .bg-\[\#00CC99\], .bg-\[\#00A87A\] { background-color: var(--muted) !important; }
+  .bg-\[\#6B46C1\], .bg-\[\#805AD5\], .bg-\[\#E9D8FD\] { background-color: var(--secondary) !important; }
 
   .text-\[\#1A202C\] { color: var(--foreground); }
   .text-\[\#00A3C4\], .text-\[\#00D1FF\], .text-\[\#00CC99\] { color: var(--muted-foreground); }
@@ -259,13 +259,15 @@
   .text-gray-300, .text-gray-400, .text-gray-500, .text-gray-600 { color: var(--muted-foreground); }
 
   /* 浅色 tint 背景（成功/错误/知识引用）→ muted */
-  .bg-red-50 { background-color: color-mix(in srgb, var(--destructive) 15%, var(--card)); }
-  .bg-\[\#F0FFF8\] { background-color: color-mix(in srgb, oklch(0.7 0.15 160) 10%, var(--card)); }
-  .bg-\[\#F0FAFF\] { background-color: color-mix(in srgb, oklch(0.7 0.1 220) 12%, var(--card)); }
+  .bg-red-50 { background-color: color-mix(in srgb, var(--destructive) 15%, var(--card)) !important; }
+  .bg-\[\#F0FFF8\] { background-color: color-mix(in srgb, oklch(0.7 0.15 160) 10%, var(--card)) !important; }
+  .bg-\[\#F0FAFF\] { background-color: color-mix(in srgb, oklch(0.7 0.1 220) 12%, var(--card)) !important; }
   /* 治理/工作台配置：浅底面板 & 选中态 & 警告底色 */
-  .bg-\[\#FAFCFE\] { background-color: var(--card); }
-  .bg-\[\#EAF7FF\] { background-color: color-mix(in srgb, oklch(0.7 0.1 220) 12%, var(--card)); }
-  .bg-amber-50, .bg-amber-50\/50 { background-color: color-mix(in srgb, oklch(0.8 0.12 80) 12%, var(--card)); }
+  .bg-\[\#FAFCFE\] { background-color: var(--card) !important; }
+  .bg-\[\#EAF7FF\] { background-color: color-mix(in srgb, oklch(0.7 0.1 220) 12%, var(--card)) !important; }
+  .bg-amber-50, .bg-amber-50\/50 { background-color: color-mix(in srgb, oklch(0.8 0.12 80) 12%, var(--card)) !important; }
+  .bg-green-50 { background-color: color-mix(in srgb, oklch(0.7 0.15 160) 10%, var(--card)) !important; }
+  .bg-yellow-100, .bg-yellow-50 { background-color: color-mix(in srgb, oklch(0.8 0.12 80) 10%, var(--card)) !important; }
   .hover\:bg-\[\#EAF7FF\]:hover { background-color: color-mix(in srgb, oklch(0.7 0.1 220) 15%, var(--card)) !important; }
   .hover\:bg-emerald-50:hover { background-color: color-mix(in srgb, oklch(0.7 0.15 160) 12%, var(--card)) !important; }
   .hover\:bg-red-50:hover { background-color: color-mix(in srgb, var(--destructive) 12%, var(--card)) !important; }
