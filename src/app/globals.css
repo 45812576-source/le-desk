@@ -262,6 +262,14 @@
   .bg-red-50 { background-color: color-mix(in srgb, var(--destructive) 15%, var(--card)); }
   .bg-\[\#F0FFF8\] { background-color: color-mix(in srgb, oklch(0.7 0.15 160) 10%, var(--card)); }
   .bg-\[\#F0FAFF\] { background-color: color-mix(in srgb, oklch(0.7 0.1 220) 12%, var(--card)); }
+  /* 治理/工作台配置：浅底面板 & 选中态 & 警告底色 */
+  .bg-\[\#FAFCFE\] { background-color: var(--card); }
+  .bg-\[\#EAF7FF\] { background-color: color-mix(in srgb, oklch(0.7 0.1 220) 12%, var(--card)); }
+  .bg-amber-50, .bg-amber-50\/50 { background-color: color-mix(in srgb, oklch(0.8 0.12 80) 12%, var(--card)); }
+  .hover\:bg-\[\#EAF7FF\]:hover { background-color: color-mix(in srgb, oklch(0.7 0.1 220) 15%, var(--card)) !important; }
+  .hover\:bg-emerald-50:hover { background-color: color-mix(in srgb, oklch(0.7 0.15 160) 12%, var(--card)) !important; }
+  .hover\:bg-red-50:hover { background-color: color-mix(in srgb, var(--destructive) 12%, var(--card)) !important; }
+  .hover\:bg-amber-100:hover { background-color: color-mix(in srgb, oklch(0.8 0.12 80) 18%, var(--card)) !important; }
 
   .border-\[\#1A202C\] { border-color: var(--border); }
   .border-\[\#00D1FF\], .border-\[\#00A3C4\], .border-\[\#00CC99\] { border-color: var(--border); }
