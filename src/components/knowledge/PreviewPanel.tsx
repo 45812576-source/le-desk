@@ -121,6 +121,7 @@ export default function PreviewPanel({
   const [shareLink, setShareLink] = useState<KnowledgeShareLink | null>(null);
   const [shareLoading, setShareLoading] = useState(false);
   const [showSharePanel, setShowSharePanel] = useState(false);
+  const [shareScope, setShareScope] = useState<"public_readonly" | "public_editable">("public_readonly");
   const [governanceBlueprint, setGovernanceBlueprint] = useState<GovernanceBlueprintPayload | null>(null);
   const [governanceSuggestions, setGovernanceSuggestions] = useState<GovernanceSuggestionTask[]>([]);
   const [governanceLoading, setGovernanceLoading] = useState(false);
@@ -456,8 +457,13 @@ export default function PreviewPanel({
                   if (!shareLink && !shareLoading) {
                     setShareLoading(true);
                     try {
-                      const created = await apiFetch<KnowledgeShareLink>(`/knowledge/${entry.id}/share-links`, { method: "POST" });
+                      const created = await apiFetch<KnowledgeShareLink>(`/knowledge/${entry.id}/share-links`, {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ access_scope: shareScope }),
+                      });
                       setShareLink(created);
+                      setShareScope(created.access_scope as "public_readonly" | "public_editable");
                     } catch {}
                     setShareLoading(false);
                   }
@@ -472,6 +478,34 @@ export default function PreviewPanel({
                 <div className="absolute right-0 top-full mt-1 z-50 bg-white border border-gray-200 rounded-lg shadow-lg min-w-[280px] p-3 space-y-2">
                   <div className="text-[10px] font-semibold text-gray-500">
                     {shareLink ? "当前分享已开启" : shareLoading ? "生成链接中..." : "暂无分享链接"}
+                  </div>
+                  <div className="flex items-center gap-1 text-[10px]">
+                    <span className="text-gray-500 mr-1">权限</span>
+                    {(["public_readonly", "public_editable"] as const).map((scope) => (
+                      <button
+                        key={scope}
+                        onClick={async () => {
+                          setShareScope(scope);
+                          if (shareLink && shareLink.access_scope !== scope) {
+                            try {
+                              const updated = await apiFetch<KnowledgeShareLink>(`/knowledge/${entry.id}/share-links`, {
+                                method: "POST",
+                                headers: { "Content-Type": "application/json" },
+                                body: JSON.stringify({ access_scope: scope }),
+                              });
+                              setShareLink(updated);
+                            } catch {}
+                          }
+                        }}
+                        className={`px-2 py-0.5 rounded ${
+                          shareScope === scope
+                            ? "bg-[#00D1FF]/10 text-[#00A3C4] font-semibold border border-[#00A3C4]"
+                            : "bg-gray-50 text-gray-500 border border-gray-200 hover:bg-gray-100"
+                        }`}
+                      >
+                        {scope === "public_readonly" ? "可阅读" : "可编辑"}
+                      </button>
+                    ))}
                   </div>
                   <div className="text-[10px] break-all text-gray-600 bg-gray-50 border border-gray-100 rounded px-2 py-2">
                     {frontendShareUrl || "点击上方按钮生成分享链接"}
