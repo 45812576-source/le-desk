@@ -17,7 +17,6 @@ import PreviewPanel from "@/components/knowledge/PreviewPanel";
 import SearchTab from "@/components/knowledge/SearchTab";
 import SkeletonLoader from "@/components/knowledge/SkeletonLoader";
 import ContextMenu from "@/components/knowledge/ContextMenu";
-import DropZone from "@/components/knowledge/DropZone";
 import UploadProgress, { type UploadingFile } from "@/components/knowledge/UploadProgress";
 import RecentFiles, { addRecentFile } from "@/components/knowledge/RecentFiles";
 import CommentPanel from "@/components/knowledge/CommentPanel";
@@ -1045,10 +1044,6 @@ const FileManagerTab = forwardRef<{ createDoc: () => void; triggerUpload: () => 
               )}
             </div>
 
-            {/* Drop zone at bottom */}
-            <div className="flex-shrink-0 pb-2">
-              <DropZone onFiles={handleUploadFiles} dragging={dragging} />
-            </div>
           </div>
         )}
       </div>
