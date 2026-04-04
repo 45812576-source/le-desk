@@ -223,7 +223,7 @@ export async function GET(
     // opencode SDK 的 baseUrl 硬编码了 http://localhost:4096，替换为绝对路径代理
     // 注意：new URL(path, base) 要求 base 是绝对 URL，不能用相对路径
     // 只替换 baseUrl 上下文，避免破坏 placeholder 等普通字符串
-    js = js.replace(new RegExp("baseUrl:\"http://localhost:4096\"", "g"), 'baseUrl:location.origin+"/api/opencode-rpc"');
+    js = js.replace(new RegExp("baseUrl:" + '"http:' + "//localhost:4096" + '"', "g"), 'baseUrl:location.origin+"/api/opencode-rpc"');
     const respHeaders = new Headers();
     respHeaders.set("content-type", contentType || "application/javascript");
     respHeaders.set("cache-control", "no-store, no-cache, must-revalidate");
