@@ -190,7 +190,67 @@ export default function GovernanceOverview() {
           </div>
         </section>
       )}
+
+      {/* 系统维护 */}
+      <MaintenanceTools />
     </div>
+  );
+}
+
+function MaintenanceTools() {
+  const [acting, setActing] = useState<string | null>(null);
+  const [result, setResult] = useState<string | null>(null);
+
+  async function handleSeed() {
+    setActing("seed");
+    setResult(null);
+    try {
+      const res = await apiFetch<{ message: string }>("/knowledge-governance/seed-defaults", { method: "POST" });
+      setResult(res.message || "蓝图同步完成");
+    } catch (e) {
+      setResult(`失败: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setActing(null);
+    }
+  }
+
+  async function handleRebuild() {
+    setActing("rebuild");
+    setResult(null);
+    try {
+      const res = await apiFetch<{ folder_count: number }>("/knowledge-governance/rebuild-folders", { method: "POST" });
+      setResult(`目录重建完成，共 ${res.folder_count} 个目录`);
+    } catch (e) {
+      setResult(`失败: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setActing(null);
+    }
+  }
+
+  return (
+    <section className="border border-dashed border-gray-300 rounded p-3">
+      <div className="text-[9px] font-bold uppercase tracking-widest text-gray-400 mb-2">系统维护</div>
+      <div className="flex items-center gap-2">
+        <button
+          onClick={() => void handleSeed()}
+          disabled={acting !== null}
+          className="px-2 py-1 text-[8px] font-bold border border-border text-muted-foreground hover:bg-muted disabled:opacity-50"
+        >
+          {acting === "seed" ? "同步中..." : "同步默认蓝图"}
+        </button>
+        <button
+          onClick={() => void handleRebuild()}
+          disabled={acting !== null}
+          className="px-2 py-1 text-[8px] font-bold border border-border text-muted-foreground hover:bg-muted disabled:opacity-50"
+        >
+          {acting === "rebuild" ? "重建中..." : "重建治理目录"}
+        </button>
+        {result && <span className="text-[8px] text-gray-500">{result}</span>}
+      </div>
+      <div className="text-[7px] text-gray-400 mt-1">
+        同步默认蓝图：初始化或修复治理目标与资源库（幂等）。重建治理目录：将蓝图结构同步到知识目录树。
+      </div>
+    </section>
   );
 }
 
