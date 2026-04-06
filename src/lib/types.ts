@@ -279,6 +279,8 @@ export interface ApprovalRequest {
   stage: string | null;
   conditions: unknown[];
   security_scan_result?: Record<string, unknown> | null;
+  sandbox_report_id?: number | null;
+  sandbox_report_hash?: string | null;
   created_at: string | null;
   actions: ApprovalAction[];
 }
@@ -322,6 +324,15 @@ export interface SkillVersion {
   change_note: string;
   created_by: number;
   created_at: string;
+}
+
+export interface SkillExecutionStats {
+  skill_id: number;
+  days: number;
+  usage_count: number;
+  success_rate: number | null;
+  avg_duration_ms: number | null;
+  avg_rating: number | null;
 }
 
 export interface BoundTool {
@@ -449,6 +460,15 @@ export interface ToolManifest {
   preconditions?: string[];
 }
 
+export interface ToolVersionEntry {
+  id: number;
+  version: number;
+  status: "draft" | "active" | "deprecated";
+  version_note: string | null;
+  created_by: number | null;
+  created_at: string | null;
+}
+
 export interface ToolEntry {
   id: number;
   name: string;
@@ -463,6 +483,8 @@ export interface ToolEntry {
   created_at?: string;
   scope?: string;
   status?: string;
+  current_version?: number;
+  versions?: ToolVersionEntry[];
 }
 
 export interface WorkspaceEntry {

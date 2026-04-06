@@ -484,6 +484,10 @@ export const useChatStore = create<ChatStore>((set, get) => ({
             if (summary) { accumulated = summary; patchStreamState(convId, { streamingText: accumulated, streamStage: null }, true); }
             break;
           }
+          case "pev_compensation_start":
+            patchStreamState(convId, { streamStage: `compensating:${(event.data.step_key as string) || ""}` }, true); break;
+          case "pev_compensation_result":
+            patchStreamState(convId, { streamStage: `compensated:${(event.data.step_key as string) || ""}` }, true); break;
           case "pev_error":
             patchStreamState(convId, { streamError: { type: "server_error", message: (event.data.message as string) || "任务执行失败" } }, true); break;
           case "done":

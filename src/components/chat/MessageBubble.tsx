@@ -141,6 +141,31 @@ export const MessageBubble = memo(function MessageBubble({ message, onQuote, onQ
   const showSkillTag = !isUser && (skillName || skillId);
 
   // ── 存为 Skill ───────────────────────────────────────────────────────────────
+  // ── 用户评分 ─────────────────────────────────────────────────────────────
+  const [userRating, setUserRating] = useState<number | null>(null);
+  const [ratingSubmitting, setRatingSubmitting] = useState(false);
+
+  async function handleRate(rating: number) {
+    if (ratingSubmitting || userRating !== null) return;
+    setRatingSubmitting(true);
+    try {
+      const convId = message.metadata?.conversation_id ?? (message as unknown as Record<string, unknown>).conversation_id;
+      // 使用消息的 conversation_id 从 URL 推导
+      const pathMatch = window.location.pathname.match(/\/chat\/(\d+)/);
+      const cid = convId ?? (pathMatch ? Number(pathMatch[1]) : null);
+      if (!cid) return;
+      await apiFetch(`/conversations/${cid}/messages/${message.id}/rating`, {
+        method: "POST",
+        body: JSON.stringify({ rating }),
+      });
+      setUserRating(rating);
+    } catch {
+      // ignore
+    } finally {
+      setRatingSubmitting(false);
+    }
+  }
+
   const [saveOpen, setSaveOpen] = useState(false);
   const [saveName, setSaveName] = useState("");
   const [saveDesc, setSaveDesc] = useState("");
@@ -311,6 +336,35 @@ export const MessageBubble = memo(function MessageBubble({ message, onQuote, onQ
             <span className={`text-[8px] font-bold uppercase tracking-widest ${isUser ? "text-gray-400" : "text-gray-300"}`}>
               {formatTime(message.created_at)}
             </span>
+            {/* 用户评分 */}
+            {!isUser && skillId && (
+              <span className="flex items-center gap-0.5 ml-1">
+                {userRating !== null ? (
+                  <span className="text-[8px] font-bold text-[#00A3C4]">
+                    {userRating >= 4 ? "👍" : "👎"} 已评
+                  </span>
+                ) : (
+                  <>
+                    <button
+                      onClick={() => handleRate(5)}
+                      disabled={ratingSubmitting}
+                      className="text-[9px] opacity-40 hover:opacity-100 transition-opacity disabled:opacity-20"
+                      title="好"
+                    >
+                      👍
+                    </button>
+                    <button
+                      onClick={() => handleRate(1)}
+                      disabled={ratingSubmitting}
+                      className="text-[9px] opacity-40 hover:opacity-100 transition-opacity disabled:opacity-20"
+                      title="差"
+                    >
+                      👎
+                    </button>
+                  </>
+                )}
+              </span>
+            )}
           </div>
         </div>
 

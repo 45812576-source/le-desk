@@ -1033,6 +1033,27 @@ function PromptEditor({
   const [showSaveNote, setShowSaveNote] = useState(false);
   const [diffBase, setDiffBase] = useState<string | null>(null);
   const [showDiff, setShowDiff] = useState(false);
+  // Gap 7: 回归测试状态
+  const [regressionResult, setRegressionResult] = useState<{
+    total_cases: number; passed: number; regressions: number;
+  } | null>(null);
+  const [regressionRunning, setRegressionRunning] = useState(false);
+
+  async function runRegression() {
+    if (!skill?.id || regressionRunning) return;
+    setRegressionRunning(true);
+    setRegressionResult(null);
+    try {
+      const res = await apiFetch<{ total_cases: number; passed: number; regressions: number }>(
+        `/sandbox/regression/${skill?.id}`, { method: "POST" }
+      );
+      setRegressionResult(res);
+    } catch {
+      setRegressionResult({ total_cases: 0, passed: 0, regressions: -1 });
+    } finally {
+      setRegressionRunning(false);
+    }
+  }
 
   // Data table binding state
   const [dataQueries, setDataQueries] = useState<SkillDetail["data_queries"]>([]);
@@ -1286,10 +1307,27 @@ function PromptEditor({
               </button>
             )}
             {versions.length > 1 && (
-              <button onClick={() => setShowVersions((v) => !v)}
-                className="text-[8px] font-bold uppercase tracking-widest text-gray-400 hover:text-[#00A3C4]">
-                {showVersions ? "▲ 收起历史" : "▼ 版本历史"}
-              </button>
+              <>
+                <button onClick={() => setShowVersions((v) => !v)}
+                  className="text-[8px] font-bold uppercase tracking-widest text-gray-400 hover:text-[#00A3C4]">
+                  {showVersions ? "▲ 收起历史" : "▼ 版本历史"}
+                </button>
+                {!isNew && (
+                  <button onClick={runRegression} disabled={regressionRunning}
+                    className="text-[8px] font-bold uppercase tracking-widest text-gray-400 hover:text-[#00A3C4] disabled:opacity-50">
+                    {regressionRunning ? "回归测试中..." : "回归测试"}
+                  </button>
+                )}
+                {regressionResult && (
+                  <span className={`text-[8px] font-bold ${regressionResult.regressions > 0 ? "text-red-500" : regressionResult.regressions === 0 ? "text-green-600" : "text-gray-400"}`}>
+                    {regressionResult.regressions === -1
+                      ? "无基线"
+                      : regressionResult.regressions > 0
+                        ? `${regressionResult.regressions} 回归`
+                        : `${regressionResult.passed}/${regressionResult.total_cases} 通过`}
+                  </span>
+                )}
+              </>
             )}
           </div>
         </div>

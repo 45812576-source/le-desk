@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { apiFetch, getToken } from "@/lib/api";
 import { streamChat } from "@/lib/stream";
+import { useEventStream } from "@/lib/event-stream";
 import type { Message, Skill } from "@/lib/types";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
@@ -123,6 +124,9 @@ export function ProjectChat({ projectId, className = "" }: ProjectChatProps) {
   const [extractedTasks, setExtractedTasks] = useState<ExtractedTask[] | null>(null);
   const [error, setError] = useState("");
 
+  // Gap 6: 事件流驱动实时同步
+  const { events: streamEvents } = useEventStream({ project_id: Number(projectId), enabled: !!projectId });
+
   const bottomRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const abortRef = useRef<AbortController | null>(null);
@@ -165,14 +169,25 @@ export function ProjectChat({ projectId, className = "" }: ProjectChatProps) {
     init();
     loadSkills();
 
-    // 15s 轮询其他成员新消息
-    pollRef.current = setInterval(loadAllConvs, 15000);
+    // Gap 6: 保留轮询作为 fallback（30s），主要依赖事件流
+    pollRef.current = setInterval(loadAllConvs, 30000);
     return () => {
       if (pollRef.current) clearInterval(pollRef.current);
       abortRef.current?.abort();
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId]);
+
+  // Gap 6: 事件流驱动刷新
+  useEffect(() => {
+    if (streamEvents.length === 0) return;
+    const last = streamEvents[streamEvents.length - 1];
+    const refreshTypes = ["context_updated", "task_completed", "task_created", "skill_executed"];
+    if (refreshTypes.includes(last.event_type)) {
+      loadAllConvs();
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [streamEvents.length]);
 
   // ── 滚动到底部 ───────────────────────────────────────────────────────────────
   useEffect(() => {

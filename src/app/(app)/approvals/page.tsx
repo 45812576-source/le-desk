@@ -504,14 +504,22 @@ function ApprovalCard({
         <div className="flex items-center gap-2 flex-shrink-0">
           {showActions && isPending && (
             <>
-              <button
-                disabled={acting === r.id}
-                onClick={() => onAction(r.id, "approve")}
-                className="flex items-center gap-1 px-3 py-1.5 rounded-md text-xs font-medium bg-green-500 text-white hover:bg-green-600 disabled:opacity-50 transition-colors"
-              >
-                <Check size={12} />
-                通过
-              </button>
+              {(() => {
+                const needsSandbox = r.request_type === "skill_publish" || r.request_type === "tool_publish";
+                const hasSandbox = !!r.sandbox_report_id || !!(r.security_scan_result as Record<string, unknown> | null)?.sandbox_test_report_id;
+                const approveDisabled = acting === r.id || (needsSandbox && !hasSandbox);
+                return (
+                  <button
+                    disabled={approveDisabled}
+                    onClick={() => onAction(r.id, "approve")}
+                    className="flex items-center gap-1 px-3 py-1.5 rounded-md text-xs font-medium bg-green-500 text-white hover:bg-green-600 disabled:opacity-50 transition-colors"
+                    title={needsSandbox && !hasSandbox ? "请先完成沙盒测试" : undefined}
+                  >
+                    <Check size={12} />
+                    通过
+                  </button>
+                );
+              })()}
               <button
                 disabled={acting === r.id}
                 onClick={() => onAction(r.id, "reject")}

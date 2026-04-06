@@ -26,7 +26,9 @@ export type StreamEventType =
   | "pev_step_result"
   | "pev_replan"
   | "pev_done"
-  | "pev_error";
+  | "pev_error"
+  | "pev_compensation_start"
+  | "pev_compensation_result";
 
 export interface StreamEvent {
   type: StreamEventType;
