@@ -106,12 +106,12 @@ export default function GovernanceReviewWorkbench({
 
   const summaryClassName =
     mode === "page"
-      ? "h-full flex flex-col bg-white"
-      : "border-t border-gray-200 bg-[#FAFCFE]";
+      ? "h-full flex flex-col bg-card"
+      : "border-t border-border bg-card";
 
   return (
     <div className={summaryClassName}>
-      <div className="px-4 py-3 border-b border-gray-200 flex items-center gap-2">
+      <div className="px-4 py-3 border-b border-border flex items-center gap-2">
         <div className="flex items-center gap-0.5 mr-2">
           {(["governance", "baseline"] as WorkbenchTab[]).map((tab) => (
             <button
@@ -119,8 +119,8 @@ export default function GovernanceReviewWorkbench({
               onClick={() => setActiveTab(tab)}
               className={`px-2 py-1 text-[8px] font-bold uppercase tracking-widest border ${
                 activeTab === tab
-                  ? "border-[#0077B6] text-[#0077B6] bg-[#EAF7FF]"
-                  : "border-gray-200 text-gray-500 bg-white hover:bg-gray-50"
+                  ? "border-[#0077B6] text-[#0077B6] bg-accent"
+                  : "border-border text-muted-foreground bg-card hover:bg-muted"
               }`}
             >
               {tab === "governance" ? "治理审查" : "协同基线"}
@@ -137,8 +137,8 @@ export default function GovernanceReviewWorkbench({
               onClick={() => setSubjectType(item)}
               className={`px-2 py-1 text-[8px] border font-bold ${
                 subjectType === item
-                  ? "border-[#0077B6] text-[#0077B6] bg-[#EAF7FF]"
-                  : "border-gray-200 text-gray-500 bg-white"
+                  ? "border-[#0077B6] text-[#0077B6] bg-accent"
+                  : "border-border text-muted-foreground bg-card"
               }`}
             >
               {item === "all" ? "全部" : item === "knowledge" ? "文档" : "数据表"}
@@ -147,20 +147,20 @@ export default function GovernanceReviewWorkbench({
           <button
             disabled={loading}
             onClick={() => void load()}
-            className="px-2 py-1 text-[8px] font-bold border border-gray-300 text-gray-600 bg-white hover:bg-gray-50 disabled:opacity-50"
+            className="px-2 py-1 text-[8px] font-bold border border-border text-muted-foreground bg-card hover:bg-muted disabled:opacity-50"
           >
             刷新
           </button>
           <button
             onClick={() => setShowFrozenOnly((v) => !v)}
-            className={`px-2 py-1 text-[8px] font-bold border ${showFrozenOnly ? "border-red-300 bg-red-50 text-red-600" : "border-gray-300 bg-white text-gray-600"}`}
+            className={`px-2 py-1 text-[8px] font-bold border ${showFrozenOnly ? "border-red-300 bg-destructive/20 text-red-600 dark:text-red-400" : "border-border bg-card text-muted-foreground"}`}
           >
             仅冻结
           </button>
           <select
             value={businessLineFilter}
             onChange={(e) => setBusinessLineFilter(e.target.value)}
-            className="px-2 py-1 text-[8px] border border-gray-300 bg-white text-gray-600"
+            className="px-2 py-1 text-[8px] border border-border bg-card text-muted-foreground"
           >
             <option value="">全部业务线</option>
             {businessLineOptions.map((item) => (
@@ -178,7 +178,7 @@ export default function GovernanceReviewWorkbench({
 
       {activeTab === "governance" && <div className={mode === "page" ? "flex-1 min-h-0 overflow-auto" : "max-h-80 overflow-y-auto"}>
         {blueprint && (
-          <section className="p-4 border-b border-gray-100 space-y-2 bg-[#FCFEFF]">
+          <section className="p-4 border-b border-border space-y-2 bg-card">
             <div className="text-[9px] font-bold uppercase tracking-widest text-slate-600">治理蓝图骨架</div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
               {OBJECTIVE_ORDER.map((code) => {
@@ -186,7 +186,7 @@ export default function GovernanceReviewWorkbench({
                 const objectiveLibraries = libraries.filter((item) => item.objective_id === objective?.id);
                 if (!objective) return null;
                 return (
-                  <div key={code} className="border border-gray-200 rounded bg-white px-3 py-2">
+                  <div key={code} className="border border-border rounded bg-card px-3 py-2">
                     <div className="text-[10px] font-semibold text-gray-700">{objective.name}</div>
                     <div className="text-[8px] text-gray-400 mt-0.5">{objective.description || "暂无描述"}</div>
                     <div className="mt-2 flex flex-wrap gap-1">
@@ -203,7 +203,7 @@ export default function GovernanceReviewWorkbench({
             </div>
           </section>
         )}
-        <section className="p-4 border-b border-gray-100 space-y-2">
+        <section className="p-4 border-b border-border space-y-2">
           <div className="text-[9px] font-bold uppercase tracking-widest text-amber-700">协同断点</div>
           {loading && <div className="text-[9px] text-gray-400">加载中...</div>}
           {!loading && (!gapOverview || gapOverview.object_gaps.length === 0) && (
@@ -228,12 +228,12 @@ export default function GovernanceReviewWorkbench({
           ))}
         </section>
 
-        <section className="p-4 border-b border-gray-100 space-y-2 bg-[#FBFDFF]">
+        <section className="p-4 border-b border-border space-y-2 bg-card">
           <div className="text-[9px] font-bold uppercase tracking-widest text-violet-700">策略效果榜</div>
           {visibleStrategyStats.length === 0 && <div className="text-[9px] text-gray-400">暂无学习样本</div>}
           <div className="space-y-1">
             {visibleStrategyStats.map((item) => (
-              <div key={item.id} className="border border-gray-200 rounded bg-white px-3 py-2 text-[8px]">
+              <div key={item.id} className="border border-border rounded bg-card px-3 py-2 text-[8px]">
                 <div className="flex items-center gap-2">
                   <span className="font-semibold text-violet-700">{item.strategy_group}</span>
                   <span className="text-gray-500">{item.library_code || "-"}</span>
@@ -252,12 +252,12 @@ export default function GovernanceReviewWorkbench({
           </div>
         </section>
 
-        <section className="p-4 border-b border-gray-100 space-y-2 bg-[#FFF8F8]">
+        <section className="p-4 border-b border-border space-y-2 bg-card">
           <div className="text-[9px] font-bold uppercase tracking-widest text-red-700">坏规则风险榜</div>
           {visibleStrategyRiskStats.length === 0 && <div className="text-[9px] text-gray-400">暂无高风险策略</div>}
           <div className="space-y-1">
             {visibleStrategyRiskStats.map((item) => (
-              <div key={item.id} className="border border-red-200 rounded bg-white px-3 py-2 text-[8px]">
+              <div key={item.id} className="border border-red-200 rounded bg-card px-3 py-2 text-[8px]">
                 <div className="flex items-center gap-2">
                   <span className="font-semibold text-red-700">{item.strategy_group}</span>
                   <span className="text-gray-500">{item.library_code || "-"}</span>
@@ -280,7 +280,7 @@ export default function GovernanceReviewWorkbench({
                         setActioningId(null);
                       }
                     }}
-                    className="px-2 py-0.5 border border-red-300 text-red-600 hover:bg-red-50 font-bold"
+                    className="px-2 py-0.5 border border-red-300 text-red-600 hover:bg-muted font-bold"
                   >
                     {actioningId === `freeze:${item.id}` ? "处理中..." : item.is_frozen ? "解冻" : "冻结"}
                   </button>
@@ -327,12 +327,12 @@ export default function GovernanceReviewWorkbench({
           </div>
         </section>
 
-        <section className="p-4 border-b border-gray-100 space-y-2 bg-[#FCFCFF]">
+        <section className="p-4 border-b border-border space-y-2 bg-card">
           <div className="text-[9px] font-bold uppercase tracking-widest text-slate-700">最近反馈事件</div>
           {feedbackEvents.length === 0 && <div className="text-[9px] text-gray-400">暂无反馈事件</div>}
           <div className="space-y-1">
             {feedbackEvents.map((item) => (
-              <div key={item.id} className="border border-gray-200 rounded bg-white px-3 py-2 text-[8px]">
+              <div key={item.id} className="border border-border rounded bg-card px-3 py-2 text-[8px]">
                 <div className="flex items-center gap-2">
                   <span className="font-semibold text-slate-700">{item.event_type}</span>
                   <span className="text-gray-500">{item.subject_type} #{item.subject_id}</span>
@@ -410,10 +410,10 @@ function GapCard({
   onAction: (action: GovernanceObjectGap["recommended_actions"][number]) => Promise<void>;
 }) {
   return (
-    <div className="border border-amber-200 bg-amber-50 rounded px-3 py-2">
+    <div className="border border-border bg-muted rounded px-3 py-2">
       <div className="flex items-center gap-2">
         <span className="text-[10px] font-semibold text-amber-800">{gap.display_name}</span>
-        <span className="text-[8px] px-1.5 py-0.5 rounded bg-white border border-amber-200 text-amber-700">
+        <span className="text-[8px] px-1.5 py-0.5 rounded bg-card border border-border text-amber-700 dark:text-amber-400">
           {gap.gap_type}
         </span>
       </div>
@@ -462,12 +462,12 @@ function SuggestionCard({
     | undefined;
 
   return (
-    <div className="border border-gray-200 bg-white rounded px-3 py-2">
+    <div className="border border-border bg-card rounded px-3 py-2">
       <div className="flex items-center gap-2">
         <span className="text-[10px] font-semibold text-[#0077B6]">
           {item.subject_type === "knowledge" ? "文档" : item.subject_type === "business_table" ? "数据表" : item.subject_type} #{item.subject_id}
         </span>
-        <span className="text-[8px] px-1.5 py-0.5 rounded bg-amber-50 border border-amber-200 text-amber-600">
+        <span className="text-[8px] px-1.5 py-0.5 rounded bg-muted border border-border text-amber-600 dark:text-amber-400">
           {item.confidence || 0}%
         </span>
         <span className="text-[8px] text-gray-500">{objective?.name || "-"}</span>
@@ -492,13 +492,13 @@ function SuggestionCard({
           )}
           <button
             onClick={() => void onApply()}
-            className="px-2 py-0.5 text-[8px] font-bold border border-emerald-300 text-emerald-600 hover:bg-emerald-50"
+            className="px-2 py-0.5 text-[8px] font-bold border border-emerald-300 text-emerald-600 hover:bg-muted"
           >
             {actioningId === `suggestion:${item.id}` ? "采纳中..." : "采纳"}
           </button>
           <button
             onClick={() => void onReject()}
-            className="px-2 py-0.5 text-[8px] font-bold border border-red-300 text-red-600 hover:bg-red-50"
+            className="px-2 py-0.5 text-[8px] font-bold border border-red-300 text-red-600 hover:bg-muted"
           >
             {actioningId === `reject:${item.id}` ? "拒绝中..." : "拒绝"}
           </button>

@@ -149,8 +149,8 @@ function CheckGroup({
         {items.map((item) => (
           <label
             key={item.id}
-            className={`flex items-start gap-2 p-2 border cursor-pointer hover:bg-[#F0F4F8] transition-colors ${
-              selectedIds.has(item.id) ? "border-[#00D1FF] bg-[#F0FAFF]" : "border-[#E2E8F0]"
+            className={`flex items-start gap-2 p-2 border cursor-pointer hover:bg-muted transition-colors ${
+              selectedIds.has(item.id) ? "border-[#00D1FF] bg-accent" : "border-border"
             }`}
           >
             <input
@@ -390,7 +390,7 @@ export default function AdminWorkspacesPage() {
           </PixelButton>
 
           {creating && (
-            <div className="border-2 border-[#00D1FF] bg-white p-2 flex flex-col gap-2">
+            <div className="border-2 border-[#00D1FF] bg-card p-2 flex flex-col gap-2">
               <input
                 autoFocus
                 value={newName}
@@ -416,8 +416,8 @@ export default function AdminWorkspacesPage() {
                   onClick={() => selectWorkspace(ws.id)}
                   className={`text-left border-2 p-2 transition-colors ${
                     selected?.id === ws.id
-                      ? "border-[#00D1FF] bg-[#F0FAFF]"
-                      : "border-[#1A202C] bg-white hover:bg-[#F0F4F8]"
+                      ? "border-[#00D1FF] bg-accent"
+                      : "border-[#1A202C] bg-card hover:bg-muted"
                   }`}
                 >
                   <div className="flex items-center gap-1.5 mb-0.5">
@@ -475,7 +475,7 @@ export default function AdminWorkspacesPage() {
               </div>
 
               {/* Basic info */}
-              <div className="bg-white border-2 border-[#1A202C] p-4">
+              <div className="bg-card border-2 border-[#1A202C] p-4">
                 <div className="text-[9px] font-bold uppercase tracking-widest text-[#00A3C4] mb-3">基本信息</div>
                 <div className="grid grid-cols-2 gap-3">
                   <div>
@@ -571,7 +571,7 @@ export default function AdminWorkspacesPage() {
               </div>
 
               {/* Skills */}
-              <div className="bg-white border-2 border-[#1A202C] p-4">
+              <div className="bg-card border-2 border-[#1A202C] p-4">
                 <div className="flex items-center justify-between mb-3">
                   <div className="text-[9px] font-bold uppercase tracking-widest text-[#00A3C4]">
                     Skill 配置
@@ -611,7 +611,7 @@ export default function AdminWorkspacesPage() {
               </div>
 
               {/* Tools */}
-              <div className="bg-white border-2 border-[#1A202C] p-4">
+              <div className="bg-card border-2 border-[#1A202C] p-4">
                 <div className="flex items-center justify-between mb-3">
                   <div className="text-[9px] font-bold uppercase tracking-widest text-[#00A3C4]">
                     工具配置

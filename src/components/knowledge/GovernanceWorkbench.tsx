@@ -69,8 +69,8 @@ export default function GovernanceWorkbench({ currentUser, selectedKnowledgeId, 
   const libraries = blueprint?.resource_libraries || [];
 
   return (
-    <div className="border-t border-gray-200 bg-[#FAFCFE]">
-      <div className="px-4 py-2 border-b border-gray-200 flex items-center gap-2 cursor-pointer select-none" onClick={() => setCollapsed(v => !v)}>
+    <div className="border-t border-border bg-card">
+      <div className="px-4 py-2 border-b border-border flex items-center gap-2 cursor-pointer select-none" onClick={() => setCollapsed(v => !v)}>
         <span className={`text-[8px] text-gray-400 transition-transform ${collapsed ? "" : "rotate-90"}`}>▶</span>
         <span className="text-[9px] font-bold uppercase tracking-widest text-[#0077B6]">治理审查台</span>
         <span className="text-[8px] text-gray-400">待审建议 {suggestions.length}</span>
@@ -90,15 +90,15 @@ export default function GovernanceWorkbench({ currentUser, selectedKnowledgeId, 
               setRunning(false);
             }
           }}
-          className="ml-auto px-2 py-1 text-[9px] font-bold border border-[#0077B6] text-[#0077B6] hover:bg-[#EAF7FF] disabled:opacity-50"
+          className="ml-auto px-2 py-1 text-[9px] font-bold border border-border text-[#0077B6] hover:bg-muted disabled:opacity-50"
         >
           {running ? "扫描中..." : "批量生成建议"}
         </button>
       </div>
 
-      {collapsed ? null : <div className="max-h-64 overflow-y-auto divide-y divide-gray-100">
+      {collapsed ? null : <div className="max-h-64 overflow-y-auto divide-y divide-border">
         {gapOverview && (gapOverview.object_gaps.length > 0 || gapOverview.conflict_count > 0) && (
-          <div className="px-4 py-2 bg-amber-50 border-b border-amber-200 space-y-1">
+          <div className="px-4 py-2 bg-muted border-b border-border space-y-1">
             {gapOverview.object_gaps.slice(0, 3).map((gap) => (
               <div key={`${gap.object_id}-${gap.gap_type}`} className="space-y-1 text-[8px] text-amber-700">
                 <div>{gap.display_name}: {gap.reason}</div>
@@ -134,7 +134,7 @@ export default function GovernanceWorkbench({ currentUser, selectedKnowledgeId, 
                     });
                     await load();
                   }}
-                  className="px-2 py-0.5 border border-red-300 text-red-600 hover:bg-red-50 font-bold"
+                  className="px-2 py-0.5 border border-red-300 text-red-600 hover:bg-muted font-bold dark:text-red-400 dark:border-red-700"
                 >
                   合并
                 </button>
@@ -154,7 +154,7 @@ export default function GovernanceWorkbench({ currentUser, selectedKnowledgeId, 
             | { strategy_group?: string; boost?: number; success_rate?: number | null; samples?: number }
             | undefined;
           return (
-            <div key={item.id} className={`px-4 py-2 ${isSelected ? "bg-[#EAF7FF]" : ""}`}>
+            <div key={item.id} className={`px-4 py-2 ${isSelected ? "bg-accent" : ""}`}>
               <div className="flex items-center gap-2">
                 <button
                   onClick={() => onSelectKnowledge?.(item.subject_id)}
@@ -162,7 +162,7 @@ export default function GovernanceWorkbench({ currentUser, selectedKnowledgeId, 
                 >
                   文档 #{item.subject_id}
                 </button>
-                <span className="text-[8px] px-1.5 py-0.5 rounded bg-amber-50 border border-amber-200 text-amber-600">
+                <span className="text-[8px] px-1.5 py-0.5 rounded bg-muted border border-border text-amber-600 dark:text-amber-400">
                   {item.confidence || 0}%
                 </span>
                 <span className="text-[8px] text-gray-500">{objective?.name || "-"}</span>
@@ -183,7 +183,7 @@ export default function GovernanceWorkbench({ currentUser, selectedKnowledgeId, 
                     });
                     await load();
                   }}
-                  className="ml-auto px-2 py-0.5 text-[8px] font-bold border border-emerald-300 text-emerald-600 hover:bg-emerald-50"
+                  className="ml-auto px-2 py-0.5 text-[8px] font-bold border border-emerald-300 text-emerald-600 hover:bg-muted dark:text-emerald-400 dark:border-emerald-700"
                 >
                   采纳
                 </button>
@@ -195,7 +195,7 @@ export default function GovernanceWorkbench({ currentUser, selectedKnowledgeId, 
                     });
                     await load();
                   }}
-                  className="px-2 py-0.5 text-[8px] font-bold border border-red-300 text-red-600 hover:bg-red-50"
+                  className="px-2 py-0.5 text-[8px] font-bold border border-red-300 text-red-600 hover:bg-muted dark:text-red-400 dark:border-red-700"
                 >
                   拒绝
                 </button>

@@ -43,7 +43,7 @@ export default function CollaborationBaseline() {
   return (
     <div className="flex flex-col h-full">
       {/* 顶部汇总条 */}
-      <div className="flex items-center gap-4 px-4 py-3 border-b border-gray-200 bg-[#FAFCFE]">
+      <div className="flex items-center gap-4 px-4 py-3 border-b border-border bg-card">
         <SummaryBadge label="资源库" value={summary.total_libraries} />
         <SummaryBadge label="字段覆盖" value={`${(summary.avg_field_coverage * 100).toFixed(0)}%`} color={summary.avg_field_coverage >= 0.6 ? "text-emerald-600" : "text-amber-600"} />
         <SummaryBadge label="更新达标" value={`${(summary.update_compliance_rate * 100).toFixed(0)}%`} color={summary.update_compliance_rate >= 0.7 ? "text-emerald-600" : "text-red-600"} />
@@ -51,7 +51,7 @@ export default function CollaborationBaseline() {
         <button
           onClick={() => void load()}
           disabled={loading}
-          className="ml-auto px-2 py-1 text-[8px] font-bold border border-gray-300 text-gray-600 bg-white hover:bg-gray-50 disabled:opacity-50"
+          className="ml-auto px-2 py-1 text-[8px] font-bold border border-border text-muted-foreground bg-card hover:bg-muted disabled:opacity-50"
         >
           刷新
         </button>
@@ -60,7 +60,7 @@ export default function CollaborationBaseline() {
       {/* 主体区域：左右分栏 */}
       <div className="flex flex-1 min-h-0">
         {/* 左栏：资源库列表 */}
-        <div className="w-72 flex-shrink-0 border-r border-gray-200 overflow-y-auto">
+        <div className="w-72 flex-shrink-0 border-r border-border overflow-y-auto">
           {libraries.map((lib) => (
             <LibraryRow
               key={lib.library_id}
@@ -103,7 +103,7 @@ function LibraryRow({ lib, isSelected, onClick }: { lib: CollaborationBaselineLi
   return (
     <div
       onClick={onClick}
-      className={`px-3 py-2 border-b border-gray-100 cursor-pointer transition-colors ${isSelected ? "bg-[#EAF7FF]" : "hover:bg-gray-50"}`}
+      className={`px-3 py-2 border-b border-border cursor-pointer transition-colors ${isSelected ? "bg-accent" : "hover:bg-muted"}`}
     >
       <div className="flex items-center gap-2">
         <span className="text-[10px] font-semibold text-gray-700 flex-1 truncate">{lib.library_name}</span>
@@ -162,7 +162,7 @@ function LibraryDetail({
       {/* 字段覆盖矩阵 */}
       <section>
         <div className="text-[9px] font-bold uppercase tracking-widest text-slate-600 mb-2">字段覆盖矩阵</div>
-        <div className="border border-gray-200 rounded overflow-hidden">
+        <div className="border border-border rounded overflow-hidden">
           <table className="w-full text-[8px]">
             <thead>
               <tr className="bg-gray-50">

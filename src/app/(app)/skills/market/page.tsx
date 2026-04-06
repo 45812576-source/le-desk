@@ -66,7 +66,7 @@ function RankingBoard({
   const max = items[0]?.conv_count_recent ?? 1;
 
   return (
-    <div className="border-2 border-[#1A202C] bg-white flex flex-col">
+    <div className="border-2 border-[#1A202C] bg-card flex flex-col">
       <div
         className="px-4 py-2.5 flex items-center justify-between flex-shrink-0"
         style={{ background: color }}
@@ -306,7 +306,7 @@ export default function SkillMarketPage() {
                 return (
                   <div
                     key={skill.id}
-                    className="bg-white border-2 border-[#1A202C]"
+                    className="bg-card border-2 border-[#1A202C]"
                   >
                     <div className="p-4 flex items-start justify-between gap-3">
                       <div className="flex-1 min-w-0">

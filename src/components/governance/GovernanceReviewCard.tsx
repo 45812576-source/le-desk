@@ -107,7 +107,7 @@ export default function GovernanceReviewCard({
   return (
     <div className="border border-gray-200 rounded bg-[#F8FCFF]">
       <div
-        className="px-3 py-2 border-b border-gray-200 flex items-center gap-2 cursor-pointer select-none hover:bg-[#EAF7FF] transition-colors"
+        className="px-3 py-2 border-b border-gray-200 flex items-center gap-2 cursor-pointer select-none hover:bg-muted transition-colors"
         onClick={() => setExpanded((v) => !v)}
       >
         <span className="text-[9px] font-bold uppercase tracking-widest text-[#0077B6]">{title}</span>
@@ -116,7 +116,7 @@ export default function GovernanceReviewCard({
           state.governance_status === "aligned"
             ? "bg-emerald-50 text-emerald-600 border border-emerald-200"
             : state.governance_status === "suggested"
-              ? "bg-amber-50 text-amber-600 border border-amber-200"
+              ? "bg-muted text-amber-600 border border-amber-200"
               : "bg-gray-100 text-gray-500"
         }`}>
           {state.governance_status || "ungoverned"}
@@ -129,7 +129,7 @@ export default function GovernanceReviewCard({
           <span className="px-2 py-1 rounded border border-sky-200 bg-sky-50 text-sky-700">
             当前目标: {currentObjective?.name || "未挂载"}
           </span>
-          <span className="px-2 py-1 rounded border border-slate-200 bg-white text-slate-600">
+          <span className="px-2 py-1 rounded border border-slate-200 bg-card text-slate-600">
             当前资源库: {currentLibrary?.name || "未挂载"}
           </span>
           <span className="px-2 py-1 rounded border border-violet-200 bg-violet-50 text-violet-700">
@@ -142,20 +142,20 @@ export default function GovernanceReviewCard({
             要素: {currentElement?.name || "未挂载"}
           </span>
           {state.governance_confidence != null && (
-            <span className="px-2 py-1 rounded border border-amber-200 bg-amber-50 text-amber-700">
+            <span className="px-2 py-1 rounded border border-amber-200 bg-muted text-amber-700">
               置信度: {(state.governance_confidence * 100).toFixed(0)}%
             </span>
           )}
         </div>
 
         {state.governance_note && (
-          <div className="text-[10px] text-gray-600 border border-gray-100 bg-white rounded px-3 py-2">
+          <div className="text-[10px] text-gray-600 border border-gray-100 bg-card rounded px-3 py-2">
             {state.governance_note}
           </div>
         )}
 
         {pendingSuggestion && (
-          <div className="border border-amber-200 bg-amber-50 rounded px-3 py-2 space-y-2">
+          <div className="border border-amber-200 bg-muted rounded px-3 py-2 space-y-2">
             <div className="flex items-center justify-between gap-2">
               <div className="text-[10px] font-medium text-amber-700">
                 建议挂载到 {suggestedObjective?.name || "未知目标"} / {suggestedLibrary?.name || "未知资源库"}
@@ -195,7 +195,7 @@ export default function GovernanceReviewCard({
             <button
               disabled={actionLoading || loading}
               onClick={onGenerate}
-              className="px-2 py-1 text-[9px] font-bold border border-[#0077B6] text-[#0077B6] hover:bg-[#EAF7FF] disabled:opacity-50"
+              className="px-2 py-1 text-[9px] font-bold border border-[#0077B6] text-[#0077B6] hover:bg-muted disabled:opacity-50"
             >
               {actionLoading ? "处理中..." : "生成治理建议"}
             </button>
@@ -218,7 +218,7 @@ export default function GovernanceReviewCard({
         </div>
 
         {currentObjectType && (
-          <div className="border border-gray-200 rounded bg-white px-3 py-2">
+          <div className="border border-gray-200 rounded bg-card px-3 py-2">
             <div className="text-[10px] font-semibold text-gray-700 mb-2">字段模板</div>
             <div className="space-y-1">
               {fieldTemplates
@@ -263,7 +263,7 @@ function BlueprintColumn({
   );
 
   return (
-    <div className="border border-gray-200 rounded bg-white px-3 py-2">
+    <div className="border border-gray-200 rounded bg-card px-3 py-2">
       <div className="text-[10px] font-semibold text-gray-700">{objective?.name || "未初始化"}</div>
       <div className="text-[8px] text-gray-400 mt-0.5">{objective?.description || "暂无描述"}</div>
       <div className="mt-2 space-y-2">
@@ -274,11 +274,11 @@ function BlueprintColumn({
             .filter((library): library is GovernanceResourceLibraryLite => Boolean(library));
           if (items.length === 0) return null;
           return (
-            <div key={cluster.label} className="border border-gray-100 rounded px-2 py-2 bg-[#FAFCFE]">
+            <div key={cluster.label} className="border border-gray-100 rounded px-2 py-2 bg-card">
               <div className="text-[8px] font-bold uppercase tracking-widest text-gray-500">{cluster.label}</div>
               <div className="mt-1 space-y-1">
                 {items.map((library) => (
-                  <div key={library.id} className="flex items-center justify-between gap-2 text-[8px] border border-gray-100 rounded px-2 py-1 bg-white">
+                  <div key={library.id} className="flex items-center justify-between gap-2 text-[8px] border border-gray-100 rounded px-2 py-1 bg-card">
                     <span className="text-gray-600 truncate">{library.name}</span>
                     <span className="text-gray-400">{library.default_update_cycle || "-"}</span>
                   </div>
@@ -288,7 +288,7 @@ function BlueprintColumn({
           );
         })}
         {ungrouped.length > 0 && (
-          <div className="border border-dashed border-gray-200 rounded px-2 py-2 bg-white">
+          <div className="border border-dashed border-gray-200 rounded px-2 py-2 bg-card">
             <div className="text-[8px] font-bold uppercase tracking-widest text-gray-400">待归组</div>
             <div className="mt-1 space-y-1">
               {ungrouped.map((library) => (
@@ -350,7 +350,7 @@ function ObjectBindingPanel({
   }, [currentObjectId]);
 
   return (
-    <div className="border border-gray-200 rounded bg-white px-3 py-2 space-y-2">
+    <div className="border border-gray-200 rounded bg-card px-3 py-2 space-y-2">
       <div className="text-[10px] font-semibold text-gray-700">对象绑定</div>
       <div className="flex items-center gap-2">
         <input
@@ -392,7 +392,7 @@ function ObjectBindingPanel({
               setCreating(false);
             }
           }}
-          className="px-2 py-1 text-[8px] font-bold border border-[#0077B6] text-[#0077B6] hover:bg-[#EAF7FF] disabled:opacity-50"
+          className="px-2 py-1 text-[8px] font-bold border border-[#0077B6] text-[#0077B6] hover:bg-muted disabled:opacity-50"
         >
           {creating ? "创建中..." : "新建并绑定"}
         </button>
@@ -434,12 +434,12 @@ function ObjectBindingPanel({
       </div>
 
       {detail && (
-        <div className="border border-gray-100 rounded bg-[#FAFCFE] px-2 py-2 space-y-1">
+        <div className="border border-gray-100 rounded bg-card px-2 py-2 space-y-1">
           <div className="text-[9px] font-semibold text-gray-700">当前对象视图</div>
           <div className="text-[8px] text-gray-500">{detail.display_name} · {detail.canonical_key}</div>
           {detail.facets.length === 0 && <div className="text-[8px] text-gray-300">暂无 facet</div>}
           {detail.facets.map((facet) => (
-            <div key={facet.id} className="text-[8px] border border-gray-100 rounded px-2 py-1 bg-white">
+            <div key={facet.id} className="text-[8px] border border-gray-100 rounded px-2 py-1 bg-card">
               <div className="flex items-center justify-between gap-2">
                 <span className="text-gray-700">{facet.facet_name}</span>
                 <span className="text-gray-400">{facet.update_cycle || "-"}</span>
@@ -451,7 +451,7 @@ function ObjectBindingPanel({
           ))}
 
           {detail.collaboration_baseline && (
-            <div className="mt-2 border border-gray-100 rounded px-2 py-2 bg-white space-y-1">
+            <div className="mt-2 border border-gray-100 rounded px-2 py-2 bg-card space-y-1">
               <div className="text-[9px] font-semibold text-gray-700">协同基线</div>
               <div className="grid grid-cols-2 gap-2 text-[8px]">
                 <BaselineBucket
