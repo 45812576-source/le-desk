@@ -35,6 +35,12 @@ export default function GovernanceObjectsTab() {
   const [showBind, setShowBind] = useState(false);
   const [bindForm, setBindForm] = useState({ subject_type: "knowledge", subject_id: "", governance_object_id: "" });
 
+  // 创建目标/资源库
+  const [showCreateObjective, setShowCreateObjective] = useState(false);
+  const [objectiveForm, setObjectiveForm] = useState({ name: "", code: "", description: "", level: "department", business_line: "" });
+  const [showCreateLibrary, setShowCreateLibrary] = useState(false);
+  const [libraryForm, setLibraryForm] = useState({ objective_id: "", name: "", code: "", object_type: "", description: "" });
+
   const load = useCallback(async () => {
     setLoading(true);
     try {
@@ -123,6 +129,49 @@ export default function GovernanceObjectsTab() {
     }
   }
 
+  async function handleCreateObjective() {
+    if (!objectiveForm.name || !objectiveForm.code) return;
+    setActing("create_objective");
+    try {
+      await apiFetch("/knowledge-governance/objectives", {
+        method: "POST",
+        body: JSON.stringify({
+          name: objectiveForm.name,
+          code: objectiveForm.code,
+          description: objectiveForm.description || null,
+          level: objectiveForm.level,
+          business_line: objectiveForm.business_line || null,
+        }),
+      });
+      setShowCreateObjective(false);
+      setObjectiveForm({ name: "", code: "", description: "", level: "department", business_line: "" });
+    } finally {
+      setActing(null);
+    }
+  }
+
+  async function handleCreateLibrary() {
+    const objId = parseInt(libraryForm.objective_id, 10);
+    if (!libraryForm.name || !libraryForm.code || !libraryForm.object_type || isNaN(objId)) return;
+    setActing("create_library");
+    try {
+      await apiFetch("/knowledge-governance/resource-libraries", {
+        method: "POST",
+        body: JSON.stringify({
+          objective_id: objId,
+          name: libraryForm.name,
+          code: libraryForm.code,
+          object_type: libraryForm.object_type,
+          description: libraryForm.description || null,
+        }),
+      });
+      setShowCreateLibrary(false);
+      setLibraryForm({ objective_id: "", name: "", code: "", object_type: "", description: "" });
+    } finally {
+      setActing(null);
+    }
+  }
+
   function setBind(v: typeof bindForm) { setBindForm(v); }
 
   const LIFECYCLE_COLORS: Record<string, string> = {
@@ -162,6 +211,12 @@ export default function GovernanceObjectsTab() {
             </button>
             <button onClick={() => setShowBind(true)} className="px-2 py-0.5 text-[8px] font-bold border border-violet-300 text-violet-600 hover:bg-muted">
               绑定
+            </button>
+            <button onClick={() => setShowCreateObjective(true)} className="px-2 py-0.5 text-[8px] font-bold border border-emerald-300 text-emerald-600 hover:bg-muted">
+              + 目标
+            </button>
+            <button onClick={() => setShowCreateLibrary(true)} className="px-2 py-0.5 text-[8px] font-bold border border-amber-300 text-amber-600 hover:bg-muted">
+              + 资源库
             </button>
             <span className="ml-auto text-[8px] text-gray-400">{objects.length} 个对象</span>
           </div>
@@ -275,6 +330,57 @@ export default function GovernanceObjectsTab() {
               className="px-3 py-1 text-[9px] font-bold border border-violet-400 text-violet-600 hover:bg-muted disabled:opacity-50"
             >
               {acting === "bind" ? "绑定中..." : "绑定"}
+            </button>
+          </div>
+        </Modal>
+      )}
+
+      {/* 创建治理目标弹窗 */}
+      {showCreateObjective && (
+        <Modal title="创建治理目标" onClose={() => setShowCreateObjective(false)}>
+          <div className="space-y-2">
+            <Field label="目标名称" value={objectiveForm.name} onChange={(v) => setObjectiveForm({ ...objectiveForm, name: v })} placeholder="如：专业能力建设" />
+            <Field label="目标编码" value={objectiveForm.code} onChange={(v) => setObjectiveForm({ ...objectiveForm, code: v })} placeholder="如：professional_capability" />
+            <Field label="描述" value={objectiveForm.description} onChange={(v) => setObjectiveForm({ ...objectiveForm, description: v })} />
+            <div className="flex items-center gap-2 text-[9px]">
+              <label className="text-gray-600">层级</label>
+              <select
+                value={objectiveForm.level}
+                onChange={(e) => setObjectiveForm({ ...objectiveForm, level: e.target.value })}
+                className="border border-border px-2 py-0.5 text-[9px]"
+              >
+                <option value="company">公司级</option>
+                <option value="department">部门级</option>
+                <option value="business_line">业务线级</option>
+              </select>
+            </div>
+            <Field label="业务线" value={objectiveForm.business_line} onChange={(v) => setObjectiveForm({ ...objectiveForm, business_line: v })} placeholder="可选" />
+            <button
+              onClick={() => void handleCreateObjective()}
+              disabled={acting === "create_objective" || !objectiveForm.name || !objectiveForm.code}
+              className="px-3 py-1 text-[9px] font-bold border border-emerald-400 text-emerald-600 hover:bg-muted disabled:opacity-50"
+            >
+              {acting === "create_objective" ? "创建中..." : "创建目标"}
+            </button>
+          </div>
+        </Modal>
+      )}
+
+      {/* 创建资源库弹窗 */}
+      {showCreateLibrary && (
+        <Modal title="创建资源库" onClose={() => setShowCreateLibrary(false)}>
+          <div className="space-y-2">
+            <Field label="所属目标 ID" value={libraryForm.objective_id} onChange={(v) => setLibraryForm({ ...libraryForm, objective_id: v })} placeholder="治理目标 ID" />
+            <Field label="资源库名称" value={libraryForm.name} onChange={(v) => setLibraryForm({ ...libraryForm, name: v })} placeholder="如：岗位胜任力库" />
+            <Field label="资源库编码" value={libraryForm.code} onChange={(v) => setLibraryForm({ ...libraryForm, code: v })} placeholder="如：competency_lib" />
+            <Field label="对象类型" value={libraryForm.object_type} onChange={(v) => setLibraryForm({ ...libraryForm, object_type: v })} placeholder="如：knowledge / business_table" />
+            <Field label="描述" value={libraryForm.description} onChange={(v) => setLibraryForm({ ...libraryForm, description: v })} />
+            <button
+              onClick={() => void handleCreateLibrary()}
+              disabled={acting === "create_library" || !libraryForm.name || !libraryForm.code || !libraryForm.object_type || !libraryForm.objective_id}
+              className="px-3 py-1 text-[9px] font-bold border border-amber-400 text-amber-600 hover:bg-muted disabled:opacity-50"
+            >
+              {acting === "create_library" ? "创建中..." : "创建资源库"}
             </button>
           </div>
         </Modal>

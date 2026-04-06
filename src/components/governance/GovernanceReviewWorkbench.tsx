@@ -57,6 +57,8 @@ export default function GovernanceReviewWorkbench({
   const [businessLineFilter, setBusinessLineFilter] = useState("");
   const [actioningId, setActioningId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<WorkbenchTab>("governance");
+  const [showCreateSuggestion, setShowCreateSuggestion] = useState(false);
+  const [newSuggestion, setNewSuggestion] = useState({ subject_type: "knowledge", subject_id: "", objective_id: "", resource_library_id: "", reason: "", confidence: "50" });
 
   async function load() {
     setLoading(true);
@@ -331,7 +333,92 @@ export default function GovernanceReviewWorkbench({
         </section>
 
         <section className="p-4 space-y-2">
-          <div className="text-[9px] font-bold uppercase tracking-widest text-[#0077B6]">待审挂载建议</div>
+          <div className="flex items-center gap-2">
+            <span className="text-[9px] font-bold uppercase tracking-widest text-[#0077B6]">待审挂载建议</span>
+            <button
+              onClick={() => setShowCreateSuggestion((v) => !v)}
+              className="px-2 py-0.5 text-[8px] font-bold border border-[#0077B6] text-[#0077B6] hover:bg-muted"
+            >
+              {showCreateSuggestion ? "收起" : "+ 手动创建"}
+            </button>
+          </div>
+
+          {showCreateSuggestion && (
+            <div className="border border-[#0077B6] rounded bg-sky-50/50 px-3 py-2 space-y-1.5 text-[8px]">
+              <div className="flex gap-2 flex-wrap">
+                <select
+                  value={newSuggestion.subject_type}
+                  onChange={(e) => setNewSuggestion({ ...newSuggestion, subject_type: e.target.value })}
+                  className="border border-border px-1.5 py-0.5 text-[8px]"
+                >
+                  <option value="knowledge">知识</option>
+                  <option value="business_table">数据表</option>
+                </select>
+                <input
+                  value={newSuggestion.subject_id}
+                  onChange={(e) => setNewSuggestion({ ...newSuggestion, subject_id: e.target.value })}
+                  placeholder="主体 ID"
+                  className="w-16 border border-border px-1.5 py-0.5 text-[8px]"
+                />
+                <input
+                  value={newSuggestion.objective_id}
+                  onChange={(e) => setNewSuggestion({ ...newSuggestion, objective_id: e.target.value })}
+                  placeholder="目标 ID"
+                  className="w-16 border border-border px-1.5 py-0.5 text-[8px]"
+                />
+                <input
+                  value={newSuggestion.resource_library_id}
+                  onChange={(e) => setNewSuggestion({ ...newSuggestion, resource_library_id: e.target.value })}
+                  placeholder="资源库 ID"
+                  className="w-16 border border-border px-1.5 py-0.5 text-[8px]"
+                />
+                <input
+                  value={newSuggestion.confidence}
+                  onChange={(e) => setNewSuggestion({ ...newSuggestion, confidence: e.target.value })}
+                  placeholder="置信度"
+                  className="w-14 border border-border px-1.5 py-0.5 text-[8px]"
+                  type="number"
+                  min={0}
+                  max={100}
+                />
+              </div>
+              <input
+                value={newSuggestion.reason}
+                onChange={(e) => setNewSuggestion({ ...newSuggestion, reason: e.target.value })}
+                placeholder="建议理由"
+                className="w-full border border-border px-1.5 py-0.5 text-[8px]"
+              />
+              <button
+                disabled={actioningId === "create_suggestion" || !newSuggestion.subject_id}
+                onClick={async () => {
+                  setActioningId("create_suggestion");
+                  try {
+                    await apiFetch("/knowledge-governance/suggestions", {
+                      method: "POST",
+                      body: JSON.stringify({
+                        subject_type: newSuggestion.subject_type,
+                        subject_id: parseInt(newSuggestion.subject_id, 10),
+                        task_type: "classify",
+                        objective_id: newSuggestion.objective_id ? parseInt(newSuggestion.objective_id, 10) : null,
+                        resource_library_id: newSuggestion.resource_library_id ? parseInt(newSuggestion.resource_library_id, 10) : null,
+                        reason: newSuggestion.reason || "人工创建的治理建议",
+                        confidence: parseInt(newSuggestion.confidence, 10) || 50,
+                      }),
+                    });
+                    setShowCreateSuggestion(false);
+                    setNewSuggestion({ subject_type: "knowledge", subject_id: "", objective_id: "", resource_library_id: "", reason: "", confidence: "50" });
+                    await load();
+                  } finally {
+                    setActioningId(null);
+                  }
+                }}
+                className="px-2 py-0.5 font-bold border border-[#0077B6] text-[#0077B6] hover:bg-muted disabled:opacity-50"
+              >
+                {actioningId === "create_suggestion" ? "创建中..." : "创建建议"}
+              </button>
+            </div>
+          )}
+
           {!loading && filteredSuggestions.length === 0 && (
             <div className="text-[9px] text-gray-400">暂无待审建议</div>
           )}

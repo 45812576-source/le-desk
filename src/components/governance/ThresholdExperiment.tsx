@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { apiFetch } from "@/lib/api";
 
 import type {
@@ -209,6 +209,20 @@ function ExperimentCard({
   exp: GovernanceExperiment;
   onAction: (id: number, action: "apply" | "cancel") => Promise<void>;
 }) {
+  const [detail, setDetail] = useState<GovernanceExperiment | null>(null);
+  const [loadingDetail, setLoadingDetail] = useState(false);
+
+  async function loadDetail() {
+    if (detail) { setDetail(null); return; }
+    setLoadingDetail(true);
+    try {
+      const d = await apiFetch<GovernanceExperiment>(`/knowledge-governance/experiments/${exp.id}`);
+      setDetail(d);
+    } finally {
+      setLoadingDetail(false);
+    }
+  }
+
   const statusColor: Record<string, string> = {
     running: "text-blue-600 border-blue-200 bg-blue-50",
     completed: "text-emerald-600 border-emerald-200 bg-emerald-50",
@@ -222,17 +236,27 @@ function ExperimentCard({
     cancelled: "已取消",
   };
 
-  const metrics = exp.live_metrics;
+  const metrics = detail?.live_metrics ?? exp.live_metrics;
 
   return (
     <div className="border border-border rounded px-3 py-2 text-[9px] space-y-1">
       <div className="flex items-center gap-2">
-        <span className="font-semibold text-gray-700">{exp.name}</span>
+        <button onClick={() => void loadDetail()} className="font-semibold text-gray-700 hover:text-[#0077B6]">
+          {loadingDetail ? "加载中..." : exp.name}
+        </button>
         <span className={`px-1.5 py-0.5 text-[8px] font-bold rounded border ${statusColor[exp.status] || ""}`}>
           {statusLabel[exp.status] || exp.status}
         </span>
         <span className="text-gray-400">阈值 {exp.threshold} vs {exp.baseline_threshold}</span>
         <span className="text-gray-400">{exp.duration_days}天</span>
+        {exp.status === "running" && (
+          <button
+            onClick={() => void loadDetail()}
+            className="px-2 py-0.5 text-[8px] font-bold border border-[#0077B6] text-[#0077B6] hover:bg-muted"
+          >
+            {detail ? "收起" : "刷新指标"}
+          </button>
+        )}
         {exp.status === "running" && (
           <div className="ml-auto flex gap-1">
             <button
@@ -262,6 +286,12 @@ function ExperimentCard({
             <div>自动通过 {metrics.control_group.auto_pass_rate}% · 人审 {metrics.control_group.human_review} · 拒绝 {metrics.control_group.rejected}</div>
           </div>
           <div className="col-span-2 text-gray-400">已运行 {metrics.days_elapsed} 天</div>
+        </div>
+      )}
+
+      {detail?.result_payload && Object.keys(detail.result_payload).length > 0 && (
+        <div className="border border-gray-100 rounded bg-gray-50 px-2 py-1 text-[8px] text-gray-500 font-mono">
+          结果: {JSON.stringify(detail.result_payload).slice(0, 200)}
         </div>
       )}
     </div>

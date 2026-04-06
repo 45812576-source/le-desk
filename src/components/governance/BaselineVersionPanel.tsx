@@ -21,6 +21,7 @@ export default function BaselineVersionPanel() {
   const [loading, setLoading] = useState(false);
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [diff, setDiff] = useState<GovernanceBaselineDiff | null>(null);
+  const [snapshot, setSnapshot] = useState<GovernanceBaselineVersion | null>(null);
   const [diffLoading, setDiffLoading] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [initializing, setInitializing] = useState(false);
@@ -39,12 +40,16 @@ export default function BaselineVersionPanel() {
     void load();
   }, []);
 
-  async function loadDiff(id: number) {
+  async function loadDetail(id: number) {
     setSelectedId(id);
     setDiffLoading(true);
     try {
-      const data = await apiFetch<GovernanceBaselineDiff>(`/knowledge-governance/baseline/${id}/diff`);
-      setDiff(data);
+      const [diffData, snapshotData] = await Promise.all([
+        apiFetch<GovernanceBaselineDiff>(`/knowledge-governance/baseline/${id}/diff`),
+        apiFetch<GovernanceBaselineVersion>(`/knowledge-governance/baseline/${id}`),
+      ]);
+      setDiff(diffData);
+      setSnapshot(snapshotData);
     } finally {
       setDiffLoading(false);
     }
@@ -114,7 +119,7 @@ export default function BaselineVersionPanel() {
                   ? "border-[#0077B6] bg-sky-50"
                   : "border-border bg-card hover:bg-muted"
             }`}
-            onClick={() => void loadDiff(v.id)}
+            onClick={() => void loadDetail(v.id)}
           >
             <div className="flex items-center gap-2">
               <span className="font-bold text-gray-800">{v.version || "—"}</span>
@@ -214,6 +219,16 @@ export default function BaselineVersionPanel() {
               </div>
             </div>
           )}
+        </div>
+      )}
+
+      {/* 快照数据 */}
+      {selectedId && snapshot?.snapshot_data && Object.keys(snapshot.snapshot_data).length > 0 && (
+        <div className="border border-border rounded bg-card px-4 py-3 space-y-2">
+          <div className="text-[9px] font-bold text-gray-700">快照数据 ({snapshot.version || "—"})</div>
+          <pre className="text-[8px] text-gray-500 font-mono bg-gray-50 border border-gray-100 rounded p-2 max-h-48 overflow-auto whitespace-pre-wrap">
+            {JSON.stringify(snapshot.snapshot_data, null, 2)}
+          </pre>
         </div>
       )}
     </div>
