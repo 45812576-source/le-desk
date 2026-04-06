@@ -713,6 +713,7 @@ export interface GovernanceSuggestionTaskLite {
   reason?: string | null;
   confidence?: number;
   created_at?: string | null;
+  subject_title?: string;
 }
 
 export interface GovernanceReinforcementMeta {

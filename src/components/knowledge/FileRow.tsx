@@ -132,6 +132,13 @@ export default function FileRow({
             {desensLevel && desensLevel !== "D0" && (
               <span className={`text-[7px] px-1 py-px rounded flex-shrink-0 border ${DESENS_COLORS[desensLevel] || "bg-gray-50 text-gray-400 border-gray-200"}`}>{desensLevel}</span>
             )}
+            {entry.governance_status && entry.governance_status !== "ungoverned" && (
+              <span className={`text-[7px] px-1 py-px rounded flex-shrink-0 border ${
+                entry.governance_status === "aligned" ? "bg-green-50 text-green-600 border-green-200" :
+                entry.governance_status === "suggested" || entry.governance_status === "needs_review" ? "bg-yellow-50 text-yellow-600 border-yellow-200" :
+                "bg-gray-50 text-gray-400 border-gray-200"
+              }`}>{entry.governance_status === "aligned" ? "已治理" : "待审"}</span>
+            )}
             {meta && <span className="text-[10px] text-gray-400 truncate">{meta}</span>}
             {(renderStatus === "processing" || renderStatus === "pending") && entry.oss_key ? (
               <span className="inline-flex items-center gap-0.5 text-[8px] text-blue-400 flex-shrink-0">

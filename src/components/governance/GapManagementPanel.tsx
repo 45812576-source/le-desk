@@ -7,12 +7,14 @@ import type {
   GovernanceCoverageGap,
   GovernanceDetectedGaps,
   GovernanceDomainGap,
+  GovernanceGapOverview,
 } from "@/app/(app)/data/components/shared/types";
 
 type WizardStep = "detect" | "scope" | "import" | "generate" | "verify" | "merge";
 
 export default function GapManagementPanel() {
   const [gaps, setGaps] = useState<GovernanceDetectedGaps | null>(null);
+  const [overview, setOverview] = useState<GovernanceGapOverview | null>(null);
   const [loading, setLoading] = useState(false);
   const [activeGap, setActiveGap] = useState<(GovernanceDomainGap | GovernanceCoverageGap) | null>(null);
   const [wizardStep, setWizardStep] = useState<WizardStep>("detect");
@@ -22,8 +24,12 @@ export default function GapManagementPanel() {
   async function loadGaps() {
     setLoading(true);
     try {
-      const data = await apiFetch<GovernanceDetectedGaps>("/knowledge-governance/gaps/detected");
-      setGaps(data);
+      const [detected, ov] = await Promise.all([
+        apiFetch<GovernanceDetectedGaps>("/knowledge-governance/gaps/detected"),
+        apiFetch<GovernanceGapOverview>("/knowledge-governance/gaps/overview").catch(() => null),
+      ]);
+      setGaps(detected);
+      setOverview(ov);
     } finally {
       setLoading(false);
     }
@@ -142,6 +148,49 @@ export default function GapManagementPanel() {
           重新检测
         </button>
       </div>
+
+      {/* 对象缺口总览 */}
+      {overview && (
+        <div className="grid grid-cols-3 gap-2 text-[9px]">
+          <div className="border border-border rounded bg-card px-3 py-2">
+            <div className="text-[8px] text-gray-500 uppercase tracking-widest mb-0.5">待审建议</div>
+            <div className="text-lg font-bold text-amber-600">{overview.pending_suggestions}</div>
+          </div>
+          <div className="border border-border rounded bg-card px-3 py-2">
+            <div className="text-[8px] text-gray-500 uppercase tracking-widest mb-0.5">对象缺口</div>
+            <div className="text-lg font-bold text-red-600">{overview.object_gaps.length}</div>
+          </div>
+          <div className="border border-border rounded bg-card px-3 py-2">
+            <div className="text-[8px] text-gray-500 uppercase tracking-widest mb-0.5">对象冲突</div>
+            <div className="text-lg font-bold text-violet-600">{overview.conflict_count}</div>
+          </div>
+        </div>
+      )}
+
+      {/* 对象级缺口明细 */}
+      {overview && overview.object_gaps.length > 0 && (
+        <section className="border border-amber-200 rounded bg-amber-50/50 px-3 py-2 space-y-1">
+          <div className="text-[8px] font-bold uppercase tracking-widest text-amber-700 mb-1">对象级缺口</div>
+          {overview.object_gaps.map((gap) => (
+            <div key={`${gap.object_id}-${gap.gap_type}`} className="border border-amber-200 rounded bg-card px-3 py-1.5 text-[8px]">
+              <div className="flex items-center gap-2">
+                <span className="font-semibold text-amber-800">{gap.display_name}</span>
+                <span className="px-1 py-px rounded border border-amber-200 bg-amber-100 text-amber-700">{gap.gap_type}</span>
+              </div>
+              <div className="mt-0.5 text-gray-500">{gap.reason}</div>
+              {gap.recommended_actions.length > 0 && (
+                <div className="mt-1 flex gap-1 flex-wrap">
+                  {gap.recommended_actions.map((a) => (
+                    <span key={a.action} className="px-1.5 py-0.5 border border-amber-300 text-amber-700 rounded text-[7px]">
+                      {a.label}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+          ))}
+        </section>
+      )}
 
       {loading && <div className="text-[9px] text-gray-400">检测中...</div>}
       {!loading && allGaps.length === 0 && (

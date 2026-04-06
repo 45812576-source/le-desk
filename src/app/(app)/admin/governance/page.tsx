@@ -5,6 +5,8 @@ import { useAuth } from "@/lib/auth";
 import { useRouter } from "next/navigation";
 import { ThemedPageIcon } from "@/components/layout/PageShell";
 import { ICONS } from "@/components/pixel";
+import GovernanceOverview from "@/components/governance/GovernanceOverview";
+import StrategyStatsTab from "@/components/governance/StrategyStatsTab";
 import GovernanceReviewWorkbench from "@/components/governance/GovernanceReviewWorkbench";
 import CollaborationBaseline from "@/components/governance/CollaborationBaseline";
 import BaselineVersionPanel from "@/components/governance/BaselineVersionPanel";
@@ -14,15 +16,19 @@ import ThresholdExperiment from "@/components/governance/ThresholdExperiment";
 import DeptAdminReviewPanel from "@/components/governance/DeptAdminReviewPanel";
 import FolderGovernanceTab from "@/components/governance/FolderGovernanceTab";
 import TagGovernanceTab from "@/components/governance/TagGovernanceTab";
+import GovernanceObjectsTab from "@/components/governance/GovernanceObjectsTab";
 
 type TabKey =
+  | "overview"
   | "review"
+  | "strategy_stats"
   | "baseline"
   | "baseline_version"
   | "gap"
   | "migration"
   | "experiment"
   | "dept_review"
+  | "objects"
   | "folders"
   | "tags";
 
@@ -33,13 +39,16 @@ interface TabDef {
 }
 
 const TABS: TabDef[] = [
+  { key: "overview", label: "总览", roles: ["super_admin", "dept_admin"] },
   { key: "review", label: "治理审查", roles: ["super_admin"] },
+  { key: "strategy_stats", label: "策略统计", roles: ["super_admin"] },
   { key: "baseline", label: "协同基线", roles: ["super_admin"] },
   { key: "baseline_version", label: "基线版本", roles: ["super_admin"] },
   { key: "gap", label: "领域缺口", roles: ["super_admin"] },
   { key: "migration", label: "跨公司迁移", roles: ["super_admin"] },
   { key: "experiment", label: "阈值实验", roles: ["super_admin"] },
   { key: "dept_review", label: "分类纠偏", roles: ["super_admin", "dept_admin"] },
+  { key: "objects", label: "治理对象", roles: ["super_admin"] },
   { key: "folders", label: "目录治理", roles: ["super_admin"] },
   { key: "tags", label: "标签治理", roles: ["super_admin"] },
 ];
@@ -62,7 +71,7 @@ export default function AdminGovernancePage() {
     t.roles.includes(role as "super_admin" | "dept_admin")
   );
 
-  const defaultTab = isSuperAdmin ? "review" : "dept_review";
+  const defaultTab: TabKey = "overview";
   const [activeTab, setActiveTab] = useState<TabKey>(defaultTab);
 
   // 确保 activeTab 在可见 tab 中
@@ -120,13 +129,16 @@ export default function AdminGovernancePage() {
 
       {/* Tab content */}
       <div className="flex-1 min-h-0 overflow-auto">
+        {activeTab === "overview" && <GovernanceOverview />}
         {activeTab === "review" && <GovernanceReviewWorkbench mode="page" />}
+        {activeTab === "strategy_stats" && <StrategyStatsTab />}
         {activeTab === "baseline" && <CollaborationBaseline />}
         {activeTab === "baseline_version" && <BaselineVersionPanel />}
         {activeTab === "gap" && <GapManagementPanel />}
         {activeTab === "migration" && <MigrationWizard />}
         {activeTab === "experiment" && <ThresholdExperiment />}
         {activeTab === "dept_review" && <DeptAdminReviewPanel />}
+        {activeTab === "objects" && <GovernanceObjectsTab />}
         {activeTab === "folders" && <FolderGovernanceTab isSuperAdmin={isSuperAdmin} />}
         {activeTab === "tags" && <TagGovernanceTab />}
       </div>

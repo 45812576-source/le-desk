@@ -525,7 +525,8 @@ function SuggestionCard({
     <div className="border border-border bg-card rounded px-3 py-2">
       <div className="flex items-center gap-2">
         <span className="text-[10px] font-semibold text-[#0077B6]">
-          {item.subject_type === "knowledge" ? "文档" : item.subject_type === "business_table" ? "数据表" : item.subject_type} #{item.subject_id}
+          {item.subject_type === "knowledge" ? "文档" : item.subject_type === "business_table" ? "数据表" : item.subject_type}
+          {item.subject_title ? ` ${item.subject_title}` : ` #${item.subject_id}`}
         </span>
         <span className="text-[8px] px-1.5 py-0.5 rounded bg-muted border border-border text-amber-600 dark:text-amber-400">
           {item.confidence || 0}%

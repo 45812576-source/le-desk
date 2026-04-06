@@ -212,12 +212,32 @@ export default function AssetList({ tables, selectedTableId, onSelectTable, load
                     </span>
                   )}
                 </div>
-                <p className="text-[8px] text-gray-400 font-mono mt-0.5 truncate">{t.table_name}</p>
+                <div className="flex items-center gap-1 mt-0.5">
+                  <p className="text-[8px] text-gray-400 font-mono truncate">{t.table_name}</p>
+                  {t.governance_status && <GovernanceBadge status={t.governance_status} />}
+                </div>
               </div>
             );
           })
         )}
       </div>
     </div>
+  );
+}
+
+const GOVERNANCE_BADGE: Record<string, { label: string; cls: string }> = {
+  aligned: { label: "已治理", cls: "bg-green-50 text-green-600 border-green-200" },
+  suggested: { label: "待审", cls: "bg-yellow-50 text-yellow-600 border-yellow-200" },
+  needs_review: { label: "待审", cls: "bg-yellow-50 text-yellow-600 border-yellow-200" },
+  ungoverned: { label: "未治理", cls: "bg-gray-50 text-gray-400 border-gray-200" },
+};
+
+function GovernanceBadge({ status }: { status: string }) {
+  const badge = GOVERNANCE_BADGE[status];
+  if (!badge) return null;
+  return (
+    <span className={`text-[7px] font-bold px-1 py-px border rounded flex-shrink-0 ${badge.cls}`}>
+      {badge.label}
+    </span>
   );
 }
