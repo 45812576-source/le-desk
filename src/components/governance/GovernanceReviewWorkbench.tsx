@@ -3,7 +3,13 @@
 import React, { useEffect, useMemo, useState } from "react";
 
 import { apiFetch } from "@/lib/api";
+import BaselineVersionPanel from "./BaselineVersionPanel";
 import CollaborationBaseline from "./CollaborationBaseline";
+import GapManagementPanel from "./GapManagementPanel";
+import MigrationWizard from "./MigrationWizard";
+import ThresholdExperiment from "./ThresholdExperiment";
+
+import type { StrategyImpact } from "@/app/(app)/data/components/shared/types";
 
 import type {
   GovernanceBlueprintLite,
@@ -17,7 +23,7 @@ import type {
 } from "@/app/(app)/data/components/shared/types";
 
 type SubjectTypeFilter = "all" | "knowledge" | "business_table";
-type WorkbenchTab = "governance" | "baseline";
+type WorkbenchTab = "governance" | "baseline" | "baseline_version" | "gap" | "migration" | "experiment";
 
 const OBJECTIVE_ORDER = ["company_common", "professional_capability", "outsource_intel", "business_line_execution"];
 
@@ -113,7 +119,7 @@ export default function GovernanceReviewWorkbench({
     <div className={summaryClassName}>
       <div className="px-4 py-3 border-b border-border flex items-center gap-2">
         <div className="flex items-center gap-0.5 mr-2">
-          {(["governance", "baseline"] as WorkbenchTab[]).map((tab) => (
+          {(["governance", "baseline", "baseline_version", "gap", "migration", "experiment"] as WorkbenchTab[]).map((tab) => (
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
@@ -123,11 +129,13 @@ export default function GovernanceReviewWorkbench({
                   : "border-border text-muted-foreground bg-card hover:bg-muted"
               }`}
             >
-              {tab === "governance" ? "治理审查" : "协同基线"}
+              {tab === "governance" ? "治理审查" : tab === "baseline" ? "协同基线" : tab === "baseline_version" ? "基线版本" : tab === "gap" ? "领域缺口" : tab === "migration" ? "迁移" : "阈值实验"}
             </button>
           ))}
         </div>
-        <span className="text-[9px] font-bold uppercase tracking-widest text-[#0077B6]">{activeTab === "governance" ? "统一治理审查台" : "协同基线全局视图"}</span>
+        <span className="text-[9px] font-bold uppercase tracking-widest text-[#0077B6]">
+          {activeTab === "governance" ? "统一治理审查台" : activeTab === "baseline" ? "协同基线全局视图" : activeTab === "baseline_version" ? "基线版本管理" : activeTab === "gap" ? "领域缺口与补入" : activeTab === "migration" ? "跨公司迁移" : "阈值实验台"}
+        </span>
         <span className="text-[8px] text-gray-400">待审建议 {filteredSuggestions.length}</span>
         <span className="text-[8px] text-amber-600">对象缺口 {gapOverview?.object_gaps.length || 0}</span>
         <div className="ml-auto flex items-center gap-1">
@@ -173,6 +181,30 @@ export default function GovernanceReviewWorkbench({
       {activeTab === "baseline" && (
         <div className={mode === "page" ? "flex-1 min-h-0" : "max-h-80 overflow-y-auto"}>
           <CollaborationBaseline />
+        </div>
+      )}
+
+      {activeTab === "baseline_version" && (
+        <div className={mode === "page" ? "flex-1 min-h-0 overflow-auto p-4" : "max-h-80 overflow-y-auto p-4"}>
+          <BaselineVersionPanel />
+        </div>
+      )}
+
+      {activeTab === "gap" && (
+        <div className={mode === "page" ? "flex-1 min-h-0 overflow-auto p-4" : "max-h-80 overflow-y-auto p-4"}>
+          <GapManagementPanel />
+        </div>
+      )}
+
+      {activeTab === "migration" && (
+        <div className={mode === "page" ? "flex-1 min-h-0 overflow-auto p-4" : "max-h-80 overflow-y-auto p-4"}>
+          <MigrationWizard />
+        </div>
+      )}
+
+      {activeTab === "experiment" && (
+        <div className={mode === "page" ? "flex-1 min-h-0 overflow-auto p-4" : "max-h-80 overflow-y-auto p-4"}>
+          <ThresholdExperiment />
         </div>
       )}
 
@@ -257,72 +289,23 @@ export default function GovernanceReviewWorkbench({
           {visibleStrategyRiskStats.length === 0 && <div className="text-[9px] text-gray-400">暂无高风险策略</div>}
           <div className="space-y-1">
             {visibleStrategyRiskStats.map((item) => (
-              <div key={item.id} className="border border-red-200 rounded bg-card px-3 py-2 text-[8px]">
-                <div className="flex items-center gap-2">
-                  <span className="font-semibold text-red-700">{item.strategy_group}</span>
-                  <span className="text-gray-500">{item.library_code || "-"}</span>
-                  {item.business_line && (
-                    <span className="px-1.5 py-0.5 rounded border border-red-200 bg-red-50 text-red-600">
-                      {item.business_line}
-                    </span>
-                  )}
-                  <span className="ml-auto text-red-600">reward {item.cumulative_reward}</span>
-                  <button
-                    onClick={async () => {
-                      setActioningId(`freeze:${item.id}`);
-                      try {
-                        await apiFetch(`/knowledge-governance/strategy-stats/${item.id}/tune`, {
-                          method: "POST",
-                          body: JSON.stringify({ is_frozen: !item.is_frozen }),
-                        });
-                        await load();
-                      } finally {
-                        setActioningId(null);
-                      }
-                    }}
-                    className="px-2 py-0.5 border border-red-300 text-red-600 hover:bg-muted font-bold"
-                  >
-                    {actioningId === `freeze:${item.id}` ? "处理中..." : item.is_frozen ? "解冻" : "冻结"}
-                  </button>
-                  <button
-                    onClick={async () => {
-                      setActioningId(`bias-down:${item.id}`);
-                      try {
-                        await apiFetch(`/knowledge-governance/strategy-stats/${item.id}/tune`, {
-                          method: "POST",
-                          body: JSON.stringify({ manual_bias: (item.manual_bias || 0) - 5 }),
-                        });
-                        await load();
-                      } finally {
-                        setActioningId(null);
-                      }
-                    }}
-                    className="px-2 py-0.5 border border-gray-300 text-gray-600 hover:bg-gray-50 font-bold"
-                  >
-                    {actioningId === `bias-down:${item.id}` ? "处理中..." : "-5"}
-                  </button>
-                  <button
-                    onClick={async () => {
-                      setActioningId(`bias-up:${item.id}`);
-                      try {
-                        await apiFetch(`/knowledge-governance/strategy-stats/${item.id}/tune`, {
-                          method: "POST",
-                          body: JSON.stringify({ manual_bias: (item.manual_bias || 0) + 5 }),
-                        });
-                        await load();
-                      } finally {
-                        setActioningId(null);
-                      }
-                    }}
-                    className="px-2 py-0.5 border border-gray-300 text-gray-600 hover:bg-gray-50 font-bold"
-                  >
-                    {actioningId === `bias-up:${item.id}` ? "处理中..." : "+5"}
-                  </button>
-                </div>
-                <div className="mt-1 text-gray-500">
-                  命中率 {(item.success_rate * 100).toFixed(0)}% / 样本 {item.total_count} / 拒绝 {item.reject_count} / bias {item.manual_bias || 0}
-                </div>
-              </div>
+              <RiskStrategyCard
+                key={item.id}
+                item={item}
+                actioningId={actioningId}
+                onFreeze={async () => {
+                  setActioningId(`freeze:${item.id}`);
+                  try {
+                    await apiFetch(`/knowledge-governance/strategy-stats/${item.id}/tune`, {
+                      method: "POST",
+                      body: JSON.stringify({ is_frozen: !item.is_frozen }),
+                    });
+                    await load();
+                  } finally {
+                    setActioningId(null);
+                  }
+                }}
+              />
             ))}
           </div>
         </section>
@@ -429,6 +412,83 @@ function GapCard({
               {actioningId === `${gap.object_id}:${action.action}` ? "处理中..." : action.label}
             </button>
           ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function RiskStrategyCard({
+  item,
+  actioningId,
+  onFreeze,
+}: {
+  item: GovernanceStrategyStatLite;
+  actioningId: string | null;
+  onFreeze: () => Promise<void>;
+}) {
+  const [impact, setImpact] = useState<StrategyImpact | null>(null);
+  const [loadingImpact, setLoadingImpact] = useState(false);
+
+  async function loadImpact() {
+    if (impact) return; // 已加载
+    setLoadingImpact(true);
+    try {
+      const data = await apiFetch<StrategyImpact>(`/knowledge-governance/strategy-stats/${item.id}/impact`);
+      setImpact(data);
+    } finally {
+      setLoadingImpact(false);
+    }
+  }
+
+  return (
+    <div className="border border-red-200 rounded bg-card px-3 py-2 text-[8px] space-y-1">
+      <div className="flex items-center gap-2">
+        <span className="font-semibold text-red-700">{item.strategy_group}</span>
+        <span className="text-gray-500">{item.library_code || "-"}</span>
+        {item.business_line && (
+          <span className="px-1.5 py-0.5 rounded border border-red-200 bg-red-50 text-red-600">
+            {item.business_line}
+          </span>
+        )}
+        <span className="ml-auto text-red-600">reward {item.cumulative_reward}</span>
+        <button
+          onClick={() => void loadImpact()}
+          className="px-2 py-0.5 border border-amber-300 text-amber-700 hover:bg-muted font-bold"
+        >
+          {loadingImpact ? "加载中..." : "影响预估"}
+        </button>
+        <button
+          onClick={() => void onFreeze()}
+          className="px-2 py-0.5 border border-red-300 text-red-600 hover:bg-muted font-bold"
+        >
+          {actioningId === `freeze:${item.id}` ? "处理中..." : item.is_frozen ? "解冻" : "冻结"}
+        </button>
+      </div>
+      <div className="text-gray-500">
+        命中率 {(item.success_rate * 100).toFixed(0)}% / 样本 {item.total_count} / 拒绝 {item.reject_count}
+      </div>
+
+      {impact && (
+        <div className="border border-amber-100 rounded bg-amber-50 px-2 py-2 space-y-1">
+          <div className="text-amber-800 font-bold">冻结影响</div>
+          <div>影响待审建议 <span className="font-bold">{impact.affected_pending_count}</span> 条</div>
+          <div>历史拒绝率 <span className="font-bold text-red-600">{impact.reject_rate}%</span></div>
+          {impact.alternatives.length > 0 && (
+            <div className="mt-1">
+              <div className="text-amber-700 font-bold">AI 推荐替代规则</div>
+              {impact.alternatives.map((alt) => (
+                <div key={alt.id} className="flex items-center gap-2 mt-0.5">
+                  <span className="text-gray-700">{alt.library_code || alt.strategy_key}</span>
+                  <span className="text-emerald-600">命中率 {alt.success_rate}%</span>
+                  <span className="text-gray-400">样本 {alt.total_count}</span>
+                </div>
+              ))}
+            </div>
+          )}
+          {impact.alternatives.length === 0 && (
+            <div className="text-gray-400">暂无替代规则建议</div>
+          )}
         </div>
       )}
     </div>

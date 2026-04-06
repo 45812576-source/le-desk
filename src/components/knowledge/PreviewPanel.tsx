@@ -563,6 +563,31 @@ export default function PreviewPanel({
         </div>
       )}
 
+      {/* 员工视角：零术语分类确认 */}
+      {entry && currentUser && currentUser.role === "employee" && entry.governance_status === "suggested" && (
+        <EmployeeClassifyConfirm
+          entryId={entry.id}
+          libraryName={
+            governanceBlueprint?.resource_libraries?.find(
+              (l: { id: number }) => l.id === entry.resource_library_id
+            )?.name || "未知分类"
+          }
+          onConfirm={async () => {
+            await apiFetch("/knowledge-governance/implicit-feedback", {
+              method: "POST",
+              body: JSON.stringify({ entry_id: entry.id, signal_type: "employee_confirm" }),
+            });
+          }}
+          onCorrect={async () => {
+            await apiFetch("/knowledge-governance/implicit-feedback", {
+              method: "POST",
+              body: JSON.stringify({ entry_id: entry.id, signal_type: "employee_correct" }),
+            });
+          }}
+        />
+      )}
+
+      {/* 管理员视角：完整治理卡片 */}
       {entry && currentUser && (currentUser.role === "super_admin" || currentUser.role === "dept_admin") && (
         <div className="px-5 py-3 border-b border-gray-100 bg-[#F8FCFF]">
           <GovernanceReviewCard
@@ -1257,5 +1282,61 @@ function MaskFeedbackButton({ entry, currentUser }: { entry: KnowledgeDetail; cu
         </div>
       )}
     </>
+  );
+}
+
+/** 员工零术语分类确认：只显示"AI 将此归为 [分类名]" + 确认/改一下 */
+function EmployeeClassifyConfirm({
+  entryId,
+  libraryName,
+  onConfirm,
+  onCorrect,
+}: {
+  entryId: number;
+  libraryName: string;
+  onConfirm: () => Promise<void>;
+  onCorrect: () => Promise<void>;
+}) {
+  const [done, setDone] = useState(false);
+  const [acting, setActing] = useState(false);
+
+  if (done) return null;
+
+  return (
+    <div className="px-5 py-2 border-b border-sky-100 bg-sky-50 flex items-center gap-3 text-[10px]">
+      <span className="text-sky-700">
+        AI 将此归为 <span className="font-bold">{libraryName}</span>
+      </span>
+      <button
+        disabled={acting}
+        onClick={async () => {
+          setActing(true);
+          try {
+            await onConfirm();
+            setDone(true);
+          } finally {
+            setActing(false);
+          }
+        }}
+        className="px-2 py-0.5 text-[9px] font-bold border border-emerald-300 text-emerald-600 hover:bg-muted disabled:opacity-50"
+      >
+        {acting ? "..." : "没问题"}
+      </button>
+      <button
+        disabled={acting}
+        onClick={async () => {
+          setActing(true);
+          try {
+            await onCorrect();
+            setDone(true);
+          } finally {
+            setActing(false);
+          }
+        }}
+        className="px-2 py-0.5 text-[9px] font-bold border border-amber-300 text-amber-600 hover:bg-muted disabled:opacity-50"
+      >
+        {acting ? "..." : "改一下"}
+      </button>
+    </div>
   );
 }

@@ -843,6 +843,160 @@ export interface GovernanceBlueprintLite {
   }>;
 }
 
+// ─── Phase 2: 治理自动化类型 ─────────────────────────────────────────────────
+
+export interface GovernanceCandidate {
+  rank: number;
+  objective_code: string | null;
+  library_code: string | null;
+  object_type_code: string | null;
+  confidence: number;
+  reason: string;
+  evidence: string[];
+}
+
+export interface GovernanceSimilarDecision {
+  id: number;
+  subject_type: string;
+  subject_id: number;
+  confidence: number;
+  reason: string | null;
+  resolved_at: string | null;
+}
+
+export interface GovernanceReviewStats {
+  reviewed_this_month: number;
+  ai_learned_this_month: number;
+  last_month_reviewed: number;
+  estimated_reduction_next_month: number;
+}
+
+export interface ThresholdSimulationResult {
+  current: { auto_pass_rate: number; human_review_volume: number; error_rate: number };
+  candidate: { auto_pass_rate: number; human_review_volume: number; error_rate: number };
+  total_samples: number;
+}
+
+export interface GovernanceExperiment {
+  id: number;
+  name: string;
+  department_ids: number[];
+  threshold: number;
+  baseline_threshold: number;
+  duration_days: number;
+  status: "running" | "completed" | "applied" | "cancelled";
+  started_at: string | null;
+  ended_at: string | null;
+  result_payload: Record<string, unknown> | null;
+  live_metrics?: {
+    experiment_group: { total: number; auto_pass_rate: number; human_review: number; rejected: number };
+    control_group: { total: number; auto_pass_rate: number; human_review: number; rejected: number };
+    days_elapsed: number;
+  };
+  created_by: number | null;
+  created_at: string | null;
+}
+
+export interface StrategyImpact {
+  strategy_id: number;
+  strategy_key: string;
+  is_frozen: boolean;
+  affected_pending_count: number;
+  total_historical: number;
+  reject_rate: number;
+  alternatives: Array<{
+    id: number;
+    strategy_key: string;
+    success_rate: number;
+    total_count: number;
+    library_code: string | null;
+  }>;
+}
+
+export interface MigrationMatchedItem {
+  library_code: string;
+  match_status: "directly_reusable" | "needs_adaptation" | "missing";
+  reason: string;
+  adaptation_notes?: string;
+}
+
+export interface MigrationImportStats {
+  reusable: number;
+  adaptation: number;
+  missing: number;
+  created_objectives: string[];
+  created_libraries: string[];
+}
+
+export interface MigrationStatus {
+  pending_adaptations: number;
+  pending_gaps: number;
+  total_pending: number;
+}
+
+export interface GovernanceDomainGap {
+  stat_id: number;
+  strategy_key: string;
+  strategy_group: string;
+  library_code: string | null;
+  reject_rate: number;
+  total_count: number;
+  reject_count: number;
+  gap_type: string;
+  severity: string;
+}
+
+export interface GovernanceCoverageGap {
+  library_id: number;
+  library_code: string;
+  library_name: string;
+  total_entries: number;
+  aligned_entries: number;
+  coverage_rate: number;
+  gap_type: string;
+  severity: string;
+  reason: string;
+}
+
+export interface GovernanceDetectedGaps {
+  domain_gaps: GovernanceDomainGap[];
+  coverage_gaps: GovernanceCoverageGap[];
+}
+
+export interface GovernanceBaselineVersion {
+  id: number;
+  version: string | null;
+  version_type: string | null;
+  change_type: string;
+  snapshot_data: Record<string, unknown> | null;
+  stats_data: {
+    total_entries?: number;
+    aligned?: number;
+    suggested?: number;
+    ungoverned?: number;
+    coverage_rate?: number;
+    confidence_distribution?: { high: number; mid: number; low: number };
+    pending_suggestions?: number;
+  } | null;
+  is_active: boolean;
+  confirmed_by: number | null;
+  confirmed_at: string | null;
+  changed_by: number | null;
+  created_at: string | null;
+}
+
+export interface GovernanceBaselineDiff {
+  current_version: string | null;
+  previous_version: string | null;
+  added_libraries: string[];
+  removed_libraries: string[];
+  stats_diff: {
+    coverage_rate: { current: number; previous: number; delta: number };
+    aligned: { current: number; previous: number };
+    pending_suggestions: { current: number; previous: number };
+  } | null;
+}
+
 export interface GovernanceObjectLite {
   id: number;
   object_type_id: number;
