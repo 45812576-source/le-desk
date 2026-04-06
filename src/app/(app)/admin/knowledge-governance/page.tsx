@@ -3,7 +3,7 @@
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 
-export default function GovernanceRedirect() {
+export default function KnowledgeGovernanceRedirect() {
   const router = useRouter();
   useEffect(() => {
     router.replace("/admin/governance");

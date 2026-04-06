@@ -21,7 +21,6 @@ import UploadProgress, { type UploadingFile } from "@/components/knowledge/Uploa
 import RecentFiles, { addRecentFile } from "@/components/knowledge/RecentFiles";
 import CommentPanel from "@/components/knowledge/CommentPanel";
 import GovernanceWorkbench from "@/components/knowledge/GovernanceWorkbench";
-import GovernanceReviewWorkbench from "@/components/governance/GovernanceReviewWorkbench";
 
 type Tab = "files" | "search";
 type TreeMode = "user" | "rag" | "governance";
@@ -156,7 +155,6 @@ const FileManagerTab = forwardRef<{ createDoc: () => void; triggerUpload: () => 
   const [batchSuggestions, setBatchSuggestions] = useState<Record<number, { id: number; suggested_folder_id: number | null; suggested_folder_path: string; confidence: number; reason: string } | null>>({});
   const [batchLoading, setBatchLoading] = useState(false);
   const [showComments, setShowComments] = useState(false);
-  const [showGovernanceWorkbench, setShowGovernanceWorkbench] = useState(false);
   const [autoFilingRunning, setAutoFilingRunning] = useState(false);
   const [autoFilingResult, setAutoFilingResult] = useState<{ filed: number; skipped: number; low_confidence: number; batch_id: string; suggestions: Array<{ id: number; knowledge_id: number; title: string; suggested_folder_id: number; confidence: number; reason: string }> } | null>(null);
   const [pendingSuggestions, setPendingSuggestions] = useState<Array<{ id: number; knowledge_id: number; title: string; suggested_folder_id: number; suggested_folder_path: string; confidence: number; reason: string }>>([]);
@@ -1050,26 +1048,6 @@ const FileManagerTab = forwardRef<{ createDoc: () => void; triggerUpload: () => 
 
       {/* Right: preview */}
       <div className="flex-1 min-w-0 flex flex-col">
-        <div className="flex items-center justify-end gap-2 px-3 py-2 border-b border-gray-200 bg-white">
-          <button
-            onClick={() => setShowGovernanceWorkbench((v) => !v)}
-            className={`px-2 py-1 text-[8px] font-bold border ${
-              showGovernanceWorkbench
-                ? "border-[#0077B6] bg-[#EAF7FF] text-[#0077B6]"
-                : "border-gray-300 bg-white text-gray-600"
-            }`}
-          >
-            {showGovernanceWorkbench ? "关闭统一治理台" : "打开统一治理台"}
-          </button>
-        </div>
-        {showGovernanceWorkbench && (
-          <GovernanceReviewWorkbench
-            onSelectKnowledge={(id) => {
-              const matched = entries.find((item) => item.id === id);
-              if (matched) void handleSelectEntry(matched);
-            }}
-          />
-        )}
         <div className="flex-1 min-h-0">
           {selectedEntryError && (
             <div className="mx-3 mt-3 px-3 py-2 border border-red-300 bg-red-50 text-[10px] text-red-700">
