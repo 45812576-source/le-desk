@@ -20,10 +20,8 @@ import ContextMenu from "@/components/knowledge/ContextMenu";
 import UploadProgress, { type UploadingFile } from "@/components/knowledge/UploadProgress";
 import RecentFiles, { addRecentFile } from "@/components/knowledge/RecentFiles";
 import CommentPanel from "@/components/knowledge/CommentPanel";
-import GovernanceWorkbench from "@/components/knowledge/GovernanceWorkbench";
-
 type Tab = "files" | "search";
-type TreeMode = "user" | "rag" | "governance";
+type TreeMode = "user" | "rag";
 
 function buildTree(folders: Folder[]): Map<number | null, Folder[]> {
   const map = new Map<number | null, Folder[]>();
@@ -160,8 +158,6 @@ const FileManagerTab = forwardRef<{ createDoc: () => void; triggerUpload: () => 
   const [pendingSuggestions, setPendingSuggestions] = useState<Array<{ id: number; knowledge_id: number; title: string; suggested_folder_id: number; suggested_folder_path: string; confidence: number; reason: string }>>([]);
   const [showPendingSuggestions, setShowPendingSuggestions] = useState(false);
 
-  // Governance tree blueprint
-  const [governanceBlueprint, setGovernanceBlueprint] = useState<import("@/app/(app)/data/components/shared/types").GovernanceBlueprintLite | null>(null);
 
   const handleSelectEntry = useCallback(async (e: KnowledgeDetail) => {
     setSelectedEntry(e);
@@ -603,17 +599,6 @@ const FileManagerTab = forwardRef<{ createDoc: () => void; triggerUpload: () => 
             >
               系统归档
             </button>
-            <button
-              onClick={() => {
-                setTreeMode("governance");
-                if (!governanceBlueprint) {
-                  apiFetch<import("@/app/(app)/data/components/shared/types").GovernanceBlueprintLite>("/knowledge-governance/blueprint").then(setGovernanceBlueprint).catch(() => {});
-                }
-              }}
-              className={`flex-1 py-1 text-[8px] font-bold uppercase tracking-widest transition-colors ${treeMode === "governance" ? "bg-[#0077B6] text-white" : "bg-white text-gray-500 hover:bg-[#F0F4F8]"}`}
-            >
-              治理目录
-            </button>
           </div>
 
           {/* Filter + Actions */}
@@ -853,13 +838,6 @@ const FileManagerTab = forwardRef<{ createDoc: () => void; triggerUpload: () => 
           )
         )}
 
-        {/* Governance tree view */}
-        {treeMode === "governance" && (
-          loading ? <SkeletonLoader variant="tree" /> : (
-            <TaxonomyTreeView entries={entries} selectedEntry={selectedEntry} onSelectEntry={handleSelectEntry} mode="governance" blueprint={governanceBlueprint} />
-          )
-        )}
-
         {/* User tree body */}
         {treeMode === "user" && (
           <div className="flex-1 overflow-y-auto flex flex-col">
@@ -1071,14 +1049,6 @@ const FileManagerTab = forwardRef<{ createDoc: () => void; triggerUpload: () => 
             } : undefined}
           />
         </div>
-        <GovernanceWorkbench
-          currentUser={currentUser}
-          selectedKnowledgeId={selectedEntry?.id}
-          onSelectKnowledge={(id) => {
-            const matched = entries.find((item) => item.id === id);
-            if (matched) void handleSelectEntry(matched);
-          }}
-        />
       </div>
 
       {/* Comment toggle strip */}
