@@ -105,6 +105,10 @@ export interface KnowledgeEntry {
   doc_render_status?: 'pending' | 'processing' | 'ready' | 'failed' | null;
   doc_render_error?: string | null;
   doc_render_mode?: string | null;
+  // AI 结构化笔记
+  ai_notes_html?: string | null;
+  ai_notes_status?: 'pending' | 'processing' | 'ready' | 'failed' | null;
+  ai_notes_error?: string | null;
   // 来源与同步
   source_uri?: string | null;
   sync_status?: 'idle' | 'syncing' | 'ok' | 'error' | null;

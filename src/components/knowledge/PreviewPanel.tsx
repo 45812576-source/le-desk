@@ -1,7 +1,7 @@
 "use client";
 
 import { Component, useEffect, useRef, useState, useCallback, type ReactNode } from "react";
-import { Eye, Download, Cloud, CloudOff, Lock, Send, Clock, RefreshCw, AlertTriangle, Loader2, Link2 } from "lucide-react";
+import { Eye, Download, Cloud, CloudOff, Lock, Send, Clock, RefreshCw, AlertTriangle, Loader2, Link2, FileText, Sparkles } from "lucide-react";
 import { PixelIcon, ICONS, PixelBadge } from "@/components/pixel";
 import { useTheme } from "@/lib/theme";
 import type {
@@ -43,6 +43,12 @@ const MEDIA_EXTS = new Set([
   ".pdf", ".jpg", ".jpeg", ".png", ".webp", ".bmp", ".gif", ".svg",
   ".mp3", ".wav", ".m4a", ".ogg", ".flac",
   ".mp4", ".webm", ".mov",
+]);
+
+// 音频/视频默认展示 AI 笔记 tab
+const AUDIO_VIDEO_EXTS = new Set([
+  ".mp3", ".wav", ".m4a", ".ogg", ".flac", ".aac", ".wma",
+  ".mp4", ".webm", ".mov", ".avi", ".mkv",
 ]);
 
 function ThemedEyeIcon({ size }: { size: number }) {
@@ -127,12 +133,25 @@ export default function PreviewPanel({
   const [governanceLoading, setGovernanceLoading] = useState(false);
   const [governanceActionLoading, setGovernanceActionLoading] = useState(false);
 
+  // AI 笔记 Tab 切换
+  const [activeTab, setActiveTab] = useState<"original" | "ai_notes">("original");
+  const [aiNotesSaving, setAiNotesSaving] = useState(false);
+  const aiNotesSaveTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+
   const entryId = entry?.id ?? null;
 
   const ext = (entry?.file_ext || "").toLowerCase();
   const isMediaFile = entry?.oss_key && MEDIA_EXTS.has(ext);
   const isLarkDoc = entry?.source_type === "lark_doc";
   const isDetachedLarkCopy = isLarkDoc && entry?.external_edit_mode === "detached_copy";
+
+  // 切换条目时根据文件类型设定默认 tab
+  useEffect(() => {
+    if (entry) {
+      const entryExt = (entry.file_ext || "").toLowerCase();
+      setActiveTab(AUDIO_VIDEO_EXTS.has(entryExt) ? "ai_notes" : "original");
+    }
+  }, [entryId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Fetch edit permission from backend when entry changes
   useEffect(() => {
@@ -672,12 +691,66 @@ export default function PreviewPanel({
         <LarkSyncBar entry={entry} />
       )}
 
-      {/* Document area — 多级渲染 */}
+      {/* ─── Tab 切换栏 ─── */}
+      {entry.source_type === "upload" && (
+        <div className="flex items-center gap-0.5 px-5 py-1.5 border-b border-gray-100 bg-gray-50/50 flex-shrink-0">
+          <button
+            onClick={() => setActiveTab("original")}
+            className={`flex items-center gap-1 px-3 py-1 text-[10px] font-medium rounded-sm transition-colors ${
+              activeTab === "original"
+                ? "bg-white text-[#1A202C] border border-gray-200 shadow-sm"
+                : "text-gray-400 hover:text-gray-600"
+            }`}
+          >
+            <FileText size={11} />
+            原始文件
+          </button>
+          <button
+            onClick={() => setActiveTab("ai_notes")}
+            className={`flex items-center gap-1 px-3 py-1 text-[10px] font-medium rounded-sm transition-colors ${
+              activeTab === "ai_notes"
+                ? "bg-white text-[#1A202C] border border-gray-200 shadow-sm"
+                : "text-gray-400 hover:text-gray-600"
+            }`}
+          >
+            <Sparkles size={11} />
+            AI 笔记
+            {entry.ai_notes_status === "processing" && (
+              <Loader2 size={10} className="animate-spin text-[#00D1FF]" />
+            )}
+            {entry.ai_notes_status === "failed" && (
+              <AlertTriangle size={10} className="text-red-400" />
+            )}
+          </button>
+        </div>
+      )}
+
+      {/* Document area — 多级渲染 / AI 笔记 */}
       <div className="flex-1 min-h-0 overflow-hidden">
         {permLoading ? (
           <div className="flex items-center justify-center h-32">
             <Loader2 size={20} className="text-[#00D1FF] animate-spin" />
           </div>
+        ) : activeTab === "ai_notes" && entry.source_type === "upload" ? (
+          <AiNotesTab
+            entry={entry}
+            saving={aiNotesSaving}
+            onSave={async (html: string) => {
+              setAiNotesSaving(true);
+              try {
+                await apiFetch(`/knowledge/${entry.id}/ai-notes`, {
+                  method: "PUT",
+                  body: JSON.stringify({ ai_notes_html: html }),
+                });
+              } finally {
+                setAiNotesSaving(false);
+              }
+            }}
+            onRetry={async () => {
+              await apiFetch(`/knowledge/${entry.id}/retry-ai-notes`, { method: "POST" });
+            }}
+            saveTimerRef={aiNotesSaveTimerRef}
+          />
         ) : (
           <DocumentRenderResolver
             entry={entry}
@@ -738,7 +811,8 @@ function DocumentRenderResolver({
 }) {
   const ext = (entry.file_ext || "").toLowerCase();
   const renderStatus = entry.doc_render_status;
-  const isMedia = entry.oss_key && MEDIA_EXTS.has(ext);
+  // PDF 转换成功后不再视为 media，走 OnlyOffice 路径
+  const isMedia = entry.oss_key && MEDIA_EXTS.has(ext) && !(ext === ".pdf" && entry.can_open_onlyoffice);
 
   // 1. 正在转换中 — 显示进度提示，同时允许编辑正文 fallback
   //    仅当有实际文件（oss_key）时才视为真正在转换；无文件的手动文档跳过
@@ -1336,6 +1410,128 @@ function EmployeeClassifyConfirm({
         className="px-2 py-0.5 text-[9px] font-bold border border-amber-300 text-amber-600 hover:bg-muted disabled:opacity-50"
       >
         {acting ? "..." : "改一下"}
+      </button>
+    </div>
+  );
+}
+
+
+// ─── AI 笔记 Tab 组件 ────────────────────────────────────────────────────────
+function AiNotesTab({
+  entry,
+  saving,
+  onSave,
+  onRetry,
+  saveTimerRef,
+}: {
+  entry: KnowledgeDetail;
+  saving: boolean;
+  onSave: (html: string) => Promise<void>;
+  onRetry: () => Promise<void>;
+  saveTimerRef: React.MutableRefObject<ReturnType<typeof setTimeout> | undefined>;
+}) {
+  const [retrying, setRetrying] = useState(false);
+  const [localHtml, setLocalHtml] = useState(entry.ai_notes_html || "");
+
+  // 切换条目时同步
+  useEffect(() => {
+    setLocalHtml(entry.ai_notes_html || "");
+  }, [entry.id, entry.ai_notes_html]);
+
+  const handleNotesChange = useCallback((html: string) => {
+    setLocalHtml(html);
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = setTimeout(() => {
+      onSave(html);
+    }, 1500);
+  }, [onSave, saveTimerRef]);
+
+  const status = entry.ai_notes_status;
+
+  // pending / processing → 加载中
+  if (status === "pending" || status === "processing") {
+    return (
+      <div className="flex flex-col items-center justify-center h-48 gap-3">
+        <Loader2 size={24} className="text-[#00D1FF] animate-spin" />
+        <p className="text-[11px] text-gray-400">
+          {status === "pending" ? "AI 笔记排队中..." : "AI 笔记生成中..."}
+        </p>
+      </div>
+    );
+  }
+
+  // failed → 错误提示 + 重试按钮
+  if (status === "failed") {
+    return (
+      <div className="flex flex-col items-center justify-center h-48 gap-3">
+        <AlertTriangle size={24} className="text-red-400" />
+        <p className="text-[11px] text-red-500">AI 笔记生成失败</p>
+        {entry.ai_notes_error && (
+          <p className="text-[9px] text-red-300 max-w-xs text-center">{entry.ai_notes_error}</p>
+        )}
+        <button
+          disabled={retrying}
+          onClick={async () => {
+            setRetrying(true);
+            try { await onRetry(); } finally { setRetrying(false); }
+          }}
+          className="flex items-center gap-1 px-3 py-1 text-[10px] font-medium text-[#00A3C4] border border-[#00D1FF]/30 rounded-sm hover:bg-[#F0F9FF] transition-colors disabled:opacity-50"
+        >
+          <RefreshCw size={11} className={retrying ? "animate-spin" : ""} />
+          {retrying ? "重试中..." : "重新生成"}
+        </button>
+      </div>
+    );
+  }
+
+  // ready / 有内容 → 可编辑笔记
+  if (entry.ai_notes_html) {
+    return (
+      <div className="h-full flex flex-col">
+        <div className="flex items-center justify-between px-5 py-1 border-b border-gray-50 flex-shrink-0">
+          <span className="text-[9px] text-gray-400">
+            {saving ? "保存中..." : "AI 笔记（可编辑）"}
+          </span>
+          <button
+            disabled={retrying}
+            onClick={async () => {
+              setRetrying(true);
+              try { await onRetry(); } finally { setRetrying(false); }
+            }}
+            className="flex items-center gap-1 text-[9px] text-gray-400 hover:text-[#00A3C4] transition-colors disabled:opacity-50"
+          >
+            <RefreshCw size={9} className={retrying ? "animate-spin" : ""} />
+            重新生成
+          </button>
+        </div>
+        <div className="flex-1 min-h-0 overflow-auto">
+          <EditorErrorBoundary fallback={<div className="p-5 text-[10px] text-gray-400">编辑器加载失败</div>}>
+            <RichEditor
+              content={localHtml}
+              onChange={handleNotesChange}
+              editable={true}
+            />
+          </EditorErrorBoundary>
+        </div>
+      </div>
+    );
+  }
+
+  // 无笔记且无状态（历史数据 / 手动录入）
+  return (
+    <div className="flex flex-col items-center justify-center h-48 gap-3 text-gray-400">
+      <Sparkles size={24} />
+      <p className="text-[11px]">暂无 AI 笔记</p>
+      <button
+        disabled={retrying}
+        onClick={async () => {
+          setRetrying(true);
+          try { await onRetry(); } finally { setRetrying(false); }
+        }}
+        className="flex items-center gap-1 px-3 py-1 text-[10px] font-medium text-[#00A3C4] border border-[#00D1FF]/30 rounded-sm hover:bg-[#F0F9FF] transition-colors disabled:opacity-50"
+      >
+        <Sparkles size={11} />
+        {retrying ? "生成中..." : "生成 AI 笔记"}
       </button>
     </div>
   );
