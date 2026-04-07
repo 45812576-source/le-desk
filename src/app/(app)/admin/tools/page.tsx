@@ -17,14 +17,7 @@ function ThemedIcon({ iconKey, size }: { iconKey: "knowledgeMy" | "tools"; size:
 import { PixelButton } from "@/components/pixel/PixelButton";
 import { PixelBadge } from "@/components/pixel/PixelBadge";
 import { apiFetch } from "@/lib/api";
-import type { ToolDeployInfo, ToolEntry, ToolManifest, ToolManifestDataSource } from "@/lib/types";
-import { SandboxTestModal } from "@/components/skill/SandboxTestModal";
-
-const SCOPE_OPTIONS = [
-  { value: "personal", label: "个人" },
-  { value: "department", label: "部门" },
-  { value: "company", label: "全公司" },
-];
+import type { ToolEntry, ToolManifest, ToolManifestDataSource } from "@/lib/types";
 
 const TYPE_LABELS: Record<string, string> = {
   builtin: "内置",
@@ -497,25 +490,10 @@ function ToolCard({
 }) {
   const [expanded, setExpanded] = useState(false);
   const [filesOpen, setFilesOpen] = useState(false);
-  const [showSandbox, setShowSandbox] = useState(false);
   const [bindOpen, setBindOpen] = useState(false);
   const [boundSkills, setBoundSkills] = useState<SkillOption[]>([]);
   const [allSkills, setAllSkills] = useState<SkillOption[]>([]);
   const [bindLoading, setBindLoading] = useState(false);
-  const [publishOpen, setPublishOpen] = useState(false);
-  const [publishScope, setPublishScope] = useState("department");
-  const [publishing, setPublishing] = useState(false);
-  const [deployInfo, setDeployInfo] = useState<Partial<ToolDeployInfo>>(() => {
-    // 从 manifest 预填 permissions / preconditions
-    const manifest = t.config?.manifest;
-    return {
-      purpose: "",
-      env_requirements: "",
-      permissions: manifest?.permissions ?? [],
-
-      extra_note: manifest?.preconditions?.join("\n") ?? "",
-    };
-  });
   const typeColor = TYPE_COLOR[t.tool_type ?? ""] ?? "gray";
 
   async function openBindPanel() {
@@ -553,23 +531,6 @@ function ToolCard({
       await apiFetch(`/tools/skill/${skillId}/tools/${t.id}`, { method: "DELETE" });
       setBoundSkills((prev) => prev.filter((s) => s.id !== skillId));
     } catch { /* ignore */ }
-  }
-
-  async function handlePublish() {
-    if (!deployInfo.purpose?.trim()) return;
-    setPublishing(true);
-    try {
-      await apiFetch(`/tools/${t.id}/status`, {
-        method: "PATCH",
-        body: JSON.stringify({ status: "published", scope: publishScope, deploy_info: deployInfo }),
-      });
-      setPublishOpen(false);
-      onToggle(t.id, false); // 触发父组件刷新
-    } catch (err) {
-      alert(err instanceof Error ? err.message : "提交失败");
-    } finally {
-      setPublishing(false);
-    }
   }
 
   const unboundSkills = allSkills.filter((s) => !boundSkills.some((b) => b.id === s.id));
@@ -657,13 +618,7 @@ function ToolCard({
           绑定 Skill
         </PixelButton>
         {(t.status === "draft" || !t.status) && (
-          <PixelButton
-            size="sm"
-            variant="secondary"
-            onClick={() => setShowSandbox(true)}
-          >
-            申请发布
-          </PixelButton>
+          <span className="text-[8px] text-gray-400 font-bold uppercase tracking-widest">请绑定 Skill 后统一发布</span>
         )}
         {t.status === "reviewing" && (
           <span className="text-[8px] font-bold text-amber-500 uppercase tracking-widest border border-amber-300 px-1.5 py-0.5">审批中</span>
@@ -678,18 +633,6 @@ function ToolCard({
           删除
         </button>
       </div>
-
-      {/* Sandbox test modal */}
-      {showSandbox && (
-        <SandboxTestModal
-          type="tool"
-          id={t.id}
-          name={t.display_name}
-          onPassed={() => { setShowSandbox(false); setPublishOpen(true); }}
-          onCancel={() => setShowSandbox(false)}
-          passedLabel="✓ 通过，继续发布"
-        />
-      )}
 
       {/* Files panel */}
       {filesOpen && (
@@ -797,124 +740,6 @@ function ToolCard({
         </div>
       )}
 
-      {/* 发布申请表单 */}
-      {publishOpen && (
-        <div className="border-t-2 border-[#00CC99] bg-[#F6FFFC] px-4 py-4 space-y-3">
-          <div className="text-[9px] font-bold uppercase tracking-widest text-[#00CC99] mb-1">申请发布 — 部署说明</div>
-
-          {/* 发布范围 */}
-          <div>
-            <label className="text-[8px] font-bold uppercase tracking-widest text-gray-500 block mb-1">发布范围</label>
-            <div className="flex gap-1">
-              {SCOPE_OPTIONS.map((opt) => (
-                <button
-                  key={opt.value}
-                  type="button"
-                  onClick={() => setPublishScope(opt.value)}
-                  className={`px-2.5 py-1 border-2 text-[8px] font-bold uppercase tracking-widest transition-colors ${
-                    publishScope === opt.value
-                      ? "border-[#00CC99] bg-[#00CC99] text-white"
-                      : "border-[#1A202C] bg-white text-[#1A202C] hover:border-[#00CC99]"
-                  }`}
-                >
-                  {opt.label}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* 用途说明（必填） */}
-          <div>
-            <label className="text-[8px] font-bold uppercase tracking-widest text-gray-500 block mb-1">
-              用途说明 <span className="text-red-400">*</span>
-            </label>
-            <textarea
-              rows={2}
-              value={deployInfo.purpose ?? ""}
-              onChange={(e) => setDeployInfo((d) => ({ ...d, purpose: e.target.value }))}
-              placeholder="这个工具解决什么问题？适用什么场景？"
-              className="w-full border-2 border-[#1A202C] px-2 py-1.5 text-[9px] resize-none focus:outline-none focus:border-[#00CC99]"
-            />
-          </div>
-
-          {/* 数据访问（从 manifest 预填，可编辑） */}
-          {(t.config?.manifest?.data_sources?.length ?? 0) > 0 && (
-            <div>
-              <label className="text-[8px] font-bold uppercase tracking-widest text-gray-500 block mb-1">数据访问（来自 Manifest，可补充说明）</label>
-              <div className="space-y-1">
-                {t.config!.manifest!.data_sources!.map((ds) => (
-                  <div key={ds.key} className="flex items-center gap-2 text-[8px] border border-gray-200 bg-white px-2 py-1">
-                    <span className="font-mono text-[#00A3C4]">{ds.key}</span>
-                    <span className="text-gray-400">{ds.type === "registered_table" ? "业务表" : ds.type === "uploaded_file" ? "上传文件" : "对话上下文"}</span>
-                    {ds.required !== false && <span className="text-red-400 font-bold">必填</span>}
-                    {ds.description && <span className="text-gray-500 ml-1">{ds.description}</span>}
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* 权限声明（从 manifest 预填，可手动编辑） */}
-          <div>
-            <label className="text-[8px] font-bold uppercase tracking-widest text-gray-500 block mb-1">
-              权限声明
-              <span className="ml-1 font-normal normal-case text-gray-400">每行一条，如 read:hr_employees</span>
-            </label>
-            <textarea
-              rows={2}
-              value={(deployInfo.permissions ?? []).join("\n")}
-              onChange={(e) => setDeployInfo((d) => ({ ...d, permissions: e.target.value.split("\n").filter(Boolean) }))}
-              placeholder="read:hr_employees&#10;write:hr_bonus"
-              className="w-full border-2 border-[#1A202C] px-2 py-1.5 text-[9px] font-mono resize-none focus:outline-none focus:border-[#00CC99]"
-            />
-          </div>
-
-          {/* 运行环境 */}
-          <div>
-            <label className="text-[8px] font-bold uppercase tracking-widest text-gray-500 block mb-1">运行环境 / 外部依赖</label>
-            <input
-              type="text"
-              value={deployInfo.env_requirements ?? ""}
-              onChange={(e) => setDeployInfo((d) => ({ ...d, env_requirements: e.target.value }))}
-              placeholder="如：需要 HR_DB_URL 环境变量，依赖 pandas >= 2.0"
-              className="w-full border-2 border-[#1A202C] px-2 py-1.5 text-[9px] focus:outline-none focus:border-[#00CC99]"
-            />
-          </div>
-
-          {/* 其他说明 */}
-          <div>
-            <label className="text-[8px] font-bold uppercase tracking-widest text-gray-500 block mb-1">其他说明（可选）</label>
-            <textarea
-              rows={2}
-              value={deployInfo.extra_note ?? ""}
-              onChange={(e) => setDeployInfo((d) => ({ ...d, extra_note: e.target.value }))}
-              placeholder="运行前提、注意事项、已知限制…"
-              className="w-full border-2 border-[#1A202C] px-2 py-1.5 text-[9px] resize-none focus:outline-none focus:border-[#00CC99]"
-            />
-          </div>
-
-          <div className="flex items-center gap-2 pt-1">
-            <PixelButton
-              variant="primary"
-              size="sm"
-              onClick={handlePublish}
-              disabled={publishing || !deployInfo.purpose?.trim()}
-            >
-              {publishing ? "提交中..." : "提交审批"}
-            </PixelButton>
-            <button
-              type="button"
-              onClick={() => setPublishOpen(false)}
-              className="text-[8px] font-bold text-gray-400 hover:text-gray-700 uppercase tracking-widest"
-            >
-              取消
-            </button>
-            {!deployInfo.purpose?.trim() && (
-              <span className="text-[8px] text-red-400 font-bold">请填写用途说明</span>
-            )}
-          </div>
-        </div>
-      )}
     </div>
   );
 }

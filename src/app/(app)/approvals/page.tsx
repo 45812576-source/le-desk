@@ -12,10 +12,9 @@ type MainTab = "incoming" | "outgoing" | "all";
 
 const TYPE_TABS: { key: string; label: string }[] = [
   { key: "", label: "全部" },
-  { key: "skill_publish,skill_version_change,skill_ownership_transfer", label: "Skill" },
+  { key: "skill_publish,skill_version_change,skill_ownership_transfer,tool_publish", label: "Skill" },
   { key: "knowledge_review", label: "知识审核" },
   { key: "knowledge_edit", label: "知识编辑" },
-  { key: "tool_publish", label: "工具" },
   { key: "webapp_publish", label: "Web APP" },
   { key: "scope_change,mask_override,schema_approval", label: "权限&脱敏" },
   { key: "export_sensitive,elevate_disclosure,grant_access,policy_change,field_sensitivity_change,small_sample_change", label: "数据安全" },
