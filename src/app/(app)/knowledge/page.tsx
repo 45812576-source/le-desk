@@ -442,9 +442,13 @@ const FileManagerTab = forwardRef<{ createDoc: () => void; triggerUpload: () => 
 
   async function handleDeleteEntry(id: number) {
     if (!confirm("确认删除该文件？")) return;
-    await apiFetch(`/knowledge/${id}`, { method: "DELETE" });
-    setSelectedEntry((prev) => prev?.id === id ? null : prev);
-    fetchAll();
+    try {
+      await apiFetch(`/knowledge/${id}`, { method: "DELETE" });
+      setSelectedEntry((prev) => prev?.id === id ? null : prev);
+      await fetchAll(true);
+    } catch (err) {
+      setToast(err instanceof Error ? `删除失败: ${err.message}` : "删除失败");
+    }
   }
 
   async function handleUpdateContent(id: number, content: string, contentHtml?: string): Promise<void> {
