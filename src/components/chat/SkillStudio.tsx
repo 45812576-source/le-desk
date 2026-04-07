@@ -276,6 +276,7 @@ function SkillList({
   skills,
   loading,
   selectedFile,
+  refreshCounter,
   onSelectFile,
   onNew,
   onImport,
@@ -285,6 +286,7 @@ function SkillList({
   skills: SkillDetail[];
   loading: boolean;
   selectedFile: SelectedFile | null;
+  refreshCounter?: number;
   onSelectFile: (f: SelectedFile) => void;
   onNew: () => void;
   onImport: () => void;
@@ -353,7 +355,7 @@ function SkillList({
       apiFetch<BoundTool[]>(`/skills/${skill.id}/bound-tools`)
         .then((data) => setBoundTools(Array.isArray(data) ? data : []))
         .catch(() => setBoundTools([]));
-    }, [isOpen, skill.id]);
+    }, [isOpen, skill.id, refreshCounter]);
 
     async function handleUnbind(toolId: number, e: React.MouseEvent) {
       e.stopPropagation();
@@ -2806,10 +2808,13 @@ export function SkillStudio({ convId }: { convId: number }) {
       .finally(() => setSkillsLoading(false));
   }, []);
 
+  const [skillRefreshCounter, setSkillRefreshCounter] = useState(0);
+
   async function refreshSkill(skillId: number) {
     try {
       const updated = await apiFetch<SkillDetail>(`/skills/${skillId}`);
-      setSkills((prev) => prev.map((s) => s.id === skillId ? { ...s, source_files: updated.source_files } : s));
+      setSkills((prev) => prev.map((s) => s.id === skillId ? { ...s, ...updated } : s));
+      setSkillRefreshCounter((c) => c + 1);
     } catch { /* ignore */ }
   }
 
@@ -2977,6 +2982,7 @@ export function SkillStudio({ convId }: { convId: number }) {
           skills={skills}
           loading={skillsLoading}
           selectedFile={selectedFile}
+          refreshCounter={skillRefreshCounter}
           onSelectFile={(f) => {
             setSelectedFile(f);
             setIsNew(false);
@@ -3022,7 +3028,7 @@ export function SkillStudio({ convId }: { convId: number }) {
           memo={memo}
           onApplyDraft={handleApplyDraft}
           onNewSession={handleNewSession}
-          onToolBound={() => { if (selectedSkill) refreshSkill(selectedSkill.id); }}
+          onToolBound={() => { if (selectedSkill) { refreshSkill(selectedSkill.id); handleMemoRefresh(); } }}
           onDevStudio={handleDevStudioJump}
           onFileSplitDone={() => { if (selectedSkill) refreshSkill(selectedSkill.id); }}
           onMemoRefresh={handleMemoRefresh}
