@@ -99,6 +99,7 @@ interface PreviewPanelProps {
   folders?: Folder[];
   onMoveToFolder?: (entryId: number, folderId: number | null) => void;
   onRetryRender?: () => void;
+  onRefreshEntry?: () => void;
 }
 
 export default function PreviewPanel({
@@ -110,6 +111,7 @@ export default function PreviewPanel({
   folders,
   onMoveToFolder,
   onRetryRender,
+  onRefreshEntry,
 }: PreviewPanelProps) {
   const [htmlVal, setHtmlVal] = useState("");
   const [editingTitle, setEditingTitle] = useState(false);
@@ -748,6 +750,7 @@ export default function PreviewPanel({
             }}
             onRetry={async () => {
               await apiFetch(`/knowledge/${entry.id}/retry-ai-notes`, { method: "POST" });
+              onRefreshEntry?.();
             }}
             saveTimerRef={aiNotesSaveTimerRef}
           />
@@ -816,7 +819,8 @@ function DocumentRenderResolver({
 
   // 1. 正在转换中 — 显示进度提示，同时允许编辑正文 fallback
   //    仅当有实际文件（oss_key）时才视为真正在转换；无文件的手动文档跳过
-  if ((renderStatus === "processing" || renderStatus === "pending") && entry.oss_key) {
+  //    媒体文件（PDF/图片/音视频）不需要等转换完成，直接走原生预览
+  if ((renderStatus === "processing" || renderStatus === "pending") && entry.oss_key && !isMedia) {
     const hasFallback = !!(entry.content || htmlVal);
     return (
       <div className="flex flex-col h-full">

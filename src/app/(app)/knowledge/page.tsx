@@ -202,6 +202,34 @@ const FileManagerTab = forwardRef<{ createDoc: () => void; triggerUpload: () => 
     };
   }, [selectedEntry?.id, selectedEntry?.doc_render_status]);
 
+  // 轮询 ai_notes 状态：当 selectedEntry 的 ai_notes_status 为 pending/processing 时，每 3 秒检查一次，120 秒超时
+  useEffect(() => {
+    if (!selectedEntry) return;
+    const status = selectedEntry.ai_notes_status;
+    if (status !== "pending" && status !== "processing") return;
+
+    let cancelled = false;
+    const pollInterval = setInterval(async () => {
+      if (cancelled) return;
+      try {
+        const fresh = await apiFetch<KnowledgeDetail>(`/knowledge/${selectedEntry.id}`);
+        if (cancelled) return;
+        if (fresh.ai_notes_status !== "pending" && fresh.ai_notes_status !== "processing") {
+          setSelectedEntry(fresh);
+          clearInterval(pollInterval);
+        }
+      } catch {}
+    }, 3000);
+
+    const timeout = setTimeout(() => { clearInterval(pollInterval); }, 120_000);
+
+    return () => {
+      cancelled = true;
+      clearInterval(pollInterval);
+      clearTimeout(timeout);
+    };
+  }, [selectedEntry?.id, selectedEntry?.ai_notes_status]);
+
   const fetchAll = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
     try {
@@ -1026,7 +1054,7 @@ const FileManagerTab = forwardRef<{ createDoc: () => void; triggerUpload: () => 
 
       {/* Right: preview */}
       <div className="flex-1 min-w-0 flex flex-col">
-        <div className="flex-1 min-h-0">
+        <div className="flex-1 min-h-0 flex flex-col">
           {selectedEntryError && (
             <div className="mx-3 mt-3 px-3 py-2 border border-red-300 bg-red-50 text-[10px] text-red-700">
               文档打开失败：{selectedEntryError}
@@ -1045,6 +1073,12 @@ const FileManagerTab = forwardRef<{ createDoc: () => void; triggerUpload: () => 
                 const fresh = await apiFetch<KnowledgeDetail>(`/knowledge/${selectedEntry.id}`);
                 setSelectedEntry(fresh);
                 setEntries(prev => prev.map(e => e.id === fresh.id ? { ...e, doc_render_status: fresh.doc_render_status, doc_render_mode: fresh.doc_render_mode } : e));
+              } catch {}
+            } : undefined}
+            onRefreshEntry={selectedEntry ? async () => {
+              try {
+                const fresh = await apiFetch<KnowledgeDetail>(`/knowledge/${selectedEntry.id}`);
+                setSelectedEntry(fresh);
               } catch {}
             } : undefined}
           />

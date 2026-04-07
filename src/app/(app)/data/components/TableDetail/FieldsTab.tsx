@@ -19,7 +19,7 @@ import {
 import FieldImpactPanel from "./fields/FieldImpactPanel";
 
 const TYPE_COLORS: Record<string, string> = {
-  text: "bg-gray-50 dark:bg-gray-900 text-gray-500 dark:text-gray-400",
+  text: "bg-gray-50 dark:bg-gray-900 text-gray-500 dark:text-muted-foreground",
   number: "bg-blue-50 dark:bg-blue-950 text-blue-500 dark:text-blue-400",
   single_select: "bg-purple-50 dark:bg-purple-950 text-purple-600 dark:text-purple-400",
   multi_select: "bg-purple-50 dark:bg-purple-950 text-purple-500 dark:text-purple-400",
@@ -40,7 +40,7 @@ const ROLE_TAG_LABELS: Record<string, { label: string; color: string }> = {
   identifier: { label: "标识", color: "bg-purple-50 dark:bg-purple-950 text-purple-500 dark:text-purple-400" },
   sensitive: { label: "敏感", color: "bg-red-50 dark:bg-red-950 text-red-500 dark:text-red-400" },
   derived: { label: "衍生", color: "bg-orange-50 dark:bg-orange-950 text-orange-500 dark:text-orange-400" },
-  system: { label: "系统", color: "bg-gray-50 dark:bg-gray-900 text-gray-400" },
+  system: { label: "系统", color: "bg-gray-50 dark:bg-gray-900 text-muted-foreground" },
 };
 
 const SENSITIVITY_OPTIONS = Object.entries(SENSITIVITY_LABELS) as [SensitivityLevel, string][];
@@ -86,7 +86,7 @@ function FieldDictionaryPanel({ fieldId, onClose }: { fieldId: number; onClose: 
     setEntries((prev) => prev.filter((e) => e.id !== valueId));
   }
 
-  if (loading) return <div className="p-2 text-[9px] text-gray-400 animate-pulse">Loading...</div>;
+  if (loading) return <div className="p-2 text-[9px] text-muted-foreground animate-pulse">Loading...</div>;
 
   return (
     <div className="border-2 border-[#00D1FF] bg-card p-3 mt-1 mb-2 mx-4">
@@ -106,7 +106,7 @@ function FieldDictionaryPanel({ fieldId, onClose }: { fieldId: number; onClose: 
             <button onClick={() => handleDelete(e.id)} className="text-[8px] text-muted-foreground hover:text-red-400">✕</button>
           </div>
         ))}
-        {entries.length === 0 && <div className="text-[8px] text-gray-400">暂无枚举值</div>}
+        {entries.length === 0 && <div className="text-[8px] text-muted-foreground">暂无枚举值</div>}
       </div>
       <div className="flex items-center gap-1 mt-2">
         <input
@@ -226,7 +226,7 @@ function FieldRow({
             )}
           </div>
           {field.display_name && field.display_name !== field.field_name && (
-            <span className="text-[8px] font-mono text-gray-400">{field.field_name}</span>
+            <span className="text-[8px] font-mono text-muted-foreground">{field.field_name}</span>
           )}
           {field.field_role_tags?.length > 0 && (
             <div className="flex gap-1 mt-0.5">
@@ -239,7 +239,7 @@ function FieldRow({
             </div>
           )}
           {field.description && (
-            <p className="text-[8px] text-gray-400 mt-0.5 truncate">{field.description}</p>
+            <p className="text-[8px] text-muted-foreground mt-0.5 truncate">{field.description}</p>
           )}
         </div>
 
@@ -252,7 +252,7 @@ function FieldRow({
               onClick={() => field.id && setShowDict(!showDict)}
             >
               {field.enum_values.length} 选项
-              {field.enum_source === "observed" && <span className="text-[7px] text-gray-400 ml-0.5">(推断)</span>}
+              {field.enum_source === "observed" && <span className="text-[7px] text-muted-foreground ml-0.5">(推断)</span>}
             </span>
           )}
         </div>
@@ -272,7 +272,7 @@ function FieldRow({
           )}
         </div>
 
-        <div className="flex items-center gap-3 flex-shrink-0 text-[8px] text-gray-400 w-32 justify-end">
+        <div className="flex items-center gap-3 flex-shrink-0 text-[8px] text-muted-foreground w-32 justify-end">
           {field.distinct_count !== null && (
             <span title="唯一值数">{field.distinct_count} 种</span>
           )}
@@ -300,7 +300,7 @@ function FieldRow({
               <button
                 onClick={toggleSensitive}
                 className={`text-[7px] px-1 py-px border rounded transition-colors ${
-                  field.is_sensitive ? "border-red-300 text-red-400 bg-red-50" : "border-gray-200 text-gray-300 hover:text-red-400"
+                  field.is_sensitive ? "border-red-300 dark:border-red-700 text-red-400 bg-red-50 dark:bg-red-950" : "border-border text-muted-foreground hover:text-red-400"
                 }`}
                 title={field.is_sensitive ? "取消敏感标记" : "标记为敏感"}
               >
@@ -314,7 +314,7 @@ function FieldRow({
             <button
               onClick={() => setShowImpact(!showImpact)}
               className={`text-[7px] px-1 py-px border rounded transition-colors ${
-                showImpact ? "border-[#00D1FF] text-[#00A3C4] bg-[#F0FBFF]" : "border-gray-200 text-gray-300 hover:text-[#00A3C4]"
+                showImpact ? "border-[#00D1FF] text-[#00A3C4] bg-[#F0FBFF] dark:bg-[#0A2A3A]" : "border-border text-muted-foreground hover:text-[#00A3C4]"
               }`}
               title="查看字段影响"
             >
@@ -372,15 +372,15 @@ function EnumSuggestionsPanel({ tableId, onRefresh }: { tableId: number; onRefre
   if (loading || suggestions.length === 0) return null;
 
   return (
-    <div className="mx-4 my-2 border-2 border-[#00CC99] bg-green-50 p-2">
+    <div className="mx-4 my-2 border-2 border-[#00CC99] bg-green-50 dark:bg-green-950 p-2">
       <div className="text-[8px] font-bold uppercase tracking-widest text-green-600 mb-1">
         枚举升级建议 ({suggestions.length})
       </div>
       {suggestions.map((s) => (
         <div key={s.field_id} className="flex items-center gap-2 py-1 text-[9px]">
           <span className="font-bold">{s.display_name || s.field_name}</span>
-          <span className="text-gray-400">{s.distinct_count} 个不同值</span>
-          <span className="text-[8px] text-gray-400 truncate max-w-[200px]" title={s.suggested_values.join(", ")}>
+          <span className="text-muted-foreground">{s.distinct_count} 个不同值</span>
+          <span className="text-[8px] text-muted-foreground truncate max-w-[200px]" title={s.suggested_values.join(", ")}>
             {s.suggested_values.slice(0, 5).join(", ")}
           </span>
           <PixelButton
@@ -442,14 +442,14 @@ function BatchActionsBar({
   if (selectedIds.size === 0) return null;
 
   return (
-    <div className="flex items-center gap-2 px-4 py-1.5 bg-[#F0FBFF] border-b border-[#00D1FF]">
+    <div className="flex items-center gap-2 px-4 py-1.5 bg-[#F0FBFF] dark:bg-[#0A2A3A] border-b border-[#00D1FF]">
       <span className="text-[9px] font-bold text-[#00A3C4]">已选 {selectedIds.size} 个字段</span>
       {isV2 ? (
         <>
           <select
             onChange={(e) => { if (e.target.value) handleBatchSensitivityLevel(e.target.value as SensitivityLevel); }}
             disabled={acting}
-            className="text-[8px] font-bold border border-[#00D1FF] rounded px-1 py-0.5 bg-white cursor-pointer"
+            className="text-[8px] font-bold border border-[#00D1FF] rounded px-1 py-0.5 bg-card text-foreground cursor-pointer"
             defaultValue=""
           >
             <option value="" disabled>批量设置敏感级别...</option>
@@ -464,7 +464,7 @@ function BatchActionsBar({
           <PixelButton size="sm" onClick={() => handleBatchSensitive(false)} disabled={acting}>取消敏感</PixelButton>
         </>
       )}
-      <button onClick={onClear} className="text-[8px] text-gray-400 hover:text-[#1A202C] ml-auto">清除选择</button>
+      <button onClick={onClear} className="text-[8px] text-muted-foreground hover:text-foreground ml-auto">清除选择</button>
     </div>
   );
 }
@@ -488,7 +488,7 @@ export default function FieldsTab({ detail, onRefresh }: Props) {
 
   if (detail.fields.length === 0) {
     return (
-      <div className="flex items-center justify-center h-32 text-[10px] text-gray-400 uppercase tracking-widest">
+      <div className="flex items-center justify-center h-32 text-[10px] text-muted-foreground uppercase tracking-widest">
         {detail.field_profile_status === "pending" ? "字段画像待分析" : "暂无字段信息"}
       </div>
     );
@@ -503,7 +503,7 @@ export default function FieldsTab({ detail, onRefresh }: Props) {
         onClear={() => setSelectedIds(new Set())}
         onRefresh={onRefresh || (() => {})}
       />
-      <div className="flex items-center gap-4 px-4 py-2 border-b-2 border-[#1A202C] bg-[#EBF4F7] text-[8px] font-bold uppercase tracking-widest text-gray-400">
+      <div className="flex items-center gap-4 px-4 py-2 border-b-2 border-border bg-muted text-[8px] font-bold uppercase tracking-widest text-muted-foreground">
         <input
           type="checkbox"
           checked={selectedIds.size === detail.fields.filter((f) => f.id).length}

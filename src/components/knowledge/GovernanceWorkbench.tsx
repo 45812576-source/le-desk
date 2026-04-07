@@ -71,9 +71,9 @@ export default function GovernanceWorkbench({ currentUser, selectedKnowledgeId, 
   return (
     <div className="border-t border-border bg-card">
       <div className="px-4 py-2 border-b border-border flex items-center gap-2 cursor-pointer select-none" onClick={() => setCollapsed(v => !v)}>
-        <span className={`text-[8px] text-gray-400 transition-transform ${collapsed ? "" : "rotate-90"}`}>▶</span>
+        <span className={`text-[8px] text-muted-foreground transition-transform ${collapsed ? "" : "rotate-90"}`}>▶</span>
         <span className="text-[9px] font-bold uppercase tracking-widest text-[#0077B6]">治理审查台</span>
-        <span className="text-[8px] text-gray-400">待审建议 {suggestions.length}</span>
+        <span className="text-[8px] text-muted-foreground">待审建议 {suggestions.length}</span>
         {gapOverview && (
           <span className="text-[8px] text-amber-600">
             缺口 {gapOverview.object_gaps.length} / 冲突 {gapOverview.conflict_count}
@@ -100,7 +100,7 @@ export default function GovernanceWorkbench({ currentUser, selectedKnowledgeId, 
         {gapOverview && (gapOverview.object_gaps.length > 0 || gapOverview.conflict_count > 0) && (
           <div className="px-4 py-2 bg-muted border-b border-border space-y-1">
             {gapOverview.object_gaps.slice(0, 3).map((gap) => (
-              <div key={`${gap.object_id}-${gap.gap_type}`} className="space-y-1 text-[8px] text-amber-700">
+              <div key={`${gap.object_id}-${gap.gap_type}`} className="space-y-1 text-[8px] text-amber-700 dark:text-amber-300">
                 <div>{gap.display_name}: {gap.reason}</div>
                 {gap.recommended_actions.length > 0 && (
                   <div className="flex flex-wrap gap-1">
@@ -108,7 +108,7 @@ export default function GovernanceWorkbench({ currentUser, selectedKnowledgeId, 
                       <button
                         key={`${gap.object_id}-${action.action}`}
                         onClick={() => void handleGapAction(gap, action)}
-                        className="px-1.5 py-0.5 border border-amber-300 text-amber-700 hover:bg-amber-100 font-bold"
+                        className="px-1.5 py-0.5 border border-amber-300 dark:border-amber-700 text-amber-700 dark:text-amber-300 hover:bg-amber-100 dark:hover:bg-amber-900 font-bold"
                       >
                         {repairingGapId === `${gap.object_id}:${action.action}` ? "处理中..." : action.label}
                       </button>
@@ -121,7 +121,7 @@ export default function GovernanceWorkbench({ currentUser, selectedKnowledgeId, 
               <div className="text-[8px] text-red-600">发现 {gapOverview.conflict_count} 组疑似重复对象</div>
             )}
             {conflicts.slice(0, 2).map((conflict) => (
-              <div key={`${conflict.left_id}-${conflict.right_id}`} className="flex items-center gap-2 text-[8px] text-red-700">
+              <div key={`${conflict.left_id}-${conflict.right_id}`} className="flex items-center gap-2 text-[8px] text-red-700 dark:text-red-400">
                 <span className="truncate flex-1">{conflict.left_name} ⇄ {conflict.right_name}</span>
                 <button
                   onClick={async () => {
@@ -142,9 +142,9 @@ export default function GovernanceWorkbench({ currentUser, selectedKnowledgeId, 
             ))}
           </div>
         )}
-        {loading && <div className="px-4 py-4 text-[9px] text-gray-400">加载中...</div>}
+        {loading && <div className="px-4 py-4 text-[9px] text-muted-foreground">加载中...</div>}
         {!loading && suggestions.length === 0 && (
-          <div className="px-4 py-4 text-[9px] text-gray-400">暂无待审治理建议</div>
+          <div className="px-4 py-4 text-[9px] text-muted-foreground">暂无待审治理建议</div>
         )}
         {suggestions.map((item) => {
           const objective = objectives.find((x) => x.id === item.objective_id);
@@ -165,9 +165,9 @@ export default function GovernanceWorkbench({ currentUser, selectedKnowledgeId, 
                 <span className="text-[8px] px-1.5 py-0.5 rounded bg-muted border border-border text-amber-600 dark:text-amber-400">
                   {item.confidence || 0}%
                 </span>
-                <span className="text-[8px] text-gray-500">{objective?.name || "-"}</span>
-                <span className="text-[8px] text-gray-300">/</span>
-                <span className="text-[8px] text-gray-500">{library?.name || "-"}</span>
+                <span className="text-[8px] text-muted-foreground">{objective?.name || "-"}</span>
+                <span className="text-[8px] text-muted-foreground/50">/</span>
+                <span className="text-[8px] text-muted-foreground">{library?.name || "-"}</span>
                 <button
                   onClick={async () => {
                     await apiFetch("/knowledge-governance/apply", {
@@ -200,16 +200,16 @@ export default function GovernanceWorkbench({ currentUser, selectedKnowledgeId, 
                   拒绝
                 </button>
               </div>
-              {item.reason && <div className="mt-1 text-[8px] text-gray-500">{item.reason}</div>}
+              {item.reason && <div className="mt-1 text-[8px] text-muted-foreground">{item.reason}</div>}
               {reinforcementMeta && (
-                <div className="mt-1 text-[8px] text-sky-700">
+                <div className="mt-1 text-[8px] text-sky-700 dark:text-sky-300">
                   学习层: {reinforcementMeta.strategy_group || "-"} / 加权 {reinforcementMeta.boost || 0}
                   {typeof reinforcementMeta.success_rate === "number" ? ` / 命中率 ${(reinforcementMeta.success_rate * 100).toFixed(0)}%` : ""}
                   {reinforcementMeta.samples ? ` / 样本 ${reinforcementMeta.samples}` : ""}
                 </div>
               )}
               {Array.isArray(item.suggested_payload?.missing_fields) && item.suggested_payload?.missing_fields.length > 0 && (
-                <div className="mt-1 text-[8px] text-amber-700">
+                <div className="mt-1 text-[8px] text-amber-700 dark:text-amber-300">
                   缺字段: {(item.suggested_payload.missing_fields as string[]).join("、")}
                 </div>
               )}

@@ -97,9 +97,9 @@ const PUBLISH_SCOPE_LABELS: Record<string, string> = {
 
 function SectionHeader({ title, subtitle }: { title: string; subtitle?: string }) {
   return (
-    <div className="bg-[#EBF4F7] border-b-2 border-[#1A202C] px-4 py-2 flex items-center gap-2">
+    <div className="bg-muted border-b-2 border-border px-4 py-2 flex items-center gap-2">
       <span className="text-[11px] font-bold uppercase tracking-widest text-[#00A3C4]">{title}</span>
-      {subtitle && <span className="text-[10px] text-gray-400 font-mono">{subtitle}</span>}
+      {subtitle && <span className="text-[10px] text-muted-foreground font-mono">{subtitle}</span>}
     </div>
   );
 }
@@ -120,12 +120,12 @@ function Toggle({
       type="button"
       onClick={() => !disabled && onChange(!checked)}
       disabled={disabled}
-      className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer border-2 border-[#1A202C] transition-colors focus:outline-none ${
-        checked ? "bg-[#00D1FF]" : "bg-gray-200"
+      className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer border-2 border-border transition-colors focus:outline-none ${
+        checked ? "bg-[#00D1FF]" : "bg-muted"
       } ${disabled ? "opacity-40 cursor-not-allowed" : ""}`}
     >
       <span
-        className={`pointer-events-none inline-block h-3 w-3 transform bg-[#1A202C] transition-transform mt-0.5 ${
+        className={`pointer-events-none inline-block h-3 w-3 transform bg-foreground transition-transform mt-0.5 ${
           checked ? "translate-x-4" : "translate-x-0.5"
         }`}
       />
@@ -317,13 +317,13 @@ export default function UserPermissionsPage() {
       <div className="flex h-full gap-4">
         {/* ── Left: User List ─────────────────────────────────────────────── */}
         <div className="w-72 shrink-0 flex flex-col border-2 border-[#1A202C] bg-white">
-          <div className="bg-[#EBF4F7] border-b-2 border-[#1A202C] p-3 flex flex-col gap-2">
+          <div className="bg-muted border-b-2 border-border p-3 flex flex-col gap-2">
             <input
               type="text"
               placeholder="搜索姓名或用户名…"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="border-2 border-[#1A202C] px-2 py-1 text-xs font-mono focus:outline-none focus:border-[#00D1FF] w-full"
+              className="border-2 border-border bg-background text-foreground px-2 py-1 text-xs font-mono focus:outline-none focus:border-[#00D1FF] w-full"
             />
             <div className="flex gap-2">
               <PixelSelect
@@ -365,21 +365,21 @@ export default function UserPermissionsPage() {
                 <button
                   key={u.id}
                   onClick={() => setSelectedUser(u)}
-                  className={`w-full text-left px-3 py-2.5 border-b border-[#E2E8F0] hover:bg-[#F0F9FF] transition-colors ${
+                  className={`w-full text-left px-3 py-2.5 border-b border-border hover:bg-muted transition-colors ${
                     selectedUser?.id === u.id
-                      ? "bg-[#E0F7FF] border-l-4 border-l-[#00D1FF]"
+                      ? "bg-accent border-l-4 border-l-[#00D1FF]"
                       : ""
                   }`}
                 >
                   <div className="flex items-center justify-between gap-2">
-                    <span className="text-xs font-bold font-mono text-[#1A202C] truncate">
+                    <span className="text-xs font-bold font-mono text-foreground truncate">
                       {u.display_name}
                     </span>
                     <PixelBadge color={ROLE_COLORS[u.role] || "cyan"}>
                       {ROLE_LABELS[u.role] || u.role}
                     </PixelBadge>
                   </div>
-                  <div className="text-[10px] text-gray-400 font-mono mt-0.5 truncate">
+                  <div className="text-[10px] text-muted-foreground font-mono mt-0.5 truncate">
                     {u.username}
                     {u.department_name ? ` · ${u.department_name}` : ""}
                   </div>
@@ -395,16 +395,16 @@ export default function UserPermissionsPage() {
         {/* ── Right: Permission Detail ────────────────────────────────────── */}
         <div className="flex-1 overflow-y-auto">
           {!selectedUser ? (
-            <div className="flex items-center justify-center h-full text-gray-400 text-sm">
+            <div className="flex items-center justify-center h-full text-muted-foreground text-sm">
               ← 从左侧选择一个用户
             </div>
           ) : (
             <div className="flex flex-col gap-4">
               {/* User Header */}
-              <div className="bg-white border-2 border-[#1A202C] p-4 flex items-center gap-4">
+              <div className="bg-card border-2 border-border p-4 flex items-center gap-4">
                 <div>
                   <div className="flex items-center gap-2">
-                    <span className="font-bold text-sm font-mono text-[#1A202C]">
+                    <span className="font-bold text-sm font-mono text-foreground">
                       {selectedUser.display_name}
                     </span>
                     <PixelBadge color={ROLE_COLORS[selectedUser.role] || "cyan"}>
@@ -414,7 +414,7 @@ export default function UserPermissionsPage() {
                       <PixelBadge color="red">已停用</PixelBadge>
                     )}
                   </div>
-                  <div className="text-[10px] text-gray-400 font-mono mt-0.5">
+                  <div className="text-[10px] text-muted-foreground font-mono mt-0.5">
                     @{selectedUser.username}
                     {selectedUser.department_name
                       ? ` · ${selectedUser.department_name}`
@@ -433,7 +433,7 @@ export default function UserPermissionsPage() {
               </div>
 
               {/* ① 模型授权 */}
-              <div className="bg-white border-2 border-[#1A202C]">
+              <div className="bg-card border-2 border-border">
                 <SectionHeader
                   title="① 模型授权"
                   subtitle="控制该用户可访问的受限 AI 模型"
@@ -444,18 +444,18 @@ export default function UserPermissionsPage() {
                     return (
                       <div
                         key={modelKey}
-                        className="flex items-center justify-between py-2 border-b border-[#E2E8F0] last:border-0"
+                        className="flex items-center justify-between py-2 border-b border-border last:border-0"
                       >
                         <div>
-                          <div className="text-xs font-bold font-mono text-[#1A202C]">
+                          <div className="text-xs font-bold font-mono text-foreground">
                             {MODEL_LABELS[modelKey] || modelKey}
                           </div>
-                          <div className="text-[10px] text-gray-400 font-mono">{modelKey}</div>
+                          <div className="text-[10px] text-muted-foreground font-mono">{modelKey}</div>
                         </div>
                         <div className="flex items-center gap-3">
                           <span
                             className={`text-[10px] font-bold uppercase ${
-                              granted ? "text-[#00A3C4]" : "text-gray-400"
+                              granted ? "text-[#00A3C4]" : "text-muted-foreground"
                             }`}
                           >
                             {granted ? "已授权" : "未授权"}
@@ -473,7 +473,7 @@ export default function UserPermissionsPage() {
               </div>
 
               {/* ② 功能模块开关 */}
-              <div className="bg-white border-2 border-[#1A202C]">
+              <div className="bg-card border-2 border-border">
                 <SectionHeader
                   title="② 功能模块开关"
                   subtitle="控制该用户可访问的功能模块"
@@ -484,23 +484,23 @@ export default function UserPermissionsPage() {
                       加载中…
                     </p>
                   ) : !features ? (
-                    <p className="text-xs text-gray-400">加载失败</p>
+                    <p className="text-xs text-muted-foreground">加载失败</p>
                   ) : (
                     (Object.keys(FEATURE_LABELS) as (keyof FeatureFlags)[]).map((key) => (
                       <div
                         key={key}
-                        className="flex items-center justify-between py-2 border-b border-[#E2E8F0] last:border-0"
+                        className="flex items-center justify-between py-2 border-b border-border last:border-0"
                       >
                         <div>
-                          <div className="text-xs font-bold font-mono text-[#1A202C]">
+                          <div className="text-xs font-bold font-mono text-foreground">
                             {FEATURE_LABELS[key]}
                           </div>
-                          <div className="text-[10px] text-gray-400 font-mono">{key}</div>
+                          <div className="text-[10px] text-muted-foreground font-mono">{key}</div>
                         </div>
                         <div className="flex items-center gap-3">
                           <span
                             className={`text-[10px] font-bold uppercase ${
-                              features[key] ? "text-[#00A3C4]" : "text-gray-400"
+                              features[key] ? "text-[#00A3C4]" : "text-muted-foreground"
                             }`}
                           >
                             {features[key] ? "开启" : "关闭"}
@@ -517,7 +517,7 @@ export default function UserPermissionsPage() {
               </div>
 
               {/* ③ 业务表行级权限 */}
-              <div className="bg-white border-2 border-[#1A202C]">
+              <div className="bg-card border-2 border-border">
                 <SectionHeader
                   title="③ 业务表行级权限"
                   subtitle="该用户创建的业务表的行可见范围"
@@ -528,15 +528,15 @@ export default function UserPermissionsPage() {
                       加载中…
                     </p>
                   ) : bizTables.length === 0 ? (
-                    <p className="text-xs text-gray-400">该用户暂无业务表</p>
+                    <p className="text-xs text-muted-foreground">该用户暂无业务表</p>
                   ) : (
-                    <table className="w-full border-2 border-[#1A202C] text-xs font-mono">
+                    <table className="w-full border-2 border-border text-xs font-mono">
                       <thead>
-                        <tr className="bg-[#EBF4F7]">
-                          <th className="text-left px-3 py-2 text-[10px] font-bold uppercase tracking-widest text-[#00A3C4] border-b-2 border-[#1A202C]">
+                        <tr className="bg-muted">
+                          <th className="text-left px-3 py-2 text-[10px] font-bold uppercase tracking-widest text-[#00A3C4] border-b-2 border-border">
                             表名
                           </th>
-                          <th className="text-left px-3 py-2 text-[10px] font-bold uppercase tracking-widest text-[#00A3C4] border-b-2 border-[#1A202C] w-36">
+                          <th className="text-left px-3 py-2 text-[10px] font-bold uppercase tracking-widest text-[#00A3C4] border-b-2 border-border w-36">
                             行可见范围
                           </th>
                         </tr>
@@ -545,10 +545,10 @@ export default function UserPermissionsPage() {
                         {bizTables.map((t) => (
                           <tr
                             key={t.id}
-                            className="border-b border-[#E2E8F0] hover:bg-[#F0F9FF]"
+                            className="border-b border-border hover:bg-muted"
                           >
                             <td className="px-3 py-2">
-                              <div className="font-bold text-[#1A202C]">{t.name}</div>
+                              <div className="font-bold text-foreground">{t.name}</div>
                               {t.description && (
                                 <div className="text-[10px] text-gray-400 truncate max-w-xs">
                                   {t.description}
@@ -575,7 +575,7 @@ export default function UserPermissionsPage() {
               </div>
 
               {/* ④ Skill 访问策略 */}
-              <div className="bg-white border-2 border-[#1A202C]">
+              <div className="bg-card border-2 border-border">
                 <SectionHeader
                   title="④ Skill 访问策略"
                   subtitle="按岗位配置的 Skill 发布/查看范围（只读）"
@@ -586,20 +586,20 @@ export default function UserPermissionsPage() {
                       加载中…
                     </p>
                   ) : skillPolicies.length === 0 ? (
-                    <p className="text-xs text-gray-400">
+                    <p className="text-xs text-muted-foreground">
                       暂无与该用户岗位相关的 Skill 策略，或该用户非员工角色。
                     </p>
                   ) : (
-                    <table className="w-full border-2 border-[#1A202C] text-xs font-mono mb-3">
+                    <table className="w-full border-2 border-border text-xs font-mono mb-3">
                       <thead>
-                        <tr className="bg-[#EBF4F7]">
-                          <th className="text-left px-3 py-2 text-[10px] font-bold uppercase tracking-widest text-[#00A3C4] border-b-2 border-[#1A202C]">
+                        <tr className="bg-muted">
+                          <th className="text-left px-3 py-2 text-[10px] font-bold uppercase tracking-widest text-[#00A3C4] border-b-2 border-border">
                             Skill
                           </th>
-                          <th className="text-left px-3 py-2 text-[10px] font-bold uppercase tracking-widest text-[#00A3C4] border-b-2 border-[#1A202C]">
+                          <th className="text-left px-3 py-2 text-[10px] font-bold uppercase tracking-widest text-[#00A3C4] border-b-2 border-border">
                             发布范围
                           </th>
-                          <th className="text-left px-3 py-2 text-[10px] font-bold uppercase tracking-widest text-[#00A3C4] border-b-2 border-[#1A202C]">
+                          <th className="text-left px-3 py-2 text-[10px] font-bold uppercase tracking-widest text-[#00A3C4] border-b-2 border-border">
                             查看范围
                           </th>
                         </tr>
@@ -608,15 +608,15 @@ export default function UserPermissionsPage() {
                         {skillPolicies.map((p) => (
                           <tr
                             key={p.id}
-                            className="border-b border-[#E2E8F0] hover:bg-[#F0F9FF]"
+                            className="border-b border-border hover:bg-muted"
                           >
-                            <td className="px-3 py-2 font-bold text-[#1A202C]">
+                            <td className="px-3 py-2 font-bold text-foreground">
                               Skill #{p.skill_id}
                             </td>
-                            <td className="px-3 py-2 text-gray-600">
+                            <td className="px-3 py-2 text-foreground/70">
                               {PUBLISH_SCOPE_LABELS[p.publish_scope] || p.publish_scope}
                             </td>
-                            <td className="px-3 py-2 text-gray-600">
+                            <td className="px-3 py-2 text-foreground/70">
                               {PUBLISH_SCOPE_LABELS[p.view_scope] || p.view_scope}
                             </td>
                           </tr>
