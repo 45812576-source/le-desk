@@ -513,7 +513,7 @@ export function RichEditor({ content, onChange, editable = true }: RichEditorPro
         onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadMedia(f); e.target.value = ""; }}
       />
 
-      <div className={editable ? "flex-1 overflow-y-auto" : ""}>
+      <div className={editable ? "flex-1 overflow-y-auto" : "overflow-y-auto"}>
         <EditorContent editor={editor} className={editable ? "h-full" : ""} />
       </div>
 
