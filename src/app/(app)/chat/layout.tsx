@@ -79,7 +79,7 @@ const ConversationTab = memo(function ConversationTab({
 
   return (
     <Link
-      href={`/chat/${conv.id}`}
+      href={isSkillStudio ? `/chat/${conv.id}?ws=skill_studio` : `/chat/${conv.id}`}
       data-conv-id={conv.id}
       onDoubleClick={(e) => {
         e.preventDefault();

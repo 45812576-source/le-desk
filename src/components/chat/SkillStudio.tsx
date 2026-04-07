@@ -2715,7 +2715,19 @@ function StudioChat({
 export function SkillStudio({ convId }: { convId: number }) {
   const [skills, setSkills] = useState<SkillDetail[]>([]);
   const [skillsLoading, setSkillsLoading] = useState(true);
-  const [selectedFile, setSelectedFile] = useState<SelectedFile | null>(null);
+  const [selectedFile, _setSelectedFile] = useState<SelectedFile | null>(() => {
+    try {
+      const saved = localStorage.getItem("skill_studio_selected");
+      return saved ? JSON.parse(saved) : null;
+    } catch { return null; }
+  });
+  const setSelectedFile = useCallback((f: SelectedFile | null) => {
+    _setSelectedFile(f);
+    try {
+      if (f) localStorage.setItem("skill_studio_selected", JSON.stringify(f));
+      else localStorage.removeItem("skill_studio_selected");
+    } catch { /* ignore */ }
+  }, []);
   const [isNew, setIsNew] = useState(false);
   const [showImportModal, setShowImportModal] = useState(false);
   const [memo, setMemo] = useState<SkillMemo | null>(null);

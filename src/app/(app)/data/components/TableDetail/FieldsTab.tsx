@@ -19,28 +19,28 @@ import {
 import FieldImpactPanel from "./fields/FieldImpactPanel";
 
 const TYPE_COLORS: Record<string, string> = {
-  text: "bg-gray-50 text-gray-500",
-  number: "bg-blue-50 text-blue-500",
-  single_select: "bg-purple-50 text-purple-600",
-  multi_select: "bg-purple-50 text-purple-500",
-  date: "bg-orange-50 text-orange-500",
-  datetime: "bg-orange-50 text-orange-500",
-  boolean: "bg-green-50 text-green-600",
-  person: "bg-cyan-50 text-cyan-600",
-  url: "bg-indigo-50 text-indigo-500",
-  email: "bg-indigo-50 text-indigo-500",
-  phone: "bg-teal-50 text-teal-500",
-  json: "bg-yellow-50 text-yellow-600",
-  attachment: "bg-pink-50 text-pink-500",
+  text: "bg-gray-50 dark:bg-gray-900 text-gray-500 dark:text-gray-400",
+  number: "bg-blue-50 dark:bg-blue-950 text-blue-500 dark:text-blue-400",
+  single_select: "bg-purple-50 dark:bg-purple-950 text-purple-600 dark:text-purple-400",
+  multi_select: "bg-purple-50 dark:bg-purple-950 text-purple-500 dark:text-purple-400",
+  date: "bg-orange-50 dark:bg-orange-950 text-orange-500 dark:text-orange-400",
+  datetime: "bg-orange-50 dark:bg-orange-950 text-orange-500 dark:text-orange-400",
+  boolean: "bg-green-50 dark:bg-green-950 text-green-600 dark:text-green-400",
+  person: "bg-cyan-50 dark:bg-cyan-950 text-cyan-600 dark:text-cyan-400",
+  url: "bg-indigo-50 dark:bg-indigo-950 text-indigo-500 dark:text-indigo-400",
+  email: "bg-indigo-50 dark:bg-indigo-950 text-indigo-500 dark:text-indigo-400",
+  phone: "bg-teal-50 dark:bg-teal-950 text-teal-500 dark:text-teal-400",
+  json: "bg-yellow-50 dark:bg-yellow-950 text-yellow-600 dark:text-yellow-400",
+  attachment: "bg-pink-50 dark:bg-pink-950 text-pink-500 dark:text-pink-400",
 };
 
 const ROLE_TAG_LABELS: Record<string, { label: string; color: string }> = {
-  dimension: { label: "维度", color: "bg-blue-50 text-blue-500" },
-  metric: { label: "指标", color: "bg-green-50 text-green-500" },
-  identifier: { label: "标识", color: "bg-purple-50 text-purple-500" },
-  sensitive: { label: "敏感", color: "bg-red-50 text-red-500" },
-  derived: { label: "衍生", color: "bg-orange-50 text-orange-500" },
-  system: { label: "系统", color: "bg-gray-50 text-gray-400" },
+  dimension: { label: "维度", color: "bg-blue-50 dark:bg-blue-950 text-blue-500 dark:text-blue-400" },
+  metric: { label: "指标", color: "bg-green-50 dark:bg-green-950 text-green-500 dark:text-green-400" },
+  identifier: { label: "标识", color: "bg-purple-50 dark:bg-purple-950 text-purple-500 dark:text-purple-400" },
+  sensitive: { label: "敏感", color: "bg-red-50 dark:bg-red-950 text-red-500 dark:text-red-400" },
+  derived: { label: "衍生", color: "bg-orange-50 dark:bg-orange-950 text-orange-500 dark:text-orange-400" },
+  system: { label: "系统", color: "bg-gray-50 dark:bg-gray-900 text-gray-400" },
 };
 
 const SENSITIVITY_OPTIONS = Object.entries(SENSITIVITY_LABELS) as [SensitivityLevel, string][];
@@ -48,9 +48,9 @@ const SENSITIVITY_OPTIONS = Object.entries(SENSITIVITY_LABELS) as [SensitivityLe
 // ─── 行背景色（按敏感级别渐变） ──
 function sensitivityRowBg(level?: SensitivityLevel): string {
   switch (level) {
-    case "S2_sensitive": return "bg-yellow-50/40";
-    case "S3_confidential": return "bg-orange-50/40";
-    case "S4_restricted": return "bg-red-50/40";
+    case "S2_sensitive": return "bg-yellow-50/40 dark:bg-yellow-950/40";
+    case "S3_confidential": return "bg-orange-50/40 dark:bg-orange-950/40";
+    case "S4_restricted": return "bg-red-50/40 dark:bg-red-950/40";
     default: return "";
   }
 }
@@ -89,21 +89,21 @@ function FieldDictionaryPanel({ fieldId, onClose }: { fieldId: number; onClose: 
   if (loading) return <div className="p-2 text-[9px] text-gray-400 animate-pulse">Loading...</div>;
 
   return (
-    <div className="border-2 border-[#00D1FF] bg-white p-3 mt-1 mb-2 mx-4">
+    <div className="border-2 border-[#00D1FF] bg-card p-3 mt-1 mb-2 mx-4">
       <div className="flex items-center justify-between mb-2">
         <span className="text-[9px] font-bold uppercase tracking-widest text-[#00A3C4]">枚举值字典</span>
-        <button onClick={onClose} className="text-[8px] text-gray-400 hover:text-[#1A202C]">✕</button>
+        <button onClick={onClose} className="text-[8px] text-muted-foreground hover:text-foreground">✕</button>
       </div>
       <div className="space-y-1 max-h-40 overflow-y-auto">
         {entries.map((e) => (
           <div key={e.id} className="flex items-center gap-2 text-[9px] py-0.5">
-            <span className={`px-1.5 py-px rounded ${e.is_active ? "bg-gray-50" : "bg-gray-100 text-gray-300 line-through"}`}>
+            <span className={`px-1.5 py-px rounded ${e.is_active ? "bg-muted" : "bg-muted text-muted-foreground line-through"}`}>
               {e.value}
             </span>
-            {e.label && <span className="text-gray-400">({e.label})</span>}
-            <span className="text-[7px] text-gray-300 ml-auto">{e.source}</span>
-            {e.hit_count > 0 && <span className="text-[7px] text-gray-300">{e.hit_count}次</span>}
-            <button onClick={() => handleDelete(e.id)} className="text-[8px] text-gray-300 hover:text-red-400">✕</button>
+            {e.label && <span className="text-muted-foreground">({e.label})</span>}
+            <span className="text-[7px] text-muted-foreground ml-auto">{e.source}</span>
+            {e.hit_count > 0 && <span className="text-[7px] text-muted-foreground">{e.hit_count}次</span>}
+            <button onClick={() => handleDelete(e.id)} className="text-[8px] text-muted-foreground hover:text-red-400">✕</button>
           </div>
         ))}
         {entries.length === 0 && <div className="text-[8px] text-gray-400">暂无枚举值</div>}
@@ -114,7 +114,7 @@ function FieldDictionaryPanel({ fieldId, onClose }: { fieldId: number; onClose: 
           onChange={(e) => setNewValue(e.target.value)}
           onKeyDown={(e) => { if (e.key === "Enter") handleAdd(); }}
           placeholder="新增枚举值..."
-          className="flex-1 text-[9px] border border-gray-300 px-1.5 py-0.5 focus:outline-none focus:border-[#00D1FF]"
+          className="flex-1 text-[9px] border border-border bg-background text-foreground px-1.5 py-0.5 focus:outline-none focus:border-[#00D1FF]"
         />
         <PixelButton size="sm" onClick={handleAdd}>+</PixelButton>
       </div>
@@ -190,12 +190,12 @@ function FieldRow({
 
   return (
     <>
-      <div className={`flex items-center gap-3 px-4 py-2 border-b border-gray-100 hover:bg-[#F0FBFF] transition-colors ${rowBg} ${isDeprecatedOrArchived && isV2 ? "opacity-50" : ""}`}>
+      <div className={`flex items-center gap-3 px-4 py-2 border-b border-border hover:bg-muted transition-colors ${rowBg} ${isDeprecatedOrArchived && isV2 ? "opacity-50" : ""}`}>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
             <span className="text-[10px] font-bold">{field.display_name || field.field_name}</span>
             {field.is_system && (
-              <span className="text-[7px] font-bold px-1 py-px bg-gray-100 text-gray-400 rounded">SYS</span>
+              <span className="text-[7px] font-bold px-1 py-px bg-muted text-muted-foreground rounded">SYS</span>
             )}
             {/* V2: 生命周期标签 */}
             {isV2 && lifecycleStatus && (
@@ -207,22 +207,22 @@ function FieldRow({
             {isV2 && lifecycleStatus === "inferred" && field.id && (
               <button
                 onClick={handleConfirmLifecycle}
-                className="text-[7px] font-bold px-1 py-px bg-green-50 text-green-500 border border-green-200 rounded hover:bg-green-100 transition-colors"
+                className="text-[7px] font-bold px-1 py-px bg-green-50 dark:bg-green-950 text-green-500 dark:text-green-400 border border-green-200 dark:border-green-800 rounded hover:bg-green-100 dark:hover:bg-green-900 transition-colors"
               >
                 确认
               </button>
             )}
             {/* V1: 原有敏感标记（V2 下用下拉替代） */}
             {!isV2 && field.is_sensitive && (
-              <span className="text-[7px] font-bold px-1 py-px bg-red-50 text-red-500 rounded">敏感</span>
+              <span className="text-[7px] font-bold px-1 py-px bg-red-50 dark:bg-red-950 text-red-500 dark:text-red-400 rounded">敏感</span>
             )}
             {field.is_enum && (
-              <span className="text-[7px] font-bold px-1 py-px bg-purple-50 text-purple-500 rounded cursor-pointer" onClick={() => setShowDict(!showDict)}>
+              <span className="text-[7px] font-bold px-1 py-px bg-purple-50 dark:bg-purple-950 text-purple-500 dark:text-purple-400 rounded cursor-pointer" onClick={() => setShowDict(!showDict)}>
                 枚举
               </span>
             )}
             {field.is_free_text && (
-              <span className="text-[7px] font-bold px-1 py-px bg-gray-50 text-gray-400 rounded">自由文本</span>
+              <span className="text-[7px] font-bold px-1 py-px bg-muted text-muted-foreground rounded">自由文本</span>
             )}
           </div>
           {field.display_name && field.display_name !== field.field_name && (
@@ -258,9 +258,9 @@ function FieldRow({
         </div>
 
         <div className="flex items-center gap-1 flex-shrink-0">
-          {field.is_filterable && <span className="text-[7px] px-1 py-px bg-blue-50 text-blue-400 rounded" title="可筛选">F</span>}
-          {field.is_groupable && <span className="text-[7px] px-1 py-px bg-green-50 text-green-400 rounded" title="可分组">G</span>}
-          {field.is_sortable && <span className="text-[7px] px-1 py-px bg-orange-50 text-orange-400 rounded" title="可排序">S</span>}
+          {field.is_filterable && <span className="text-[7px] px-1 py-px bg-blue-50 dark:bg-blue-950 text-blue-400" title="可筛选">F</span>}
+          {field.is_groupable && <span className="text-[7px] px-1 py-px bg-green-50 dark:bg-green-950 text-green-400" title="可分组">G</span>}
+          {field.is_sortable && <span className="text-[7px] px-1 py-px bg-orange-50 dark:bg-orange-950 text-orange-400" title="可排序">S</span>}
         </div>
 
         <div className="flex items-center gap-2 flex-shrink-0">
@@ -285,8 +285,8 @@ function FieldRow({
             <select
               value={sensitivityLevel || "S0_public"}
               onChange={(e) => handleSensitivityChange(e.target.value as SensitivityLevel)}
-              className={`text-[7px] font-bold px-1 py-px border rounded cursor-pointer appearance-none ${
-                SENSITIVITY_COLORS[sensitivityLevel] || "border-gray-200 text-gray-300"
+              className={`text-[7px] font-bold px-1 py-px border rounded cursor-pointer appearance-none bg-card ${
+                SENSITIVITY_COLORS[sensitivityLevel] || "border-border text-muted-foreground"
               }`}
               title="敏感分级"
             >

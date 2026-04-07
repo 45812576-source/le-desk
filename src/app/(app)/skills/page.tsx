@@ -85,10 +85,10 @@ function SectionGroup({ label, count, children, collapsible, actions }: {
           onClick={() => collapsible && setCollapsed((v) => !v)}
         >
           <span className="text-[9px] font-bold uppercase tracking-widest text-[#00A3C4]">{label}</span>
-          <span className="text-[9px] text-gray-400">({count})</span>
-          <div className="flex-1 h-px bg-[#E2E8F0]" />
+          <span className="text-[9px] text-muted-foreground">({count})</span>
+          <div className="flex-1 h-px bg-border" />
           {collapsible && (
-            <span className="text-[9px] text-gray-400">{collapsed ? "▼" : "▲"}</span>
+            <span className="text-[9px] text-muted-foreground">{collapsed ? "▼" : "▲"}</span>
           )}
         </div>
         {actions}
@@ -120,7 +120,7 @@ function CheckItem({
 }) {
   return (
     <label className={`flex items-center gap-3 border-2 p-3 cursor-pointer transition-colors ${
-      checked ? "border-[#00A3C4] bg-[#F0FDFA]" : "border-[#E2E8F0] bg-white hover:border-gray-400"
+      checked ? "border-[#00A3C4] bg-[#F0FDFA] dark:bg-[#0A2F2A]" : "border-border bg-card hover:border-muted-foreground"
     }`}>
       <input
         type="checkbox"
@@ -138,7 +138,7 @@ function CheckItem({
           {extraBadges}
         </div>
         {description && (
-          <p className="text-[8px] text-gray-500 line-clamp-1">{description}</p>
+          <p className="text-[8px] text-muted-foreground line-clamp-1">{description}</p>
         )}
       </div>
       {actions && (
@@ -191,7 +191,7 @@ function MySkillActions({ skill, onRefresh }: { skill: SkillDetail; onRefresh: (
         <PixelButton size="sm" variant="secondary" onClick={() => setShowSandbox(true)}>发布</PixelButton>
       )}
       {skill.status === "reviewing" && (
-        <span className="text-[9px] font-bold text-yellow-600 border border-yellow-400 bg-yellow-50 px-2 py-1">审批中</span>
+        <span className="text-[9px] font-bold text-yellow-600 dark:text-yellow-400 border border-yellow-400 dark:border-yellow-600 bg-yellow-50 dark:bg-yellow-950 px-2 py-1">审批中</span>
       )}
       {skill.status === "published" && (
         <PixelButton size="sm" variant="secondary" onClick={handleArchive}>归档</PixelButton>
@@ -243,7 +243,7 @@ function MyToolActions({ tool, onRefresh }: { tool: ToolEntry; onRefresh: () => 
         <PixelButton size="sm" variant="secondary" onClick={() => setShowSandbox(true)}>发布</PixelButton>
       )}
       {tool.status === "reviewing" && (
-        <span className="text-[9px] font-bold text-yellow-600 border border-yellow-400 bg-yellow-50 px-2 py-1">审批中</span>
+        <span className="text-[9px] font-bold text-yellow-600 dark:text-yellow-400 border border-yellow-400 dark:border-yellow-600 bg-yellow-50 dark:bg-yellow-950 px-2 py-1">审批中</span>
       )}
       {tool.status === "published" && (
         <PixelButton size="sm" variant="secondary" onClick={handleArchive}>归档</PixelButton>
@@ -488,7 +488,7 @@ export default function SkillsPage() {
             }
           >
             {unpublishedCount >= 3 && (
-              <div className="border-2 border-yellow-400 bg-yellow-50 px-4 py-2 mb-2 text-[9px] font-bold text-yellow-700">
+              <div className="border-2 border-yellow-400 dark:border-yellow-600 bg-yellow-50 dark:bg-yellow-950 px-4 py-2 mb-2 text-[9px] font-bold text-yellow-700 dark:text-yellow-300">
                 未发布的 Skill 已达上限（3个），请先发布或删除后再创建
               </div>
             )}
@@ -518,7 +518,7 @@ export default function SkillsPage() {
                 );
               })
             ) : (
-              <div className="text-[10px] text-gray-400 text-center py-6">
+              <div className="text-[10px] text-muted-foreground text-center py-6">
                 暂无自己开发的 Skill，前往 Skill Studio 创建
               </div>
             )}
@@ -590,7 +590,7 @@ export default function SkillsPage() {
                 );
               })
             ) : (
-              <div className="text-[10px] text-gray-400 text-center py-6">
+              <div className="text-[10px] text-muted-foreground text-center py-6">
                 暂无工具，前往 Dev Studio 创建
               </div>
             )}
@@ -645,7 +645,7 @@ export default function SkillsPage() {
           )}
 
           {/* ══ 底部操作栏 ══ */}
-          <div className="sticky bottom-0 bg-[#F0F4F8] border-t-2 border-[#1A202C] px-4 py-3 -mx-4 mt-4 flex items-center gap-3">
+          <div className="sticky bottom-0 bg-background border-t-2 border-border px-4 py-3 -mx-4 mt-4 flex items-center gap-3">
             <PixelButton onClick={handleSave} disabled={saving || !configDirty}>
               {saving ? "保存中..." : "保存配置"}
             </PixelButton>
@@ -674,7 +674,7 @@ export default function SkillsPage() {
                 {saveMsg}
               </span>
             )}
-            <span className="ml-auto text-[8px] text-gray-400">
+            <span className="ml-auto text-[8px] text-muted-foreground">
               挂载：{Array.from(mountedSkills.values()).filter((s) => s.mounted).length} Skill + {Array.from(mountedTools.values()).filter((t) => t.mounted).length} 工具
             </span>
           </div>

@@ -105,68 +105,68 @@ export default function GovernanceReviewCard({
   const [expanded, setExpanded] = useState(false);
 
   return (
-    <div className="border border-gray-200 rounded bg-[#F8FCFF]">
+    <div className="border border-border rounded bg-card">
       <div
-        className="px-3 py-2 border-b border-gray-200 flex items-center gap-2 cursor-pointer select-none hover:bg-muted transition-colors"
+        className="px-3 py-2 border-b border-border flex items-center gap-2 cursor-pointer select-none hover:bg-muted transition-colors"
         onClick={() => setExpanded((v) => !v)}
       >
         <span className="text-[9px] font-bold uppercase tracking-widest text-[#0077B6]">{title}</span>
-        <span className="text-[8px] text-gray-400">{subjectLabel}</span>
+        <span className="text-[8px] text-muted-foreground">{subjectLabel}</span>
         <span className={`ml-auto px-1.5 py-0.5 rounded text-[8px] font-bold ${
           state.governance_status === "aligned"
-            ? "bg-emerald-50 text-emerald-600 border border-emerald-200"
+            ? "bg-emerald-50 text-emerald-600 border border-emerald-200 dark:bg-emerald-950 dark:text-emerald-400 dark:border-emerald-800"
             : state.governance_status === "suggested"
-              ? "bg-muted text-amber-600 border border-amber-200"
-              : "bg-gray-100 text-gray-500"
+              ? "bg-muted text-amber-600 border border-amber-200 dark:text-amber-400 dark:border-amber-800"
+              : "bg-muted text-muted-foreground"
         }`}>
           {state.governance_status || "ungoverned"}
         </span>
-        <span className="text-[8px] text-gray-400 ml-1">{expanded ? "▲" : "▼"}</span>
+        <span className="text-[8px] text-muted-foreground ml-1">{expanded ? "▲" : "▼"}</span>
       </div>
 
       {expanded && <div className="p-3 space-y-3">
         <div className="flex flex-wrap gap-2 text-[9px]">
-          <span className="px-2 py-1 rounded border border-sky-200 bg-sky-50 text-sky-700">
+          <span className="px-2 py-1 rounded border border-sky-200 dark:border-sky-800 bg-sky-50 dark:bg-sky-950 text-sky-700 dark:text-sky-300">
             当前目标: {currentObjective?.name || "未挂载"}
           </span>
-          <span className="px-2 py-1 rounded border border-slate-200 bg-card text-slate-600">
+          <span className="px-2 py-1 rounded border border-border bg-card text-foreground">
             当前资源库: {currentLibrary?.name || "未挂载"}
           </span>
-          <span className="px-2 py-1 rounded border border-violet-200 bg-violet-50 text-violet-700">
+          <span className="px-2 py-1 rounded border border-violet-200 dark:border-violet-800 bg-violet-50 dark:bg-violet-950 text-violet-700 dark:text-violet-300">
             对象类型: {currentObjectType?.name || "未挂载"}
           </span>
-          <span className="px-2 py-1 rounded border border-emerald-200 bg-emerald-50 text-emerald-700">
+          <span className="px-2 py-1 rounded border border-emerald-200 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300">
             KR: {currentKr?.name || "未挂载"}
           </span>
-          <span className="px-2 py-1 rounded border border-orange-200 bg-orange-50 text-orange-700">
+          <span className="px-2 py-1 rounded border border-orange-200 dark:border-orange-800 bg-orange-50 dark:bg-orange-950 text-orange-700 dark:text-orange-300">
             要素: {currentElement?.name || "未挂载"}
           </span>
           {state.governance_confidence != null && (
-            <span className="px-2 py-1 rounded border border-amber-200 bg-muted text-amber-700">
+            <span className="px-2 py-1 rounded border border-amber-200 dark:border-amber-800 bg-muted text-amber-700 dark:text-amber-300">
               置信度: {(state.governance_confidence * 100).toFixed(0)}%
             </span>
           )}
         </div>
 
         {state.governance_note && (
-          <div className="text-[10px] text-gray-600 border border-gray-100 bg-card rounded px-3 py-2">
+          <div className="text-[10px] text-foreground/70 border border-border bg-card rounded px-3 py-2">
             {state.governance_note}
           </div>
         )}
 
         {pendingSuggestion && (
-          <div className="border border-amber-200 bg-muted rounded px-3 py-2 space-y-2">
+          <div className="border border-amber-200 dark:border-amber-800 bg-muted rounded px-3 py-2 space-y-2">
             <div className="flex items-center justify-between gap-2">
-              <div className="text-[10px] font-medium text-amber-700">
+              <div className="text-[10px] font-medium text-amber-700 dark:text-amber-300">
                 建议挂载到 {suggestedObjective?.name || "未知目标"} / {suggestedLibrary?.name || "未知资源库"}
               </div>
-              <span className="text-[9px] text-amber-600">{pendingSuggestion.confidence || 0}%</span>
+              <span className="text-[9px] text-amber-600 dark:text-amber-400">{pendingSuggestion.confidence || 0}%</span>
             </div>
             {pendingSuggestion.reason && (
-              <div className="text-[9px] text-amber-700">{pendingSuggestion.reason}</div>
+              <div className="text-[9px] text-amber-700 dark:text-amber-300">{pendingSuggestion.reason}</div>
             )}
             {pendingSuggestion.suggested_payload && (
-              <div className="text-[8px] text-amber-800 space-y-1">
+              <div className="text-[8px] text-amber-800 dark:text-amber-200 space-y-1">
                 {"kr_name" in pendingSuggestion.suggested_payload && (
                   <div>建议 KR: {String(pendingSuggestion.suggested_payload.kr_name || "-")}</div>
                 )}
@@ -182,7 +182,7 @@ export default function GovernanceReviewCard({
               <button
                 disabled={actionLoading}
                 onClick={() => onApply(pendingSuggestion.objective_id || null, pendingSuggestion.resource_library_id || null, pendingSuggestion.reason || "采纳治理建议")}
-                className="px-2 py-1 text-[9px] font-bold border border-emerald-300 text-emerald-600 hover:bg-emerald-50 disabled:opacity-50"
+                className="px-2 py-1 text-[9px] font-bold border border-emerald-300 dark:border-emerald-700 text-emerald-600 dark:text-emerald-400 hover:bg-muted disabled:opacity-50"
               >
                 采纳建议
               </button>
@@ -199,7 +199,7 @@ export default function GovernanceReviewCard({
             >
               {actionLoading ? "处理中..." : "生成治理建议"}
             </button>
-            <span className="text-[8px] text-gray-400">按标题、描述、内容和旧分类结果生成建议</span>
+            <span className="text-[8px] text-muted-foreground">按标题、描述、内容和旧分类结果生成建议</span>
           </div>
         )}
 
@@ -218,17 +218,17 @@ export default function GovernanceReviewCard({
         </div>
 
         {currentObjectType && (
-          <div className="border border-gray-200 rounded bg-card px-3 py-2">
-            <div className="text-[10px] font-semibold text-gray-700 mb-2">字段模板</div>
+          <div className="border border-border rounded bg-card px-3 py-2">
+            <div className="text-[10px] font-semibold text-foreground mb-2">字段模板</div>
             <div className="space-y-1">
               {fieldTemplates
                 .filter((item) => item.object_type_id === currentObjectType.id)
                 .map((item) => (
-                  <div key={item.id} className="flex items-center justify-between gap-2 text-[8px] border border-gray-100 rounded px-2 py-1">
-                    <span className="text-gray-700">{item.field_label}</span>
-                    <span className="text-gray-400">{item.field_type}</span>
-                    <span className={`${item.is_required ? "text-red-500" : "text-gray-300"}`}>{item.is_required ? "必填" : "可选"}</span>
-                    <span className="text-gray-400">{item.update_cycle || "-"}</span>
+                  <div key={item.id} className="flex items-center justify-between gap-2 text-[8px] border border-border rounded px-2 py-1">
+                    <span className="text-foreground">{item.field_label}</span>
+                    <span className="text-muted-foreground">{item.field_type}</span>
+                    <span className={`${item.is_required ? "text-red-500 dark:text-red-400" : "text-muted-foreground"}`}>{item.is_required ? "必填" : "可选"}</span>
+                    <span className="text-muted-foreground">{item.update_cycle || "-"}</span>
                   </div>
                 ))}
             </div>
@@ -263,24 +263,24 @@ function BlueprintColumn({
   );
 
   return (
-    <div className="border border-gray-200 rounded bg-card px-3 py-2">
-      <div className="text-[10px] font-semibold text-gray-700">{objective?.name || "未初始化"}</div>
-      <div className="text-[8px] text-gray-400 mt-0.5">{objective?.description || "暂无描述"}</div>
+    <div className="border border-border rounded bg-card px-3 py-2">
+      <div className="text-[10px] font-semibold text-foreground">{objective?.name || "未初始化"}</div>
+      <div className="text-[8px] text-muted-foreground mt-0.5">{objective?.description || "暂无描述"}</div>
       <div className="mt-2 space-y-2">
-        {libraries.length === 0 && <div className="text-[8px] text-gray-300">暂无资源库</div>}
+        {libraries.length === 0 && <div className="text-[8px] text-muted-foreground">暂无资源库</div>}
         {clusters.map((cluster) => {
           const items = cluster.codes
             .map((code) => libraries.find((library) => library.code === code) || null)
             .filter((library): library is GovernanceResourceLibraryLite => Boolean(library));
           if (items.length === 0) return null;
           return (
-            <div key={cluster.label} className="border border-gray-100 rounded px-2 py-2 bg-card">
-              <div className="text-[8px] font-bold uppercase tracking-widest text-gray-500">{cluster.label}</div>
+            <div key={cluster.label} className="border border-border rounded px-2 py-2 bg-card">
+              <div className="text-[8px] font-bold uppercase tracking-widest text-muted-foreground">{cluster.label}</div>
               <div className="mt-1 space-y-1">
                 {items.map((library) => (
-                  <div key={library.id} className="flex items-center justify-between gap-2 text-[8px] border border-gray-100 rounded px-2 py-1 bg-card">
-                    <span className="text-gray-600 truncate">{library.name}</span>
-                    <span className="text-gray-400">{library.default_update_cycle || "-"}</span>
+                  <div key={library.id} className="flex items-center justify-between gap-2 text-[8px] border border-border rounded px-2 py-1 bg-card">
+                    <span className="text-foreground/80 truncate">{library.name}</span>
+                    <span className="text-muted-foreground">{library.default_update_cycle || "-"}</span>
                   </div>
                 ))}
               </div>
@@ -288,13 +288,13 @@ function BlueprintColumn({
           );
         })}
         {ungrouped.length > 0 && (
-          <div className="border border-dashed border-gray-200 rounded px-2 py-2 bg-card">
-            <div className="text-[8px] font-bold uppercase tracking-widest text-gray-400">待归组</div>
+          <div className="border border-dashed border-border rounded px-2 py-2 bg-card">
+            <div className="text-[8px] font-bold uppercase tracking-widest text-muted-foreground">待归组</div>
             <div className="mt-1 space-y-1">
               {ungrouped.map((library) => (
-                <div key={library.id} className="flex items-center justify-between gap-2 text-[8px] border border-gray-100 rounded px-2 py-1">
-                  <span className="text-gray-600 truncate">{library.name}</span>
-                  <span className="text-gray-400">{library.default_update_cycle || "-"}</span>
+                <div key={library.id} className="flex items-center justify-between gap-2 text-[8px] border border-border rounded px-2 py-1">
+                  <span className="text-foreground/80 truncate">{library.name}</span>
+                  <span className="text-muted-foreground">{library.default_update_cycle || "-"}</span>
                 </div>
               ))}
             </div>
@@ -350,18 +350,18 @@ function ObjectBindingPanel({
   }, [currentObjectId]);
 
   return (
-    <div className="border border-gray-200 rounded bg-card px-3 py-2 space-y-2">
-      <div className="text-[10px] font-semibold text-gray-700">对象绑定</div>
+    <div className="border border-border rounded bg-card px-3 py-2 space-y-2">
+      <div className="text-[10px] font-semibold text-foreground">对象绑定</div>
       <div className="flex items-center gap-2">
         <input
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           placeholder="搜索已有对象"
-          className="flex-1 text-[10px] border border-gray-300 px-2 py-1 focus:outline-none focus:border-[#00D1FF]"
+          className="flex-1 text-[10px] border border-border bg-background text-foreground px-2 py-1 focus:outline-none focus:border-[#00D1FF]"
         />
         <button
           onClick={() => void load(search)}
-          className="px-2 py-1 text-[8px] font-bold border border-gray-300 text-gray-600 hover:bg-gray-50"
+          className="px-2 py-1 text-[8px] font-bold border border-border text-foreground/70 hover:bg-muted"
         >
           搜索
         </button>
@@ -398,21 +398,21 @@ function ObjectBindingPanel({
         </button>
       </div>
       <div className="space-y-1 max-h-36 overflow-y-auto">
-        {loading && <div className="text-[8px] text-gray-400">加载中...</div>}
-        {!loading && items.length === 0 && <div className="text-[8px] text-gray-300">暂无对象候选</div>}
+        {loading && <div className="text-[8px] text-muted-foreground">加载中...</div>}
+        {!loading && items.length === 0 && <div className="text-[8px] text-muted-foreground">暂无对象候选</div>}
         {items.map((item) => (
-          <div key={item.id} className={`flex items-center gap-2 text-[8px] border rounded px-2 py-1 ${currentObjectId === item.id ? "border-emerald-300 bg-emerald-50" : "border-gray-100"}`}>
-            <span className="text-gray-700 flex-1 truncate">{item.display_name}</span>
+          <div key={item.id} className={`flex items-center gap-2 text-[8px] border rounded px-2 py-1 ${currentObjectId === item.id ? "border-emerald-300 dark:border-emerald-700 bg-emerald-50 dark:bg-emerald-950" : "border-border"}`}>
+            <span className="text-foreground flex-1 truncate">{item.display_name}</span>
             {item.matched_business_line && (
-              <span className="px-1 py-0.5 rounded border border-sky-200 bg-sky-50 text-sky-600">同业务线</span>
+              <span className="px-1 py-0.5 rounded border border-sky-200 dark:border-sky-800 bg-sky-50 dark:bg-sky-950 text-sky-600 dark:text-sky-400">同业务线</span>
             )}
             {typeof item.feedback_score === "number" && (
-              <span className="text-violet-600">反馈 {item.feedback_score}</span>
+              <span className="text-violet-600 dark:text-violet-400">反馈 {item.feedback_score}</span>
             )}
             {typeof item.score === "number" && (
-              <span className="text-gray-400">分数 {item.score}</span>
+              <span className="text-muted-foreground">分数 {item.score}</span>
             )}
-            <span className="text-gray-400">{item.lifecycle_status}</span>
+            <span className="text-muted-foreground">{item.lifecycle_status}</span>
             <button
               onClick={async () => {
                 await apiFetch("/knowledge-governance/bind-object", {
@@ -425,7 +425,7 @@ function ObjectBindingPanel({
                 });
                 onBound?.();
               }}
-              className="px-2 py-0.5 text-[8px] font-bold border border-emerald-300 text-emerald-600 hover:bg-emerald-50"
+              className="px-2 py-0.5 text-[8px] font-bold border border-emerald-300 dark:border-emerald-700 text-emerald-600 dark:text-emerald-400 hover:bg-muted"
             >
               {currentObjectId === item.id ? "已绑定" : "绑定"}
             </button>
@@ -434,25 +434,25 @@ function ObjectBindingPanel({
       </div>
 
       {detail && (
-        <div className="border border-gray-100 rounded bg-card px-2 py-2 space-y-1">
-          <div className="text-[9px] font-semibold text-gray-700">当前对象视图</div>
-          <div className="text-[8px] text-gray-500">{detail.display_name} · {detail.canonical_key}</div>
-          {detail.facets.length === 0 && <div className="text-[8px] text-gray-300">暂无 facet</div>}
+        <div className="border border-border rounded bg-card px-2 py-2 space-y-1">
+          <div className="text-[9px] font-semibold text-foreground">当前对象视图</div>
+          <div className="text-[8px] text-muted-foreground">{detail.display_name} · {detail.canonical_key}</div>
+          {detail.facets.length === 0 && <div className="text-[8px] text-muted-foreground">暂无 facet</div>}
           {detail.facets.map((facet) => (
-            <div key={facet.id} className="text-[8px] border border-gray-100 rounded px-2 py-1 bg-card">
+            <div key={facet.id} className="text-[8px] border border-border rounded px-2 py-1 bg-card">
               <div className="flex items-center justify-between gap-2">
-                <span className="text-gray-700">{facet.facet_name}</span>
-                <span className="text-gray-400">{facet.update_cycle || "-"}</span>
+                <span className="text-foreground">{facet.facet_name}</span>
+                <span className="text-muted-foreground">{facet.update_cycle || "-"}</span>
               </div>
-              <div className="text-gray-400 mt-0.5">
+              <div className="text-muted-foreground mt-0.5">
                 {facet.source_subjects.map((item) => `${item.type}#${item.id}`).join(" / ") || "无来源"}
               </div>
             </div>
           ))}
 
           {detail.collaboration_baseline && (
-            <div className="mt-2 border border-gray-100 rounded px-2 py-2 bg-card space-y-1">
-              <div className="text-[9px] font-semibold text-gray-700">协同基线</div>
+            <div className="mt-2 border border-border rounded px-2 py-2 bg-card space-y-1">
+              <div className="text-[9px] font-semibold text-foreground">协同基线</div>
               <div className="grid grid-cols-2 gap-2 text-[8px]">
                 <BaselineBucket
                   title="知识文档"
@@ -477,13 +477,13 @@ function ObjectBindingPanel({
       )}
 
       {items.length > 0 && (
-        <div className="border border-gray-100 rounded bg-[#FFFDF5] px-2 py-2">
-          <div className="text-[9px] font-semibold text-amber-700 mb-1">对象候选</div>
+        <div className="border border-border rounded bg-amber-50 dark:bg-amber-950/30 px-2 py-2">
+          <div className="text-[9px] font-semibold text-amber-700 dark:text-amber-300 mb-1">对象候选</div>
           <div className="space-y-1">
             {items.slice(0, 3).map((item) => (
               <div key={`candidate-${item.id}`} className="text-[8px] flex items-center justify-between gap-2">
-                <span className="text-gray-700 truncate">{item.display_name}</span>
-                <span className="text-gray-400">{item.business_line || "-"}</span>
+                <span className="text-foreground truncate">{item.display_name}</span>
+                <span className="text-muted-foreground">{item.business_line || "-"}</span>
               </div>
             ))}
           </div>
@@ -495,13 +495,13 @@ function ObjectBindingPanel({
 
 function BaselineBucket({ title, items }: { title: string; items: string[] }) {
   return (
-    <div className="border border-gray-100 rounded px-2 py-1">
-      <div className="text-gray-500 mb-1">{title}</div>
-      {items.length === 0 && <div className="text-gray-300">暂无</div>}
+    <div className="border border-border rounded px-2 py-1">
+      <div className="text-muted-foreground mb-1">{title}</div>
+      {items.length === 0 && <div className="text-muted-foreground">暂无</div>}
       {items.slice(0, 3).map((item, idx) => (
-        <div key={`${title}-${idx}`} className="text-gray-700 truncate">{item}</div>
+        <div key={`${title}-${idx}`} className="text-foreground truncate">{item}</div>
       ))}
-      {items.length > 3 && <div className="text-gray-300">+{items.length - 3}</div>}
+      {items.length > 3 && <div className="text-muted-foreground">+{items.length - 3}</div>}
     </div>
   );
 }

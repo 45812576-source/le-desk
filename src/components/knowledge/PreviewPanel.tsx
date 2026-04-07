@@ -608,7 +608,7 @@ export default function PreviewPanel({
 
       {/* 管理员视角：完整治理卡片 */}
       {entry && currentUser && (currentUser.role === "super_admin" || currentUser.role === "dept_admin") && (
-        <div className="px-5 py-3 border-b border-gray-100 bg-[#F8FCFF]">
+        <div className="px-5 py-3 border-b border-border bg-card">
           <GovernanceReviewCard
           subjectType="knowledge"
           subjectId={entry.id}
