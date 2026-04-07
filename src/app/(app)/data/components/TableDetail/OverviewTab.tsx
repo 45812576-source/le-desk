@@ -1,6 +1,6 @@
 "use client";
 
-import React from "react";
+import React, { useState } from "react";
 import { PixelBadge } from "@/components/pixel/PixelBadge";
 import { PixelButton } from "@/components/pixel/PixelButton";
 import { apiFetch } from "@/lib/api";
@@ -37,10 +37,26 @@ function InfoRow({ label, children }: { label: string; children: React.ReactNode
 interface Props {
   detail: TableDetail;
   onRefresh: () => void;
+  onDeleteTable?: (id: number) => void;
 }
 
-export default function OverviewTab({ detail, onRefresh }: Props) {
+export default function OverviewTab({ detail, onRefresh, onDeleteTable }: Props) {
   const isV2 = useV2DataAssets();
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+
+  async function handleDelete() {
+    setDeleting(true);
+    try {
+      await apiFetch(`/data-assets/tables/${detail.id}`, { method: "DELETE" });
+      onDeleteTable?.(detail.id);
+    } catch (e: unknown) {
+      alert(e instanceof Error ? e.message : "删除失败");
+    } finally {
+      setDeleting(false);
+      setConfirmDelete(false);
+    }
+  }
 
   async function triggerSync() {
     try {
@@ -128,6 +144,28 @@ export default function OverviewTab({ detail, onRefresh }: Props) {
 
       {/* V2: 风险评分面板 */}
       {isV2 && <RiskScorePanel detail={detail as TableDetailV2} />}
+
+      {/* 危险操作 */}
+      {onDeleteTable && (
+        <div className="border-2 border-red-200 p-3">
+          <div className="text-[9px] font-bold uppercase tracking-widest text-red-400 mb-2">危险操作</div>
+          {!confirmDelete ? (
+            <PixelButton size="sm" variant="secondary" onClick={() => setConfirmDelete(true)}>
+              删除此数据表
+            </PixelButton>
+          ) : (
+            <div className="flex items-center gap-2">
+              <span className="text-[9px] text-red-500 font-bold">确认删除「{detail.display_name}」？此操作不可恢复。</span>
+              <PixelButton size="sm" onClick={handleDelete} disabled={deleting}>
+                {deleting ? "删除中..." : "确认删除"}
+              </PixelButton>
+              <PixelButton size="sm" variant="secondary" onClick={() => setConfirmDelete(false)} disabled={deleting}>
+                取消
+              </PixelButton>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* 最近同步记录 */}
       {detail.recent_sync_jobs.length > 0 && (

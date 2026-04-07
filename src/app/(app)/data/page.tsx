@@ -162,6 +162,7 @@ function ManageTab() {
               <TableDetailPanel
                 tableId={selectedTableId}
                 onRefresh={() => { fetchTables(); }}
+                onDeleteTable={() => { setSelectedTableId(null); fetchTables(); }}
               />
             ) : isV2 ? (
               <RiskSummaryPanel />

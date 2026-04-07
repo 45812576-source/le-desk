@@ -68,9 +68,10 @@ const V2_TABS: V2Tab[] = [
 interface Props {
   tableId: number;
   onRefresh?: () => void;
+  onDeleteTable?: (id: number) => void;
 }
 
-export default function TableDetailPanel({ tableId, onRefresh }: Props) {
+export default function TableDetailPanel({ tableId, onRefresh, onDeleteTable }: Props) {
   const isV2 = useV2DataAssets();
   const [detail, setDetail] = useState<TableDetail | null>(null);
   const [loading, setLoading] = useState(true);
@@ -154,7 +155,7 @@ export default function TableDetailPanel({ tableId, onRefresh }: Props) {
           ))}
         </div>
         <div className="flex-1 min-h-0 overflow-y-auto">
-          {v1Tab === "overview" && <OverviewTab detail={detail} onRefresh={handleRefresh} />}
+          {v1Tab === "overview" && <OverviewTab detail={detail} onRefresh={handleRefresh} onDeleteTable={onDeleteTable} />}
           {v1Tab === "preview" && <PreviewTab detail={detail} />}
           {v1Tab === "fields" && <FieldsTab detail={detail} />}
           {v1Tab === "views" && <ViewsTab detail={detail} onRefresh={handleRefresh} />}
@@ -223,7 +224,7 @@ export default function TableDetailPanel({ tableId, onRefresh }: Props) {
       <div className="flex-1 min-h-0 overflow-y-auto">
         {/* 数据结构 */}
         {v2Tab === "fields" && <FieldsTab detail={detail} onRefresh={handleRefresh} />}
-        {v2Tab === "overview" && <OverviewTab detail={detail} onRefresh={handleRefresh} />}
+        {v2Tab === "overview" && <OverviewTab detail={detail} onRefresh={handleRefresh} onDeleteTable={onDeleteTable} />}
         {/* 消费方式 */}
         {v2Tab === "views" && <ViewsTab detail={detail} onRefresh={handleRefresh} />}
         {v2Tab === "bindings" && <SkillBindingsTab detail={detail} onRefresh={handleRefresh} />}
