@@ -61,50 +61,80 @@ export default function PublicKnowledgeSharePage() {
   }, [token, saving]);
 
   if (loading) {
-    return <div className="min-h-screen bg-[#FAFAF7] text-[#1A202C] flex items-center justify-center text-sm">加载中...</div>;
+    return (
+      <div className="min-h-screen bg-background text-foreground flex items-center justify-center text-sm">
+        加载中...
+      </div>
+    );
   }
 
   if (error || !detail) {
-    return <div className="min-h-screen bg-[#FAFAF7] text-[#1A202C] flex items-center justify-center text-sm">{error || "链接已失效"}</div>;
+    return (
+      <div className="min-h-screen bg-background text-foreground flex items-center justify-center text-sm">
+        {error || "链接已失效"}
+      </div>
+    );
   }
 
   return (
-    <main className="min-h-screen bg-[#FAFAF7] text-[#1A202C] px-4 py-8">
-      <div className="max-w-3xl mx-auto bg-white border border-[#E5E7EB] shadow-sm">
-        <div className="px-6 py-5 border-b border-[#E5E7EB]">
-          <div className="flex items-center gap-2 text-[11px] text-gray-500 mb-2">
-            <span className="px-2 py-0.5 rounded bg-[#F0F9FF] text-[#00A3C4]">{detail.source_origin_label || "工作台"}</span>
-            {isEditable && <span className="px-2 py-0.5 rounded bg-[#00CC99]/10 text-[#00CC99]">可编辑</span>}
-            {detail.updated_at && <span>更新于 {new Date(detail.updated_at).toLocaleString("zh-CN")}</span>}
+    <div className="min-h-screen bg-background text-foreground flex flex-col">
+      {/* 顶栏 */}
+      <header className="sticky top-0 z-10 h-12 border-b border-border bg-card flex items-center px-6 shrink-0">
+        <span className="text-sm font-bold tracking-wide opacity-60">Le Desk</span>
+        <span className="mx-2 text-muted-foreground">/</span>
+        <span className="text-sm text-muted-foreground truncate max-w-[300px]">{detail.title}</span>
+      </header>
+
+      {/* 内容区 */}
+      <main className="flex-1 flex justify-center">
+        <div className="w-full max-w-[960px] px-8 md:px-12 py-10">
+          {/* 文档头 */}
+          <div className="mb-8">
+            <div className="flex items-center gap-2 text-xs text-muted-foreground mb-3">
+              <span className="px-2 py-0.5 rounded bg-accent text-accent-foreground">
+                {detail.source_origin_label || "工作台"}
+              </span>
+              {isEditable && (
+                <span className="px-2 py-0.5 rounded bg-[#00CC99]/10 text-[#00CC99]">可编辑</span>
+              )}
+              {detail.updated_at && (
+                <span>更新于 {new Date(detail.updated_at).toLocaleString("zh-CN")}</span>
+              )}
+            </div>
+            <div className="flex items-center justify-between gap-4">
+              <h1 className="text-3xl font-bold leading-tight">{detail.title}</h1>
+              {isEditable && (
+                <button
+                  onClick={handleSave}
+                  disabled={saving}
+                  className="shrink-0 px-4 py-1.5 text-xs font-semibold rounded-md border border-primary text-primary hover:bg-accent disabled:opacity-50 transition-colors"
+                >
+                  {saving ? "保存中..." : saveStatus === "saved" ? "已保存" : saveStatus === "error" ? "保存失败" : "保存"}
+                </button>
+              )}
+            </div>
           </div>
-          <div className="flex items-center justify-between">
-            <h1 className="text-2xl font-bold leading-tight">{detail.title}</h1>
-            {isEditable && (
-              <button
-                onClick={handleSave}
-                disabled={saving}
-                className="px-3 py-1 text-[11px] font-semibold rounded border border-[#00A3C4] text-[#00A3C4] hover:bg-[#F0F9FF] disabled:opacity-50 transition-colors"
-              >
-                {saving ? "保存中..." : saveStatus === "saved" ? "已保存" : saveStatus === "error" ? "保存失败" : "保存"}
-              </button>
-            )}
-          </div>
-        </div>
-        {isEditable ? (
-          <div className="px-6 py-6">
-            <RichEditor
-              content={detail.content_html || toHtml(detail.content || "")}
-              onChange={handleEditorChange}
-              editable={true}
+
+          {/* 分隔线 */}
+          <div className="border-b border-border mb-8" />
+
+          {/* 文档正文 */}
+          {isEditable ? (
+            <div>
+              <RichEditor
+                content={detail.content_html || toHtml(detail.content || "")}
+                onChange={handleEditorChange}
+                editable={true}
+              />
+            </div>
+          ) : (
+            <article
+              className="prose prose-sm dark:prose-invert max-w-none"
+              dangerouslySetInnerHTML={{ __html: detail.content_html || toHtml(detail.content || "") }}
             />
-          </div>
-        ) : (
-          <article
-            className="px-6 py-6 prose prose-sm max-w-none"
-            dangerouslySetInnerHTML={{ __html: detail.content_html || toHtml(detail.content || "") }}
-          />
-        )}
-      </div>
-    </main>
+          )}
+        </div>
+      </main>
+    </div>
   );
 }
