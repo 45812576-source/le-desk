@@ -44,7 +44,11 @@ export default function DocumentViewer({ entry }: DocumentViewerProps) {
     return <RichTextViewer content={entry.content} />;
   }
   if (ONLYOFFICE_EXTS.has(ext)) return <OnlyOfficeViewer entry={entry} />;
-  if (ext === ".pdf") return <PdfViewer entry={entry} />;
+  if (ext === ".pdf") {
+    // PDF 转换成功后走 OnlyOffice，否则 fallback 到 iframe 预览
+    if (entry.can_open_onlyoffice) return <OnlyOfficeViewer entry={entry} />;
+    return <PdfViewer entry={entry} />;
+  }
   if (IMAGE_EXTS.has(ext)) return <ImageViewer entry={entry} />;
   if (AUDIO_EXTS.has(ext)) return <AudioViewer entry={entry} />;
   if (VIDEO_EXTS.has(ext)) return <VideoViewer entry={entry} />;

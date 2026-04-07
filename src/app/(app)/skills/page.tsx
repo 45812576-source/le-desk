@@ -451,7 +451,7 @@ export default function SkillsPage() {
   const deptTools = Array.from(mountedTools.values()).filter((t) => t.source === "dept");
   const marketTools = Array.from(mountedTools.values()).filter((t) => t.source === "market");
 
-  const unpublishedCount = mySkills.filter((s) => s.status !== "published").length;
+  const unpublishedCount = mySkills.filter((s) => s.status === "draft" || s.status === "reviewing").length;
   const isLoading = configLoading || skillLoading || toolLoading;
 
   // ─── Render ──────────────────────────────────────────────────────

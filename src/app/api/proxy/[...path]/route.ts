@@ -39,12 +39,21 @@ export async function handler(
   const isStreamEndpoint = targetPath.includes("/stream") || targetPath.includes("/upload-stream");
   const timeout = isStreamEndpoint ? 300_000 : 115_000;
 
-  const resp = await fetch(targetUrl, {
-    method: request.method,
-    headers,
-    body,
-    signal: AbortSignal.timeout(timeout),
-  });
+  let resp: Response;
+  try {
+    resp = await fetch(targetUrl, {
+      method: request.method,
+      headers,
+      body,
+      signal: AbortSignal.timeout(timeout),
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Unknown error";
+    return NextResponse.json(
+      { detail: `后端服务不可达: ${message}` },
+      { status: 502 },
+    );
+  }
 
   // SSE streaming: pass through the ReadableStream directly
   const respContentType = resp.headers.get("Content-Type") || "";
