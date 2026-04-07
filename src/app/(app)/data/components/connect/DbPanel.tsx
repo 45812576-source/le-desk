@@ -37,13 +37,12 @@ function DbPanel({ onAdded }: { onAdded: () => void }) {
     if (!probeResult) return;
     setSaving(true); setError("");
     try {
-      await apiFetch("/business-tables/apply", {
+      await apiFetch("/business-tables/import-external", {
         method: "POST",
         body: JSON.stringify({
-          table_name: probeResult.table_name,
+          db_url: dbUrl.trim(),
+          table_name: tableName.trim(),
           display_name: displayName.trim() || probeResult.table_name,
-          description: `外部数据源: ${dbUrl.replace(/:[^@]*@/, ":***@")}`,
-          ddl_sql: "", validation_rules: {}, workflow: {}, create_skill: false,
         }),
       });
       setSaved(true);
@@ -90,7 +89,7 @@ function DbPanel({ onAdded }: { onAdded: () => void }) {
             </PixelButton>
             {probeResult && !saved && (
               <PixelButton variant="secondary" onClick={handleAdd} disabled={saving}>
-                {saving ? "添加中..." : "+ 添加到数据源"}
+                {saving ? "导入中..." : "+ 导入到本地"}
               </PixelButton>
             )}
             {saved && <span className="text-[10px] font-bold text-green-600 uppercase tracking-widest">✓ 已添加</span>}
