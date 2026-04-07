@@ -8,6 +8,19 @@ import { formatCellValue, READONLY_COLS } from "../shared";
 import EditableCell from "../shared/EditableCell";
 import DegradationAlert from "./source/DegradationAlert";
 
+interface SampleStrategy {
+  enum_fields: { field: string; covered_values: string[] }[];
+  sampled: number;
+  max_rows: number;
+}
+
+interface SampleResponse {
+  columns: string[];
+  rows: Record<string, unknown>[];
+  total: number;
+  sample_strategy: SampleStrategy;
+}
+
 interface Props {
   detail: TableDetail;
 }
@@ -19,17 +32,19 @@ export default function PreviewTab({ detail }: Props) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [total, setTotal] = useState(0);
+  const [strategy, setStrategy] = useState<SampleStrategy | null>(null);
 
   const loadRows = useCallback(async () => {
     setLoading(true);
     setError("");
     try {
-      const data = await apiFetch<{ columns: string[]; rows: Record<string, unknown>[]; total: number }>(
-        `/data/${detail.table_name}/rows?page=1&page_size=100`
+      const data = await apiFetch<SampleResponse>(
+        `/data/${detail.table_name}/sample?max_rows=200`
       );
       setCols(data.columns ?? []);
       setRows(data.rows ?? []);
       setTotal(data.total ?? 0);
+      setStrategy(data.sample_strategy ?? null);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "加载失败");
     } finally {
@@ -74,25 +89,39 @@ export default function PreviewTab({ detail }: Props) {
     );
   }
 
+  // 采样说明
+  const enumFieldCount = strategy?.enum_fields?.length ?? 0;
+  const enumCoveredCount = strategy?.enum_fields?.reduce((sum, ef) => sum + ef.covered_values.length, 0) ?? 0;
+
   return (
     <div className="flex-1 min-h-0 flex flex-col">
       {/* V2: 降级告警 */}
       {isV2 && <DegradationAlert profile={(detail as TableDetailV2).source_profile} />}
 
-      {/* 权限摘要条 */}
-      {hasRoleGroups && (
-        <div className="flex items-center gap-3 px-3 py-1.5 bg-[#EBF4F7] border-b border-gray-200 text-[8px] text-gray-400 flex-shrink-0">
-          <span>可见 {visibleCols.length} 列</span>
-          <span>·</span>
-          <span>{rows.length}/{total} 行</span>
-          {visibleCols.length < detail.fields.length && (
-            <>
-              <span>·</span>
-              <span className="text-orange-500">{detail.fields.length - visibleCols.length} 列被权限隐藏</span>
-            </>
-          )}
-        </div>
-      )}
+      {/* 数据摘要条 */}
+      <div className="flex items-center gap-3 px-3 py-1.5 bg-[#EBF4F7] border-b border-gray-200 text-[8px] text-gray-400 flex-shrink-0">
+        <span className="text-[#1A202C] font-bold">共 {total.toLocaleString()} 条</span>
+        <span>·</span>
+        <span>展示 {rows.length} 条采样</span>
+        {enumFieldCount > 0 && (
+          <>
+            <span>·</span>
+            <span>{enumFieldCount} 个枚举字段覆盖 {enumCoveredCount} 种值</span>
+          </>
+        )}
+        {hasRoleGroups && (
+          <>
+            <span>·</span>
+            <span>可见 {visibleCols.length} 列</span>
+            {visibleCols.length < detail.fields.length && (
+              <>
+                <span>·</span>
+                <span className="text-orange-500">{detail.fields.length - visibleCols.length} 列被权限隐藏</span>
+              </>
+            )}
+          </>
+        )}
+      </div>
 
       <div className="flex-1 min-h-0 overflow-auto">
         <table className="text-[9px]" style={{ minWidth: "100%" }}>
