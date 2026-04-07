@@ -13,6 +13,7 @@ import FieldsTab from "./FieldsTab";
 import ViewsTab from "./ViewsTab";
 import PermissionsTab from "./PermissionsTab";
 import SkillBindingsTab from "./SkillBindingsTab";
+import UnifiedPermissionTab from "./UnifiedPermissionTab";
 import LogicalViewWorkbench from "./consume/LogicalViewWorkbench";
 import ExportRuleSummary from "./consume/ExportRuleSummary";
 import ExportRuleEditor from "./security/ExportRuleEditor";
@@ -40,7 +41,7 @@ type V2TabId =
   // structure
   | "fields" | "overview"
   // consume
-  | "views" | "bindings" | "logical_views" | "export_summary" | "preview"
+  | "views" | "logical_views" | "export_summary" | "preview"
   // security
   | "permissions" | "export_editor";
 
@@ -56,12 +57,11 @@ const V2_TABS: V2Tab[] = [
   { id: "overview", label: "概览", group: "structure" },
   // 消费方式
   { id: "views", label: "视图", group: "consume" },
-  { id: "bindings", label: "Skill 授权", group: "consume" },
   { id: "logical_views", label: "逻辑视图", group: "consume" },
   { id: "export_summary", label: "导出摘要", group: "consume" },
   { id: "preview", label: "数据预览", group: "consume" },
   // 安全治理
-  { id: "permissions", label: "权限", group: "security" },
+  { id: "permissions", label: "权限管理", group: "security" },
   { id: "export_editor", label: "导出规则", group: "security" },
 ];
 
@@ -212,9 +212,6 @@ export default function TableDetailPanel({ tableId, onRefresh, onDeleteTable }: 
           >
             {tab.label}
             {tab.id === "fields" && <span className="ml-1 text-[7px] opacity-60">{detail.fields.length}</span>}
-            {tab.id === "bindings" && detail.bindings.length > 0 && (
-              <span className="ml-1 text-[7px] opacity-60">{detail.bindings.length}</span>
-            )}
             {tab.id === "views" && <span className="ml-1 text-[7px] opacity-60">{detail.views.length}</span>}
           </button>
         ))}
@@ -227,12 +224,11 @@ export default function TableDetailPanel({ tableId, onRefresh, onDeleteTable }: 
         {v2Tab === "overview" && <OverviewTab detail={detail} onRefresh={handleRefresh} onDeleteTable={onDeleteTable} />}
         {/* 消费方式 */}
         {v2Tab === "views" && <ViewsTab detail={detail} onRefresh={handleRefresh} />}
-        {v2Tab === "bindings" && <SkillBindingsTab detail={detail} onRefresh={handleRefresh} />}
         {v2Tab === "logical_views" && <LogicalViewWorkbench tableId={detail.id} />}
         {v2Tab === "export_summary" && <ExportRuleSummary tableId={detail.id} />}
         {v2Tab === "preview" && <PreviewTab detail={detail} />}
         {/* 安全治理 */}
-        {v2Tab === "permissions" && <PermissionsTab detail={detail} onRefresh={handleRefresh} />}
+        {v2Tab === "permissions" && <UnifiedPermissionTab detail={detail} onRefresh={handleRefresh} />}
         {v2Tab === "export_editor" && <ExportRuleEditor detail={detail} onSaved={handleRefresh} />}
       </div>
     </div>
