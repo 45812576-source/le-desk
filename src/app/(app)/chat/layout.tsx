@@ -130,6 +130,65 @@ const ConversationTab = memo(function ConversationTab({
   );
 });
 
+// ─── Pinned Skill Studio tab ──────────────────────────────────────────────
+
+function PinnedSkillStudioTab({ conversations, isActive }: { conversations: Conversation[]; isActive: boolean }) {
+  const router = useRouter();
+  const [entering, setEntering] = useState(false);
+  const color = { bg: "#CCF2FF", border: "#00D1FF", text: "#00A3C4" };
+
+  async function handleClick(e: React.MouseEvent) {
+    e.preventDefault();
+    if (entering) return;
+
+    // 1. 复用已有的 skill_studio 对话
+    const existing = conversations.find((c) => c.workspace_type === "skill_studio");
+    if (existing) {
+      router.push(`/chat/${existing.id}?ws=skill_studio`);
+      return;
+    }
+
+    // 2. 没有则创建
+    setEntering(true);
+    try {
+      const workspaces = await apiFetch<Workspace[]>("/workspaces");
+      const studioWs = workspaces.find((ws) => ws.workspace_type === "skill_studio");
+      if (!studioWs) return;
+      const conv = await apiFetch<{ id: number }>("/conversations", {
+        method: "POST",
+        body: JSON.stringify({ workspace_id: studioWs.id }),
+      });
+      router.push(`/chat/${conv.id}?ws=skill_studio`);
+    } catch {
+      // fallback: try the dedicated entry page
+      router.push("/skill-studio");
+    } finally {
+      setEntering(false);
+    }
+  }
+
+  return (
+    <a
+      href="#"
+      onClick={handleClick}
+      className="group relative flex items-center gap-1.5 px-3 py-1.5 text-[10px] font-bold tracking-wide transition-all flex-shrink-0 max-w-[200px] cursor-pointer"
+      style={{
+        backgroundColor: isActive ? color.bg : "transparent",
+        borderTop: `2px solid ${isActive ? color.border : "transparent"}`,
+        borderLeft: `2px solid ${isActive ? color.border : "transparent"}`,
+        borderRight: `2px solid ${isActive ? color.border : "transparent"}`,
+        borderBottom: isActive ? "2px solid transparent" : "none",
+        color: isActive ? color.text : "#718096",
+        marginBottom: isActive ? "-2px" : "0",
+        zIndex: isActive ? 10 : 1,
+      }}
+    >
+      <span className="w-2 h-2 flex-shrink-0" style={{ backgroundColor: color.border }} />
+      <span className="truncate">{entering ? "启动中..." : "Skill Studio"}</span>
+    </a>
+  );
+}
+
 // ─── Workspace picker modal ────────────────────────────────────────────────
 
 function WsCard({ ws, onSelect }: { ws: Workspace; onSelect: (id: number) => void }) {
@@ -369,25 +428,31 @@ export default function ChatLayout({
       </div>
 
       {/* Conversation tabs — notebook binder style */}
-      {conversations.length > 0 && (
-        <div className="bg-[#F0F4F8] border-b-2 border-[#1A202C] flex-shrink-0">
-          <div
-            ref={tabsRef}
-            className="flex items-end gap-0 px-4 pt-2 overflow-x-auto no-scrollbar"
-          >
-            {conversations.map((conv, i) => (
-              <ConversationTab
-                key={conv.id}
-                conv={conv}
-                index={i}
-                isActive={activeId === String(conv.id)}
-                onDelete={handleDelete}
-                onRename={handleUpdateTitle}
-              />
-            ))}
+      {(() => {
+        const studioConv = conversations.find((c) => c.workspace_type === "skill_studio");
+        const isStudioActive = studioConv ? activeId === String(studioConv.id) : false;
+        const normalConvs = conversations.filter((c) => c.workspace_type !== "skill_studio");
+        return (
+          <div className="bg-[#F0F4F8] border-b-2 border-[#1A202C] flex-shrink-0">
+            <div
+              ref={tabsRef}
+              className="flex items-end gap-0 px-4 pt-2 overflow-x-auto no-scrollbar"
+            >
+              <PinnedSkillStudioTab conversations={conversations} isActive={isStudioActive} />
+              {normalConvs.map((conv, i) => (
+                <ConversationTab
+                  key={conv.id}
+                  conv={conv}
+                  index={i}
+                  isActive={activeId === String(conv.id)}
+                  onDelete={handleDelete}
+                  onRename={handleUpdateTitle}
+                />
+              ))}
+            </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* Chat content */}
       <div className="flex-1 overflow-hidden">
