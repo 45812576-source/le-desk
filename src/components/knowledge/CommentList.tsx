@@ -52,9 +52,26 @@ export default function CommentList({
       setLoadError(msg);
       toast(msg);
     }
-  }, [knowledgeId]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [knowledgeId, toast]);
 
-  useEffect(() => { loadComments(); }, [loadComments]);
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      try {
+        setLoadError(null);
+        const res = await apiFetch<Comment[]>(`/knowledge/${knowledgeId}/comments`);
+        if (!cancelled) setComments(res);
+      } catch (e: unknown) {
+        if (cancelled) return;
+        const msg = e instanceof ApiError
+          ? (e.status === 404 ? "文档不存在" : e.status >= 500 ? "服务器错误，请稍后重试" : e.message)
+          : "网络错误，请检查连接";
+        setLoadError(msg);
+      }
+    };
+    load();
+    return () => { cancelled = true; };
+  }, [knowledgeId]);
 
   const handleAddComment = async () => {
     if (!newComment.trim()) return;

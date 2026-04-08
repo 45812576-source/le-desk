@@ -2931,16 +2931,16 @@ export function SkillStudio({ convId }: { convId: number }) {
   }, []);
 
   useEffect(() => {
-    if (selectedFile?.skillId) {
-      fetchMemo(selectedFile.skillId);
-    } else {
-      setMemo(null);
+    const skillId = selectedFile?.skillId;
+    if (skillId) {
+      fetchMemo(skillId);
     }
+    return () => { setMemo(null); };
   }, [selectedFile?.skillId, fetchMemo]);
 
-  const handleMemoRefresh = useCallback(() => {
+  const handleMemoRefresh = () => {
     if (selectedFile?.skillId) fetchMemo(selectedFile.skillId);
-  }, [selectedFile?.skillId, fetchMemo]);
+  };
 
   // ── Memo: complete-from-save after file save ──
   async function handleFileSaved(filename: string, contentSize: number) {

@@ -71,15 +71,11 @@ export default function AdminGovernancePage() {
     t.roles.includes(role as "super_admin" | "dept_admin")
   );
 
-  const defaultTab: TabKey = "overview";
-  const [activeTab, setActiveTab] = useState<TabKey>(defaultTab);
-
-  // 确保 activeTab 在可见 tab 中
-  useEffect(() => {
-    if (visibleTabs.length > 0 && !visibleTabs.find((t) => t.key === activeTab)) {
-      setActiveTab(visibleTabs[0].key);
-    }
-  }, [visibleTabs, activeTab]);
+  const [activeTab, setActiveTab] = useState<TabKey>("overview");
+  // 派生实际展示的 tab：如果用户选择的 tab 不在可见列表中，回退到第一个
+  const effectiveTab = visibleTabs.find((t) => t.key === activeTab)
+    ? activeTab
+    : visibleTabs[0]?.key ?? "overview";
 
   if (loading || !user) {
     return (
@@ -117,7 +113,7 @@ export default function AdminGovernancePage() {
             key={tab.key}
             onClick={() => setActiveTab(tab.key)}
             className={`px-3 py-2 text-xs font-medium transition-colors border-b-2 -mb-px ${
-              activeTab === tab.key
+              effectiveTab === tab.key
                 ? "border-primary text-foreground"
                 : "border-transparent text-muted-foreground hover:text-foreground"
             }`}
@@ -129,18 +125,18 @@ export default function AdminGovernancePage() {
 
       {/* Tab content */}
       <div className="flex-1 min-h-0 overflow-auto">
-        {activeTab === "overview" && <GovernanceOverview />}
-        {activeTab === "review" && <GovernanceReviewWorkbench mode="page" />}
-        {activeTab === "strategy_stats" && <StrategyStatsTab />}
-        {activeTab === "baseline" && <CollaborationBaseline />}
-        {activeTab === "baseline_version" && <BaselineVersionPanel />}
-        {activeTab === "gap" && <GapManagementPanel />}
-        {activeTab === "migration" && <MigrationWizard />}
-        {activeTab === "experiment" && <ThresholdExperiment />}
-        {activeTab === "dept_review" && <DeptAdminReviewPanel />}
-        {activeTab === "objects" && <GovernanceObjectsTab />}
-        {activeTab === "folders" && <FolderGovernanceTab isSuperAdmin={isSuperAdmin} />}
-        {activeTab === "tags" && <TagGovernanceTab />}
+        {effectiveTab === "overview" && <GovernanceOverview />}
+        {effectiveTab === "review" && <GovernanceReviewWorkbench mode="page" />}
+        {effectiveTab === "strategy_stats" && <StrategyStatsTab />}
+        {effectiveTab === "baseline" && <CollaborationBaseline />}
+        {effectiveTab === "baseline_version" && <BaselineVersionPanel />}
+        {effectiveTab === "gap" && <GapManagementPanel />}
+        {effectiveTab === "migration" && <MigrationWizard />}
+        {effectiveTab === "experiment" && <ThresholdExperiment />}
+        {effectiveTab === "dept_review" && <DeptAdminReviewPanel />}
+        {effectiveTab === "objects" && <GovernanceObjectsTab />}
+        {effectiveTab === "folders" && <FolderGovernanceTab isSuperAdmin={isSuperAdmin} />}
+        {effectiveTab === "tags" && <TagGovernanceTab />}
       </div>
     </div>
   );

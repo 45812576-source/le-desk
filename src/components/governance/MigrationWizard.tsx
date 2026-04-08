@@ -243,7 +243,7 @@ export default function MigrationWizard() {
           )}
           {importStats.missing > 0 && (
             <div className="text-[9px] text-amber-700 border border-amber-200 bg-amber-50 rounded px-3 py-2">
-              {importStats.missing} 个缺失项已链接到缺口补入流程，请前往"领域缺口" tab 处理
+              {importStats.missing} 个缺失项已链接到缺口补入流程，请前往&ldquo;领域缺口&rdquo; tab 处理
             </div>
           )}
           <button

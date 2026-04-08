@@ -9,9 +9,12 @@ import type {
   TableDetail,
   TableDetailV2,
   TableRoleGroup,
+  TablePermissionPolicy,
   SkillBindingDetail,
   SkillDataGrant,
   DisclosureLevel,
+  RowAccessMode,
+  FieldAccessMode,
 } from "../shared/types";
 import { DISCLOSURE_LABELS } from "../shared/types";
 import MemberEditor from "./permissions/MemberEditor";
@@ -476,7 +479,7 @@ function RoleGroupDetailPanel({
   onRefresh,
 }: {
   roleGroup: TableRoleGroup;
-  policy: ReturnType<typeof Object> | null;
+  policy: TablePermissionPolicy | null;
   detail: TableDetail;
   isAdmin: boolean;
   onRefresh: () => void;
@@ -485,11 +488,11 @@ function RoleGroupDetailPanel({
 
   // 权限策略编辑状态
   const [policyDraft, setPolicyDraft] = useState({
-    row_access_mode: (policy as any)?.row_access_mode || "none",
-    field_access_mode: (policy as any)?.field_access_mode || "all",
-    disclosure_level: ((policy as any)?.disclosure_level || "L0") as DisclosureLevel,
-    tool_permission_mode: (policy as any)?.tool_permission_mode || "deny",
-    export_permission: (policy as any)?.export_permission || false,
+    row_access_mode: policy?.row_access_mode || "none",
+    field_access_mode: policy?.field_access_mode || "all",
+    disclosure_level: (policy?.disclosure_level || "L0") as DisclosureLevel,
+    tool_permission_mode: policy?.tool_permission_mode || "deny",
+    export_permission: policy?.export_permission || false,
   });
   const [policyDirty, setPolicyDirty] = useState(false);
   const [policySaving, setPolicySaving] = useState(false);
@@ -570,7 +573,7 @@ function RoleGroupDetailPanel({
             <label className="text-[8px] text-gray-400 font-bold uppercase tracking-widest block mb-1">行权限</label>
             <select
               value={policyDraft.row_access_mode}
-              onChange={(e) => updatePolicyDraft({ row_access_mode: e.target.value })}
+              onChange={(e) => updatePolicyDraft({ row_access_mode: e.target.value as RowAccessMode })}
               className="w-full text-[9px] border border-gray-300 px-1.5 py-1 bg-white"
             >
               {Object.entries(ROW_ACCESS_LABELS).map(([k, v]) => (
@@ -582,7 +585,7 @@ function RoleGroupDetailPanel({
             <label className="text-[8px] text-gray-400 font-bold uppercase tracking-widest block mb-1">字段权限</label>
             <select
               value={policyDraft.field_access_mode}
-              onChange={(e) => updatePolicyDraft({ field_access_mode: e.target.value })}
+              onChange={(e) => updatePolicyDraft({ field_access_mode: e.target.value as FieldAccessMode })}
               className="w-full text-[9px] border border-gray-300 px-1.5 py-1 bg-white"
             >
               {Object.entries(FIELD_ACCESS_LABELS).map(([k, v]) => (

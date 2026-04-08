@@ -103,7 +103,7 @@ export default function BaselineVersionPanel() {
       {loading && <div className="text-[9px] text-gray-400">加载中...</div>}
       {!loading && versions.length === 0 && (
         <div className="text-center py-8 text-[10px] text-gray-400">
-          暂无基线版本，点击"创建基线快照"开始初始化
+          暂无基线版本，点击&ldquo;创建基线快照&rdquo;开始初始化
         </div>
       )}
 

@@ -47,7 +47,7 @@ describe("D2 风险评分", () => {
       source_type: "blank",
     });
     const v2 = normalizeTableDetail(raw);
-    (v2 as any).small_sample_protection = { enabled: true, threshold: 5, fallback: "hide_bucket" };
+    (v2 as unknown as Record<string, unknown>).small_sample_protection = { enabled: true, threshold: 5, fallback: "hide_bucket" };
     const result = computeLocalRisk(v2);
     expect(result.overall_score).toBe(0);
     expect(result.overall_level).toBe("low");

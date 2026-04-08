@@ -20,11 +20,17 @@ export default function ExportRuleSummary({ tableId }: Props) {
 
   useEffect(() => {
     let cancelled = false;
-    setLoading(true);
-    fetchExportRules(tableId)
-      .then((data) => { if (!cancelled) setRules(data); })
-      .catch(() => { if (!cancelled) setRules([]); })
-      .finally(() => { if (!cancelled) setLoading(false); });
+    const load = async () => {
+      try {
+        const data = await fetchExportRules(tableId);
+        if (!cancelled) setRules(data);
+      } catch {
+        if (!cancelled) setRules([]);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    };
+    load();
     return () => { cancelled = true; };
   }, [tableId]);
 

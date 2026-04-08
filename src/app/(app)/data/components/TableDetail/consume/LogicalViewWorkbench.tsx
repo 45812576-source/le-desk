@@ -15,11 +15,17 @@ export default function LogicalViewWorkbench({ tableId }: Props) {
 
   useEffect(() => {
     let cancelled = false;
-    setLoading(true);
-    fetchLogicalViewRuns(tableId)
-      .then((data) => { if (!cancelled) setRuns(data); })
-      .catch(() => { if (!cancelled) setRuns([]); })
-      .finally(() => { if (!cancelled) setLoading(false); });
+    const load = async () => {
+      try {
+        const data = await fetchLogicalViewRuns(tableId);
+        if (!cancelled) setRuns(data);
+      } catch {
+        if (!cancelled) setRuns([]);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    };
+    load();
     return () => { cancelled = true; };
   }, [tableId]);
 

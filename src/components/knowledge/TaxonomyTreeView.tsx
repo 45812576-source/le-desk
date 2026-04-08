@@ -284,7 +284,7 @@ function GovernanceTreeView({
       })}
 
       {objectives.length === 0 && (
-        <div className="text-[9px] text-gray-400 px-4 py-3">尚未初始化治理蓝图，请先执行"种子数据初始化"</div>
+        <div className="text-[9px] text-gray-400 px-4 py-3">尚未初始化治理蓝图，请先执行&ldquo;种子数据初始化&rdquo;</div>
       )}
     </div>
   );

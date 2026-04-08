@@ -561,7 +561,21 @@ export default function FolderGovernanceTab({ isSuperAdmin }: { isSuperAdmin: bo
       .finally(() => setLoading(false));
   }, []);
 
-  useEffect(() => { loadTree(); }, [loadTree]);
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const d = await apiFetch<{ tree: FolderTreeNode[]; total_folders: number }>(`${API}/tree`);
+        if (!cancelled) { setTree(d.tree || []); setTotalFolders(d.total_folders || 0); }
+      } catch {
+        if (!cancelled) { setTree([]); setTotalFolders(0); }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    };
+    load();
+    return () => { cancelled = true; };
+  }, []);
 
   function findNode(nodes: FolderTreeNode[], id: number): FolderTreeNode | null {
     for (const n of nodes) {

@@ -62,9 +62,26 @@ export default function SnapshotHistory({
       setLoadError(msg);
       toast(msg);
     }
-  }, [knowledgeId]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [knowledgeId, toast]);
 
-  useEffect(() => { loadSnapshots(); }, [loadSnapshots]);
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      try {
+        setLoadError(null);
+        const res = await apiFetch<Snapshot[]>(`/knowledge/${knowledgeId}/snapshots`);
+        if (!cancelled) setSnapshots(res);
+      } catch (e: unknown) {
+        if (cancelled) return;
+        const msg = e instanceof ApiError
+          ? (e.status >= 500 ? "服务器错误，请稍后重试" : e.message)
+          : "网络错误，请检查连接";
+        setLoadError(msg);
+      }
+    };
+    load();
+    return () => { cancelled = true; };
+  }, [knowledgeId]);
 
   const handleCreateSnapshot = async () => {
     setCreating(true);
