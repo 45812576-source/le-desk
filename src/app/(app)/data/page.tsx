@@ -7,7 +7,7 @@ import { ThemedPageIcon } from "@/components/layout/PageShell";
 import { useTheme } from "@/lib/theme";
 import { Table2 } from "lucide-react";
 import { apiFetch } from "@/lib/api";
-import { useAuth } from "@/lib/auth";
+
 
 import type { DataAssetFolder, DataAssetTable, Tab } from "./components/shared/types";
 import { ConnectTab } from "./components/connect";
@@ -186,8 +186,7 @@ export default function DataPage() {
   const [manageKey, setManageKey] = useState(0);
   const { theme } = useTheme();
   const isLab = theme === "lab";
-  const { user } = useAuth();
-  const isAdmin = user?.role === "super_admin" || user?.role === "dept_admin";
+
 
   return (
     <div className="h-full flex flex-col">
@@ -198,24 +197,17 @@ export default function DataPage() {
         </div>
         <div className="flex gap-1">
           <PixelButton variant={tab === "manage" ? "primary" : "secondary"} size="sm" onClick={() => setTab("manage")}>数据资产</PixelButton>
-          {isAdmin && (
-            <PixelButton variant={tab === "connect" ? "primary" : "secondary"} size="sm" onClick={() => setTab("connect")}>对接数据源</PixelButton>
-          )}
+          <PixelButton variant={tab === "connect" ? "primary" : "secondary"} size="sm" onClick={() => setTab("connect")}>对接数据源</PixelButton>
         </div>
       </div>
 
-      {tab === "connect" && isAdmin ? (
+      {tab === "connect" ? (
         <div className="flex-1 overflow-auto p-6">
           <ConnectTab onAdded={() => { setManageKey((k) => k + 1); setTab("manage"); }} />
         </div>
       ) : (
         <div className="flex-1 min-h-0 overflow-hidden">
           <ManageTab key={manageKey} />
-          {!isAdmin && (
-            <div className="px-6 py-3 text-[10px] text-muted-foreground border-t border-border">
-              外部数据源接入与同步仅对部门管理员和超级管理员开放。如需接入飞书多维表，请联系管理员。
-            </div>
-          )}
         </div>
       )}
     </div>

@@ -42,8 +42,8 @@ function UploadFilePanel({ onAdded }: { onAdded: () => void }) {
       setFile(null);
       if (fileRef.current) fileRef.current.value = "";
       onAdded();
-    } catch {
-      setError("网络错误");
+    } catch (err) {
+      setError(err instanceof Error ? `网络错误: ${err.message}` : "网络错误，请检查后端服务是否启动");
     } finally {
       setUploading(false);
     }
