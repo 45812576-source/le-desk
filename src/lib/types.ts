@@ -265,7 +265,7 @@ export interface ApprovalAction {
   id: number;
   actor_id: number;
   actor_name: string | null;
-  action: "approve" | "reject" | "add_conditions" | "request_more_info" | "approve_with_conditions";
+  action: "approve" | "reject" | "add_conditions" | "request_more_info" | "approve_with_conditions" | "supplement";
   comment: string | null;
   decision_payload: Record<string, unknown> | null;
   checklist_result: Array<{ item: string; status: string; note?: string }> | null;
@@ -296,6 +296,8 @@ export interface ApprovalRequest {
   review_template: Record<string, unknown> | null;
   evidence_complete: boolean;
   missing_evidence: string[];
+  is_high_risk: boolean;
+  approve_blocked: boolean;
   created_at: string | null;
   actions: ApprovalAction[];
 }
