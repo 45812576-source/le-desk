@@ -180,7 +180,7 @@ function TransferTableModal({ onClose }: { onClose: () => void }) {
 
 // ─── Save Modal ────────────────────────────────────────────────────────────────
 
-type SaveMode = "tool" | "skill" | "webapp";
+type SaveMode = "tool" | "skill";
 
 interface LatestFile {
   path: string;
@@ -246,13 +246,19 @@ function DirPicker({
   );
 }
 
+interface SkillOption {
+  id: number;
+  name: string;
+  description: string;
+}
+
 function SaveModal({
   mode,
   onSave,
   onCancel,
 }: {
   mode: SaveMode;
-  onSave: (data: { name: string; toolId?: number; shareUrl?: string; previewUrl?: string }) => void;
+  onSave: (data: { name: string; toolId?: number; boundSkillId?: number }) => void;
   onCancel: () => void;
 }) {
   const [name, setName] = useState("");
@@ -261,99 +267,97 @@ function SaveModal({
   const [systemPrompt, setSystemPrompt] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
-  const [latestFiles, setLatestFiles] = useState<LatestFile[]>([]);
-  const [loadingFiles, setLoadingFiles] = useState(true);
-  const [selectedFile, setSelectedFile] = useState<string>("");
 
-  // webapp 专用：workdir 文件夹选择 + 分析状态
-  const [workdirBase, setWorkdirBase] = useState("");
-  const [workdirDirs, setWorkdirDirs] = useState<TreeNode[]>([]);
-  const [selectedDir, setSelectedDir] = useState<TreeNode | null>(null);
-  const [analyzing, setAnalyzing] = useState(false);
+  // Skill 模式：工作区文件树 + 多选
+  const [fileTree, setFileTree] = useState<TreeNode[]>([]);
+  const [loadingTree, setLoadingTree] = useState(false);
+  const [selectedFiles, setSelectedFiles] = useState<string[]>([]);
 
-  // webapp 模式：加载 workdir 目录树，只取顶层文件夹
+  // Tool 模式：Skill 下拉选择
+  const [skills, setSkills] = useState<SkillOption[]>([]);
+  const [loadingSkills, setLoadingSkills] = useState(false);
+  const [bindSkillId, setBindSkillId] = useState<number | null>(null);
+
+  // Skill 模式：加载文件树
   useEffect(() => {
-    if (mode !== "webapp") return;
-    setLoadingFiles(true);
+    if (mode !== "skill") return;
+    setLoadingTree(true);
     apiFetch<{ workdir: string; tree: TreeNode[] }>("/dev-studio/workdir/tree")
       .then((res) => {
-        setWorkdirBase(res.workdir);
-        const dirs = res.tree.filter((n) => n.type === "dir");
-        setWorkdirDirs(dirs);
-        if (dirs.length > 0) {
-          setSelectedDir(dirs[0]);
-          setName(dirs[0].name);
-        }
+        setFileTree(res.tree);
       })
       .catch(() => {})
-      .finally(() => setLoadingFiles(false));
+      .finally(() => setLoadingTree(false));
   }, [mode]);
 
-  // 加载最近产出文件（tool/skill 模式）
+  // Tool 模式：加载可选 Skill 列表
   useEffect(() => {
-    if (mode === "webapp") return;
-    setLoadingFiles(true);
-    apiFetch<LatestFile[]>("/dev-studio/latest-output?limit=10")
-      .then((files) => {
-        setLatestFiles(files);
-        if (files.length > 0) {
-          setSelectedFile(files[0].path);
-          const f = files[0];
-          const baseName = f.filename.replace(/\.[^.]+$/, "");
-          setName(baseName);
-          if (mode === "skill") {
-            setSystemPrompt(f.content);
-          } else {
-            setDisplayName(baseName);
-          }
-        }
+    if (mode !== "tool") return;
+    setLoadingSkills(true);
+    apiFetch<SkillOption[]>("/skills?scope=mine&limit=100")
+      .then((data) => {
+        setSkills(data);
+        if (data.length > 0) setBindSkillId(data[0].id);
       })
-      .catch(() => {})
-      .finally(() => setLoadingFiles(false));
+      .catch(() => {
+        // 兼容：尝试另一个端点
+        apiFetch<{ items: SkillOption[] }>("/skills?limit=100")
+          .then((res) => {
+            const list = res.items || [];
+            setSkills(list);
+            if (list.length > 0) setBindSkillId(list[0].id);
+          })
+          .catch(() => {});
+      })
+      .finally(() => setLoadingSkills(false));
   }, [mode]);
 
-  function handleFileSelect(path: string) {
-    setSelectedFile(path);
-    const f = latestFiles.find((x) => x.path === path);
-    if (!f) return;
-    const baseName = f.filename.replace(/\.[^.]+$/, "");
-    setName(baseName);
-    if (mode === "skill") {
-      setSystemPrompt(f.content);
-    } else {
-      setDisplayName(baseName);
-    }
+  function toggleFile(path: string) {
+    setSelectedFiles((prev) =>
+      prev.includes(path) ? prev.filter((p) => p !== path) : [...prev, path]
+    );
+  }
+
+  function renderFileCheckboxes(nodes: TreeNode[], depth = 0): React.ReactNode {
+    return nodes.map((node) => (
+      <div key={node.path}>
+        {node.type === "file" ? (
+          <label
+            className="flex items-center gap-1.5 py-0.5 cursor-pointer hover:bg-gray-50"
+            style={{ paddingLeft: `${4 + depth * 14}px` }}
+          >
+            <input
+              type="checkbox"
+              checked={selectedFiles.includes(node.path)}
+              onChange={() => toggleFile(node.path)}
+              className="w-3 h-3"
+            />
+            <span className="text-[9px] font-mono text-[#1A202C]">{node.name}</span>
+          </label>
+        ) : (
+          <div>
+            <div
+              className="text-[9px] font-mono font-bold text-gray-500 py-0.5"
+              style={{ paddingLeft: `${4 + depth * 14}px` }}
+            >
+              📁 {node.name}
+            </div>
+            {node.children && renderFileCheckboxes(node.children, depth + 1)}
+          </div>
+        )}
+      </div>
+    ));
   }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (mode === "webapp") {
-      if (!selectedDir) { setError("请选择一个项目文件夹"); return; }
-      const fullPath = `${workdirBase}/${selectedDir.path}`;
-      setAnalyzing(true);
-      setError("");
-      try {
-        const res = await apiFetch<{ id: number; name: string; share_url: string; preview_url: string }>(
-          "/dev-studio/analyze-project",
-          {
-            method: "POST",
-            body: JSON.stringify({
-              project_path: fullPath,
-              name: name.trim(),
-              description: description.trim(),
-            }),
-          }
-        );
-        onSave({ name: res.name, shareUrl: res.share_url, previewUrl: res.preview_url });
-      } catch (err) {
-        setError(err instanceof Error ? err.message : "分析失败");
-      } finally {
-        setAnalyzing(false);
-      }
+    if (!name.trim()) { setError("名称不能为空"); return; }
+
+    if (mode === "tool" && !bindSkillId) {
+      setError("必须选择一个绑定的 Skill");
       return;
     }
-    if (!name.trim()) { setError("名称不能为空"); return; }
-    if (mode === "skill" && !systemPrompt.trim()) { setError("System Prompt 不能为空"); return; }
+
     setSaving(true);
     setError("");
     try {
@@ -368,16 +372,18 @@ function SaveModal({
             input_schema: {},
             output_format: "text",
             config: {},
+            bind_skill_id: bindSkillId,
           }),
         });
-        onSave({ name: name.trim(), toolId: result.id });
-      } else if (mode === "skill") {
+        onSave({ name: name.trim(), toolId: result.id, boundSkillId: bindSkillId! });
+      } else {
         await apiFetch("/dev-studio/save-skill", {
           method: "POST",
           body: JSON.stringify({
             name: name.trim(),
             description: description.trim(),
             system_prompt: systemPrompt.trim(),
+            source_files: selectedFiles,
           }),
         });
         onSave({ name: name.trim() });
@@ -392,77 +398,69 @@ function SaveModal({
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
       <div className="bg-white border-2 border-[#1A202C] p-6 w-[480px] max-h-[85vh] overflow-y-auto">
-        <div className={`text-[10px] font-bold uppercase tracking-widest mb-4 ${
-          mode === "webapp" ? "text-[#00A3C4]" : "text-[#6B46C1]"
-        }`}>
-          保存为 {mode === "tool" ? "Tool" : mode === "skill" ? "Skill" : "Web App"}
+        <div className="text-[10px] font-bold uppercase tracking-widest mb-4 text-[#6B46C1]">
+          保存为 {mode === "tool" ? "Tool" : "Skill"}
         </div>
 
-        {/* tool/skill：最近产出文件选择 */}
-        {mode !== "webapp" && (
+        {/* Skill 模式：文件选择树 */}
+        {mode === "skill" && (
           <div className="mb-4 border-2 p-3 border-[#E9D8FD] bg-[#FAF5FF]">
             <div className="text-[9px] font-bold uppercase tracking-widest mb-2 text-[#6B46C1]">
-              从最近写入文件中选择（自动预填）
+              选择要包含的文件
             </div>
-            {loadingFiles ? (
-              <div className="text-[9px] text-gray-400 animate-pulse">读取中...</div>
-            ) : latestFiles.length === 0 ? (
-              <div className="text-[9px] text-gray-400">暂无最近写入文件，请手动填写</div>
+            {loadingTree ? (
+              <div className="text-[9px] text-gray-400 animate-pulse">加载文件树...</div>
+            ) : fileTree.length === 0 ? (
+              <div className="text-[9px] text-gray-400">工作区暂无文件</div>
             ) : (
-              <div className="flex flex-col gap-1 max-h-32 overflow-y-auto">
-                {latestFiles.map((f) => (
-                  <button
-                    key={f.path}
-                    type="button"
-                    onClick={() => handleFileSelect(f.path)}
-                    className={`text-left px-2 py-1.5 text-[9px] font-mono border transition-colors ${
-                      selectedFile === f.path
-                        ? "border-[#6B46C1] bg-[#6B46C1]/10 text-[#6B46C1] font-bold"
-                        : "border-gray-200 text-gray-600 hover:border-gray-400"
-                    }`}
-                  >
-                    <span className="font-bold">{f.filename}</span>
-                    {f.session_title && (
-                      <span className="text-gray-400 ml-2">· {f.session_title}</span>
-                    )}
-                  </button>
-                ))}
+              <div className="max-h-48 overflow-y-auto">
+                {renderFileCheckboxes(fileTree)}
+              </div>
+            )}
+            {selectedFiles.length > 0 && (
+              <div className="mt-2 text-[8px] text-[#6B46C1]">
+                已选 {selectedFiles.length} 个文件
               </div>
             )}
           </div>
         )}
 
-        <form onSubmit={handleSubmit} className="space-y-3">
-          {/* webapp：工作区文件夹选择 */}
-          {mode === "webapp" && (
-            <div>
-              <div className="text-[9px] font-bold uppercase tracking-widest text-gray-400 mb-1">
-                选择项目文件夹
-              </div>
-              {loadingFiles ? (
-                <div className="text-[9px] text-gray-400 animate-pulse">加载工作区...</div>
-              ) : workdirDirs.length === 0 ? (
-                <div className="text-[9px] text-gray-400 border-2 border-dashed border-gray-200 px-3 py-3">
-                  工作区暂无文件夹，请先在文件管理里创建项目目录
-                </div>
-              ) : (
-                <DirPicker
-                  nodes={workdirDirs}
-                  selected={selectedDir}
-                  onSelect={(d) => { setSelectedDir(d); setName(d.name); }}
-                />
-              )}
+        {/* Tool 模式：绑定 Skill 下拉 */}
+        {mode === "tool" && (
+          <div className="mb-4 border-2 p-3 border-[#E9D8FD] bg-[#FAF5FF]">
+            <div className="text-[9px] font-bold uppercase tracking-widest mb-2 text-[#6B46C1]">
+              绑定到 Skill（必选）
             </div>
-          )}
+            {loadingSkills ? (
+              <div className="text-[9px] text-gray-400 animate-pulse">加载 Skill 列表...</div>
+            ) : skills.length === 0 ? (
+              <div className="text-[9px] text-gray-400">暂无可用 Skill，请先创建一个 Skill</div>
+            ) : (
+              <select
+                value={bindSkillId ?? ""}
+                onChange={(e) => setBindSkillId(Number(e.target.value))}
+                className="w-full border-2 border-[#1A202C] px-3 py-1.5 text-xs font-bold focus:outline-none focus:border-[#6B46C1] bg-white"
+              >
+                {skills.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.name}{s.description ? ` — ${s.description}` : ""}
+                  </option>
+                ))}
+              </select>
+            )}
+          </div>
+        )}
+
+        <form onSubmit={handleSubmit} className="space-y-3">
           <div>
             <div className="text-[9px] font-bold uppercase tracking-widest text-gray-400 mb-1">
-              {mode === "tool" ? "Tool 名称（英文）" : mode === "skill" ? "Skill 名称" : "应用名称（可选，默认取文件夹名）"}
+              {mode === "tool" ? "Tool 名称（英文）" : "Skill 名称"}
             </div>
             <input
               type="text"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder={mode === "tool" ? "my_tool_name" : mode === "skill" ? "Skill 名称" : "我的小程序"}
+              placeholder={mode === "tool" ? "my_tool_name" : "Skill 名称"}
               className="w-full border-2 border-[#1A202C] px-3 py-1.5 text-xs font-bold focus:outline-none focus:border-[#00A3C4]"
             />
           </div>
@@ -484,18 +482,18 @@ function SaveModal({
               type="text"
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              placeholder={mode === "webapp" ? "这个小程序的功能说明" : "这个工具 / Skill 的用途"}
+              placeholder="这个工具 / Skill 的用途"
               className="w-full border-2 border-[#1A202C] px-3 py-1.5 text-xs font-bold focus:outline-none focus:border-[#00A3C4]"
             />
           </div>
           {mode === "skill" && (
             <div>
-              <div className="text-[9px] font-bold uppercase tracking-widest text-gray-400 mb-1">System Prompt</div>
+              <div className="text-[9px] font-bold uppercase tracking-widest text-gray-400 mb-1">System Prompt（可选，留空则从选中 .md 提取）</div>
               <textarea
                 value={systemPrompt}
                 onChange={(e) => setSystemPrompt(e.target.value)}
-                rows={8}
-                placeholder="粘贴由 AI 生成的 System Prompt 内容..."
+                rows={6}
+                placeholder="留空时自动从选中的第一个 .md 文件提取..."
                 className="w-full border-2 border-[#1A202C] px-3 py-2 text-[10px] font-mono resize-y focus:outline-none focus:border-[#6B46C1]"
               />
             </div>
@@ -506,10 +504,8 @@ function SaveModal({
             </div>
           )}
           <div className="flex gap-2 pt-1">
-            <PixelButton type="submit" disabled={saving || analyzing}>
-              {mode === "webapp"
-                ? analyzing ? "发布中..." : "检查并发布"
-                : saving ? "保存中..." : "保存"}
+            <PixelButton type="submit" disabled={saving}>
+              {saving ? "保存中..." : "保存"}
             </PixelButton>
             <PixelButton variant="secondary" onClick={onCancel} type="button">
               取消
@@ -1319,11 +1315,19 @@ function DataViewContextBar({
   const [expanded, setExpanded] = useState(false);
 
   useEffect(() => {
-    setLoading(true);
-    apiFetch<DataViewDetail>(`/dev-studio/data-views/${viewId}`)
-      .then((data) => setDetail(data))
-      .catch(() => {})
-      .finally(() => setLoading(false));
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const data = await apiFetch<DataViewDetail>(`/dev-studio/data-views/${viewId}`);
+        if (!cancelled) setDetail(data);
+      } catch {
+        // ignore
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    };
+    load();
+    return () => { cancelled = true; };
   }, [viewId]);
 
   // 自动注入上下文
@@ -1528,8 +1532,6 @@ export function DevStudio({ workspaceId, fromSkillId, initialViewId }: { convId:
   const [restarting, setRestarting] = useState(false);
   const [saveMode, setSaveMode] = useState<SaveMode | null>(null);
   const [saveSuccess, setSaveSuccess] = useState<string | null>(null);
-  const [webApps, setWebApps] = useState<{ id: number; name: string; preview_url: string; share_url: string | null; created_at: string }[]>([]);
-  const [showWebApps, setShowWebApps] = useState(false);
   const [grantedModels, setGrantedModels] = useState<string[]>([]);
   const [restrictedToastShown, setRestrictedToastShown] = useState(false);
   const [restrictedToastVisible, setRestrictedToastVisible] = useState(false);
@@ -1627,30 +1629,18 @@ export function DevStudio({ workspaceId, fromSkillId, initialViewId }: { convId:
     }
   }
 
-  async function fetchWebApps() {
-    try {
-      const data = await apiFetch<{ id: number; name: string; preview_url: string; share_url: string | null; created_at: string }[]>("/web-apps");
-      setWebApps(data);
-    } catch {}
-  }
-
   const [boundToSkill, setBoundToSkill] = useState(false);
 
-  async function handleSaveSuccess(data: { name: string; toolId?: number; shareUrl?: string; previewUrl?: string }) {
+  async function handleSaveSuccess(data: { name: string; toolId?: number; boundSkillId?: number }) {
     setSaveMode(null);
-    setSaveSuccess(`已发布：${data.name}`);
-    setShowWebApps(true);
-    fetchWebApps();
+    setSaveSuccess(`已保存：${data.name}`);
 
-    // 如果来自 Skill Studio 且保存的是 Tool，自动绑定
-    if (fromSkillId && data.toolId) {
-      try {
-        await apiFetch(`/tools/skill/${fromSkillId}/tools/${data.toolId}`, { method: "POST" });
-        setBoundToSkill(true);
-      } catch { /* best effort */ }
+    // Tool 已在后端绑定 Skill，前端仅标记状态
+    if (data.boundSkillId || (fromSkillId && data.toolId)) {
+      setBoundToSkill(true);
     }
 
-    if (!fromSkillId) {
+    if (!fromSkillId && !data.boundSkillId) {
       setTimeout(() => { setSaveSuccess(null); }, 5000);
     }
   }
@@ -1816,65 +1806,6 @@ export function DevStudio({ workspaceId, fromSkillId, initialViewId }: { convId:
         </div>
       )}
 
-      {/* 已发布版本列表 */}
-      {showWebApps && (
-        <div className="flex-shrink-0 border-t-2 border-[#00A3C4] bg-[#F0FAFF] max-h-[180px] overflow-y-auto">
-          <div className="flex items-center justify-between px-4 py-1.5 border-b border-[#B3E8F8]">
-            <span className="text-[9px] font-bold uppercase tracking-widest text-[#00A3C4]">已发布版本</span>
-            <div className="flex gap-2">
-              <button
-                onClick={fetchWebApps}
-                className="text-[9px] text-[#00A3C4] hover:underline"
-              >刷新</button>
-              <button
-                onClick={() => setShowWebApps(false)}
-                className="text-[9px] text-gray-400 hover:text-gray-600"
-              >收起</button>
-            </div>
-          </div>
-          {webApps.length === 0 ? (
-            <div className="px-4 py-3 text-[9px] text-gray-400">暂无发布记录</div>
-          ) : (
-            webApps.map((app) => (
-              <div key={app.id} className="flex items-center justify-between px-4 py-1.5 border-b border-[#E0F4FB] hover:bg-[#E6F7FF]">
-                <div>
-                  <span className="text-[10px] font-bold text-[#1A202C]">{app.name}</span>
-                  <span className="text-[9px] text-gray-400 ml-2">#{app.id}</span>
-                  <span className="text-[9px] text-gray-400 ml-2">{app.created_at ? new Date(app.created_at + "Z").toLocaleString("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" }) : ""}</span>
-                </div>
-                <div className="flex gap-2">
-                  <a
-                    href={`/web-app-preview/${app.id}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-[9px] font-bold text-white bg-[#00A3C4] px-2 py-0.5 hover:bg-[#007A99] transition-colors"
-                  >预览</a>
-                  {app.share_url && (
-                    <a
-                      href={app.share_url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-[9px] font-bold text-white bg-[#6B46C1] px-2 py-0.5 hover:bg-[#553C9A] transition-colors"
-                    >分享</a>
-                  )}
-                </div>
-              </div>
-            ))
-          )}
-        </div>
-      )}
-
-      {!showWebApps && (
-        <div className="flex-shrink-0 border-t border-[#B3E8F8] px-4 py-1 bg-[#F0FAFF]">
-          <button
-            onClick={() => { setShowWebApps(true); fetchWebApps(); }}
-            className="text-[9px] text-[#00A3C4] hover:underline font-bold uppercase tracking-widest"
-          >
-            已发布版本 ▾
-          </button>
-        </div>
-      )}
-
       {/* Footer */}
       <div className="flex-shrink-0 border-t-2 border-[#1A202C] bg-white px-4 py-2.5 flex items-center gap-2">
         <span className="text-[9px] font-bold uppercase tracking-widest text-gray-400 mr-2">
@@ -1893,13 +1824,6 @@ export function DevStudio({ workspaceId, fromSkillId, initialViewId }: { convId:
           className="px-3 py-1 text-[9px] font-bold uppercase tracking-widest border-2 border-[#00CC99] text-[#00A87A] hover:bg-[#C6F6D5] disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
         >
           保存为 Skill
-        </button>
-        <button
-          onClick={() => setSaveMode("webapp")}
-          disabled={status !== "ready"}
-          className="px-3 py-1 text-[9px] font-bold uppercase tracking-widest border-2 border-[#6B46C1] text-[#6B46C1] hover:bg-[#E9D8FD] disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-        >
-          发布 Web App
         </button>
         <div className="flex-1" />
         <button
