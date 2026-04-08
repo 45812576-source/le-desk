@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
-export const maxDuration = 120;
+export const maxDuration = 300;
 
 const BACKEND_URL = process.env.BACKEND_URL || "http://localhost:8000";
 
@@ -36,8 +36,10 @@ export async function handler(
   }
 
   // SSE streaming endpoints need longer timeout (5min) for AI generation
+  // Sandbox interactive run involves multiple LLM calls (execution + evaluation + report)
   const isStreamEndpoint = targetPath.includes("/stream") || targetPath.includes("/upload-stream");
-  const timeout = isStreamEndpoint ? 300_000 : 115_000;
+  const isLongRunEndpoint = targetPath.includes("/sandbox/interactive/") && targetPath.endsWith("/run");
+  const timeout = (isStreamEndpoint || isLongRunEndpoint) ? 300_000 : 115_000;
 
   let resp: Response;
   try {
