@@ -265,8 +265,10 @@ export interface ApprovalAction {
   id: number;
   actor_id: number;
   actor_name: string | null;
-  action: "approve" | "reject" | "add_conditions";
+  action: "approve" | "reject" | "add_conditions" | "request_more_info" | "approve_with_conditions";
   comment: string | null;
+  decision_payload: Record<string, unknown> | null;
+  checklist_result: Array<{ item: string; status: string; note?: string }> | null;
   created_at: string | null;
 }
 
@@ -281,11 +283,19 @@ export interface ApprovalRequest {
   requester_name: string | null;
   status: "pending" | "approved" | "rejected" | "conditions";
   stage: string | null;
+  needs_info_comment: string | null;
   reason: string | null;
   conditions: unknown[];
   security_scan_result?: Record<string, unknown> | null;
   sandbox_report_id?: number | null;
   sandbox_report_hash?: string | null;
+  // V2: 模板驱动
+  evidence_pack: Record<string, unknown> | null;
+  risk_level: string | null;
+  impact_summary: string | null;
+  review_template: Record<string, unknown> | null;
+  evidence_complete: boolean;
+  missing_evidence: string[];
   created_at: string | null;
   actions: ApprovalAction[];
 }
@@ -547,6 +557,23 @@ export interface KbContributionStat {
   output_tokens: number;
   models: Record<string, number>;
   top_model: string | null;
+}
+
+export interface TokenDashboardSourceStats {
+  input_tokens: number;
+  output_tokens: number;
+  cache_read_tokens?: number;
+}
+
+export interface TokenDashboardEntry {
+  user_id: number;
+  display_name: string;
+  opencode: TokenDashboardSourceStats;
+  skill_studio: TokenDashboardSourceStats;
+  chat: TokenDashboardSourceStats;
+  project: TokenDashboardSourceStats;
+  total_input: number;
+  total_output: number;
 }
 
 export interface OpenCodeOutputFile {

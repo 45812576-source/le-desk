@@ -11,7 +11,7 @@ import {
   BookOpen, Zap, Table2, Rss, FileCheck2,
   LayoutDashboard,
   Bot, Wrench, Store, Globe2, AppWindow,
-  BarChart2, ScrollText, Users,
+  BarChart2, Coins, ScrollText, Users,
   Settings, LogOut, ChevronDown, ChevronRight,
 } from "lucide-react";
 
@@ -36,6 +36,7 @@ const LUCIDE_ICONS: Record<string, React.ElementType> = {
   "/approvals":               FileCheck2,
   "/admin/governance":            BookOpen,
   "/admin/contributions":     BarChart2,
+  "/admin/token-dashboard":   Coins,
   "/admin/audit":             ScrollText,
   "/admin/users":             Users,
   "/settings":                Settings,
@@ -284,6 +285,7 @@ export function Sidebar({ user, taskPending = 0, onLogout }: SidebarProps) {
               <NavItem href="/admin/assets" label="AI 资产管理" icon={ICONS.skillsAdmin} {...navItemProps} />
               <NavItem href="/admin/workspaces" label="工作台管理" icon={ICONS.workspaceAdmin} {...navItemProps} />
               <NavItem href="/admin/contributions" label="贡献排行" icon={ICONS.contrib} {...navItemProps} />
+              <NavItem href="/admin/token-dashboard" label="Token 看板" icon={ICONS.contrib} {...navItemProps} />
               <NavItem href="/admin/audit" label="操作审计" icon={ICONS.audit} {...navItemProps} />
               <NavItem href="/admin/mask-feedback" label="脱敏纠错审查" icon={ICONS.audit} {...navItemProps} />
               <NavItem href="/admin/users" label="用户管理" icon={ICONS.users} {...navItemProps} />
