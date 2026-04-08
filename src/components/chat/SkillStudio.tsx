@@ -11,6 +11,7 @@ import { ICONS, PixelIcon } from "@/components/pixel";
 import { ImportSkillModal } from "@/components/skill/ImportSkillModal";
 import { CommentsPanel, type Suggestion } from "@/components/skill/CommentsPanel";
 import { SkillMemoPanel } from "@/components/skill/SkillMemoPanel";
+import { SandboxTestModal } from "@/components/skill/SandboxTestModal";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -2046,6 +2047,7 @@ function StudioChat({
   onDevStudio,
   onFileSplitDone,
   onMemoRefresh,
+  onOpenSandbox,
   selectedSourceFile,
   onEditorTarget,
   clearRef,
@@ -2064,6 +2066,7 @@ function StudioChat({
   onDevStudio: (desc: string) => void;
   onFileSplitDone: () => void;
   onMemoRefresh: () => void;
+  onOpenSandbox: (skillId: number) => void;
   onEditorTarget: (fileType: string, filename: string) => void;
   clearRef?: { current: (() => void) | null };
   setInputRef?: { current: ((text: string) => void) | null };
@@ -2126,10 +2129,8 @@ function StudioChat({
         body: JSON.stringify({ source: "persistent_notice" }),
       });
       onMemoRefresh();
-      // 提示用户已进入测试流程
-      setMessages((prev) => [...prev,
-        { role: "assistant", text: "已进入测试流程，请前往沙箱运行测试。", loading: false },
-      ]);
+      // 自动弹出沙盒测试 Modal
+      onOpenSandbox(skillId);
     } catch (err) {
       console.error("handleMemoDirectTest failed:", err);
       setMessages((prev) => [...prev,
@@ -2900,6 +2901,7 @@ export function SkillStudio({ convId }: { convId: number }) {
   }, []);
   const [isNew, setIsNew] = useState(false);
   const [showImportModal, setShowImportModal] = useState(false);
+  const [showSandbox, setShowSandbox] = useState<number | null>(null);
   const [memo, setMemo] = useState<SkillMemo | null>(null);
 
   const [prompt, setPrompt] = useState("");
@@ -3200,6 +3202,7 @@ export function SkillStudio({ convId }: { convId: number }) {
           onDevStudio={handleDevStudioJump}
           onFileSplitDone={() => { if (selectedSkill) refreshSkill(selectedSkill.id); }}
           onMemoRefresh={handleMemoRefresh}
+          onOpenSandbox={(id) => setShowSandbox(id)}
           onEditorTarget={handleEditorTarget}
           clearRef={clearChatRef}
           setInputRef={setInputRef}
@@ -3207,6 +3210,16 @@ export function SkillStudio({ convId }: { convId: number }) {
       </div>
 
       {/* Import modal */}
+      {showSandbox && (
+        <SandboxTestModal
+          type="skill"
+          id={showSandbox}
+          name={skills.find(s => s.id === showSandbox)?.name ?? ""}
+          onPassed={() => { setShowSandbox(null); handleMemoRefresh(); }}
+          onCancel={() => { setShowSandbox(null); handleMemoRefresh(); }}
+        />
+      )}
+
       {showImportModal && (
         <ImportSkillModal
           onImported={(skill) => {
