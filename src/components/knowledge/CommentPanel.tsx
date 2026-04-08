@@ -69,7 +69,6 @@ export default function CommentPanel({
       {tab === "history" && (
         <SnapshotHistory
           knowledgeId={knowledgeId}
-          currentUserId={currentUserId}
           canRestore={canEdit}
           onToast={onToast}
           onRestoreSuccess={onRestoreSuccess}

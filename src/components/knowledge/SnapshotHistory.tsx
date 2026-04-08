@@ -15,7 +15,6 @@ interface Snapshot {
 
 interface SnapshotHistoryProps {
   knowledgeId: number;
-  currentUserId: number;
   /** 是否可执行恢复操作（权限控制） */
   canRestore: boolean;
   onToast?: (msg: string) => void;
@@ -39,12 +38,11 @@ const TYPE_STYLES: Record<string, string> = {
 
 export default function SnapshotHistory({
   knowledgeId,
-  currentUserId,
   canRestore,
   onToast,
   onRestoreSuccess,
 }: SnapshotHistoryProps) {
-  const toast = (msg: string) => onToast?.(msg);
+  const toast = useCallback((msg: string) => onToast?.(msg), [onToast]);
   const [snapshots, setSnapshots] = useState<Snapshot[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [restoringId, setRestoringId] = useState<number | null>(null);

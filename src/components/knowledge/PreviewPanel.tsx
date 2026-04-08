@@ -7,8 +7,6 @@ import { useTheme } from "@/lib/theme";
 import type {
   EditPermissionCheck,
   GovernanceBlueprintPayload,
-  GovernanceObjective,
-  GovernanceResourceLibrary,
   GovernanceSuggestionTask,
   KnowledgeDetail,
   KnowledgeShareLink,
@@ -159,8 +157,8 @@ export default function PreviewPanel({
   // Fetch edit permission from backend when entry changes
   useEffect(() => {
     if (!entry) {
-      setPermCheck(null); // eslint-disable-line react-hooks/set-state-in-effect -- reset on null entry
-      setShareLink(null); // eslint-disable-line react-hooks/set-state-in-effect -- reset on null entry
+      setPermCheck(null);
+      setShareLink(null);
       return;
     }
     let cancelled = false;
@@ -216,7 +214,7 @@ export default function PreviewPanel({
 
   // Init content on entry switch
   useEffect(() => {
-    setEditingTitle(false); // eslint-disable-line react-hooks/set-state-in-effect -- synchronize local state with entry prop
+    setEditingTitle(false);
     setTitleVal(entry?.title ?? "");
     setSaveState("saved");
     entryIdRef.current = entry?.id ?? null;
@@ -602,7 +600,6 @@ export default function PreviewPanel({
       {/* 员工视角：零术语分类确认 */}
       {entry && currentUser && currentUser.role === "employee" && entry.governance_status === "suggested" && (
         <EmployeeClassifyConfirm
-          entryId={entry.id}
           libraryName={
             governanceBlueprint?.resource_libraries?.find(
               (l: { id: number }) => l.id === entry.resource_library_id
@@ -1427,12 +1424,10 @@ function MaskFeedbackButton({ entry, currentUser }: { entry: KnowledgeDetail; cu
 
 /** 员工零术语分类确认：只显示"AI 将此归为 [分类名]" + 确认/改一下 */
 function EmployeeClassifyConfirm({
-  entryId,
   libraryName,
   onConfirm,
   onCorrect,
 }: {
-  entryId: number;
   libraryName: string;
   onConfirm: () => Promise<void>;
   onCorrect: () => Promise<void>;

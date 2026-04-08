@@ -33,7 +33,7 @@ export default function CommentList({
   onToast,
   onScrollToBlock,
 }: CommentListProps) {
-  const toast = (msg: string) => onToast?.(msg);
+  const toast = useCallback((msg: string) => onToast?.(msg), [onToast]);
   const [comments, setComments] = useState<Comment[]>([]);
   const [newComment, setNewComment] = useState("");
   const [sending, setSending] = useState(false);

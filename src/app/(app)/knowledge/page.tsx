@@ -200,7 +200,7 @@ const FileManagerTab = forwardRef<{ createDoc: () => void; triggerUpload: () => 
       clearInterval(pollInterval);
       clearTimeout(timeout);
     };
-  }, [selectedEntry?.id, selectedEntry?.doc_render_status]);
+  }, [selectedEntry?.id, selectedEntry?.doc_render_status]); // eslint-disable-line react-hooks/exhaustive-deps -- poll depends on id+status only, adding selectedEntry causes infinite loop
 
   // 轮询 ai_notes 状态：当 selectedEntry 的 ai_notes_status 为 pending/processing 时，每 3 秒检查一次，120 秒超时
   useEffect(() => {
@@ -228,7 +228,7 @@ const FileManagerTab = forwardRef<{ createDoc: () => void; triggerUpload: () => 
       clearInterval(pollInterval);
       clearTimeout(timeout);
     };
-  }, [selectedEntry?.id, selectedEntry?.ai_notes_status]);
+  }, [selectedEntry?.id, selectedEntry?.ai_notes_status]); // eslint-disable-line react-hooks/exhaustive-deps -- poll depends on id+status only
 
   const fetchAll = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
@@ -236,14 +236,14 @@ const FileManagerTab = forwardRef<{ createDoc: () => void; triggerUpload: () => 
       setFoldersError(null);
       setEntriesError(null);
       try {
-        const fds = await apiFetch<Folder[]>("/knowledge/folders?owner_only=true");
+        const fds = await apiFetch<Folder[]>("/knowledge/folders");
         setFolders(Array.isArray(fds) ? fds : []);
       } catch (err) {
         setFolders([]);
         setFoldersError(err instanceof Error ? err.message : "文件夹加载失败");
       }
       try {
-        const ens = await apiFetch<KnowledgeDetail[]>("/knowledge?owner_only=true");
+        const ens = await apiFetch<KnowledgeDetail[]>("/knowledge");
         setEntries(Array.isArray(ens) ? ens : []);
       } catch (err) {
         setEntries([]);
