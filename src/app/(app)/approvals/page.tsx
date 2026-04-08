@@ -425,6 +425,150 @@ function SystemPromptBlock({ value }: { value: unknown }) {
   );
 }
 
+function PromptDiffBlock({ current, previous, prevVersion, currentVersion }: { current: string; previous: string; prevVersion?: number; currentVersion?: number }) {
+  const [open, setOpen] = useState(false);
+  const prevLines = previous.split("\n");
+  const currLines = current.split("\n");
+  // Simple line-level diff
+  const maxLen = Math.max(prevLines.length, currLines.length);
+  const diffLines: { type: "same" | "add" | "del"; text: string }[] = [];
+  for (let i = 0; i < maxLen; i++) {
+    const p = prevLines[i];
+    const c = currLines[i];
+    if (p === c) {
+      diffLines.push({ type: "same", text: c ?? "" });
+    } else {
+      if (p !== undefined) diffLines.push({ type: "del", text: p });
+      if (c !== undefined) diffLines.push({ type: "add", text: c });
+    }
+  }
+  return (
+    <div>
+      <button onClick={() => setOpen(!open)} className="flex items-center gap-1 text-[10px] font-medium text-muted-foreground uppercase tracking-wider mb-1 hover:text-foreground transition-colors">
+        {open ? <ChevronDown size={10} /> : <ChevronRight size={10} />}
+        版本变更对比 (v{prevVersion ?? "?"} → v{currentVersion ?? "?"})
+      </button>
+      {open && (
+        <pre className="text-[10px] whitespace-pre-wrap leading-relaxed font-mono bg-background border border-border rounded px-3 py-2 max-h-64 overflow-y-auto">
+          {diffLines.map((line, i) => (
+            <div key={i} className={line.type === "add" ? "bg-green-100 text-green-800" : line.type === "del" ? "bg-red-100 text-red-800 line-through" : "text-foreground"}>
+              {line.type === "add" ? "+ " : line.type === "del" ? "- " : "  "}{line.text}
+            </div>
+          ))}
+        </pre>
+      )}
+    </div>
+  );
+}
+
+function KnowledgeEditDetail({ detail, reason, requesterName }: { detail: Record<string, unknown>; reason: string | null; requesterName: string | null }) {
+  const [contentOpen, setContentOpen] = useState(false);
+  const content = String(detail.content || "");
+  const preview = content.length > 500 ? content.slice(0, 500) + "…" : content;
+  const entryId = detail.entry_id as number | undefined;
+
+  return (
+    <div className="border-t border-border px-4 py-3 bg-muted/30 space-y-3">
+      <div className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">编辑权限申请</div>
+
+      {/* 申请者 */}
+      {requesterName && (
+        <div className="text-xs"><span className="text-muted-foreground">申请者：</span><span className="text-foreground font-medium">{requesterName}</span></div>
+      )}
+
+      {/* 申请理由 */}
+      {reason && (
+        <div className="text-xs"><span className="text-muted-foreground">申请理由：</span><span className="text-foreground">{reason}</span></div>
+      )}
+
+      {/* 文档信息 */}
+      <div className="space-y-1">
+        <div className="text-xs"><span className="text-muted-foreground">文档标题：</span><span className="text-foreground">{String(detail.title || detail.name || "")}</span></div>
+        {detail.category ? <div className="text-xs"><span className="text-muted-foreground">分类：</span><span className="text-foreground">{String(detail.category)}</span></div> : null}
+        {detail.creator_name ? <div className="text-xs"><span className="text-muted-foreground">文档创建者：</span><span className="text-foreground">{String(detail.creator_name)}</span></div> : null}
+      </div>
+
+      {/* 内容预览 */}
+      {content ? (
+        <div>
+          <div className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider mb-1">内容预览</div>
+          <pre className="text-[10px] text-foreground whitespace-pre-wrap leading-relaxed font-mono bg-background border border-border rounded px-3 py-2 max-h-48 overflow-y-auto">
+            {contentOpen ? content : preview}
+          </pre>
+          {content.length > 500 && (
+            <button onClick={() => setContentOpen(!contentOpen)} className="text-[10px] text-primary hover:underline mt-1">
+              {contentOpen ? "收起" : "展开全文"}
+            </button>
+          )}
+        </div>
+      ) : null}
+
+      {/* 跳转链接 */}
+      {entryId ? (
+        <a href={`/knowledge?doc=${entryId}`} target="_blank" rel="noopener noreferrer" className="inline-block text-xs font-medium text-primary hover:underline">
+          查看原文档 ↗
+        </a>
+      ) : null}
+    </div>
+  );
+}
+
+function WebAppDetail({ detail }: { detail: Record<string, unknown> }) {
+  const [codeOpen, setCodeOpen] = useState(false);
+  const [iframeOpen, setIframeOpen] = useState(false);
+  const htmlCode = String(detail.html_code || "");
+  const previewUrl = detail.preview_url ? String(detail.preview_url) : null;
+
+  return (
+    <div className="border-t border-border px-4 py-3 bg-muted/30 space-y-3">
+      <div className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Web App 审批详情</div>
+
+      {/* 基本信息 */}
+      <div className="space-y-1">
+        <div className="text-xs"><span className="text-muted-foreground">应用名称：</span><span className="text-foreground font-medium">{String(detail.name || "")}</span></div>
+        {detail.description ? <div className="text-xs"><span className="text-muted-foreground">描述：</span><span className="text-foreground">{String(detail.description)}</span></div> : null}
+        {detail.creator_name ? <div className="text-xs"><span className="text-muted-foreground">创建者：</span><span className="text-foreground">{String(detail.creator_name)}</span></div> : null}
+        {detail.status ? <div className="text-xs"><span className="text-muted-foreground">状态：</span><span className="text-foreground">{String(detail.status)}</span></div> : null}
+      </div>
+
+      {/* 代码预览 */}
+      {htmlCode && (
+        <div>
+          <button onClick={() => setCodeOpen(!codeOpen)} className="flex items-center gap-1 text-[10px] font-medium text-muted-foreground uppercase tracking-wider hover:text-foreground transition-colors">
+            {codeOpen ? <ChevronDown size={10} /> : <ChevronRight size={10} />}
+            代码预览 ({htmlCode.length} 字符)
+          </button>
+          {codeOpen && (
+            <pre className="text-[10px] text-foreground whitespace-pre-wrap leading-relaxed font-mono bg-background border border-border rounded px-3 py-2 max-h-64 overflow-y-auto mt-1">
+              {htmlCode}
+            </pre>
+          )}
+        </div>
+      )}
+
+      {/* iframe 实时预览 */}
+      {previewUrl && (
+        <div>
+          <button onClick={() => setIframeOpen(!iframeOpen)} className="flex items-center gap-1 text-[10px] font-medium text-muted-foreground uppercase tracking-wider hover:text-foreground transition-colors">
+            {iframeOpen ? <ChevronDown size={10} /> : <ChevronRight size={10} />}
+            实时预览
+          </button>
+          {iframeOpen && (
+            <iframe src={previewUrl} className="w-full h-64 border border-border rounded mt-1 bg-white" sandbox="allow-scripts allow-same-origin" title="Web App 预览" />
+          )}
+        </div>
+      )}
+
+      {/* 预览链接 */}
+      {previewUrl && (
+        <a href={previewUrl} target="_blank" rel="noopener noreferrer" className="inline-block text-xs font-medium text-primary hover:underline">
+          预览 Web App ↗
+        </a>
+      )}
+    </div>
+  );
+}
+
 function ApprovalCard({
   request: r,
   acting,
@@ -456,7 +600,9 @@ function ApprovalCard({
   const isTool = r.request_type === "tool_publish";
   const isWebApp = r.request_type === "webapp_publish";
   const isKnowledgeReview = r.request_type === "knowledge_review";
-  const hasExpandable = isSkill || isTool || isWebApp || isKnowledgeReview;
+  const isKnowledgeEdit = r.request_type === "knowledge_edit";
+  const isUnimplemented = ["scope_change", "mask_override", "schema_approval", "export_sensitive", "elevate_disclosure", "grant_access", "policy_change", "field_sensitivity_change", "small_sample_change"].includes(r.request_type);
+  const hasExpandable = isSkill || isTool || isWebApp || isKnowledgeReview || isKnowledgeEdit || isUnimplemented;
 
   return (
     <div className="border border-border rounded-lg bg-card hover:shadow-sm transition-shadow">
@@ -483,6 +629,20 @@ function ApprovalCard({
             )}
           </div>
           <div className="text-[11px] text-muted-foreground mt-1">{formatTime(r.created_at)}</div>
+
+          {/* Ownership transfer: show new owner */}
+          {r.request_type === "skill_ownership_transfer" && detail.new_owner_name ? (
+            <div className="text-xs text-foreground mt-1">
+              → 新所有者: <span className="font-medium">{String(detail.new_owner_name)}</span>
+            </div>
+          ) : null}
+
+          {/* 申请理由 */}
+          {r.reason && (
+            <div className="text-xs text-muted-foreground mt-1">
+              理由: <span className="text-foreground">{r.reason}</span>
+            </div>
+          )}
 
           {/* Action history */}
           {r.actions.length > 0 && (
@@ -564,27 +724,18 @@ function ApprovalCard({
         </div>
       )}
       {expanded && isWebApp && (
-        <div className="border-t border-border px-4 py-3 bg-muted/30">
-          <div className="text-xs text-muted-foreground">
-            <span className="font-medium">名称：</span>{String(detail.name || "")}
-          </div>
-          {detail.description ? (
-            <div className="text-xs text-muted-foreground mt-1">{String(detail.description)}</div>
-          ) : null}
-          {detail.preview_url ? (
-            <a
-              href={String(detail.preview_url)}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-block mt-2 text-xs font-medium text-primary hover:underline"
-            >
-              预览 Web App ↗
-            </a>
-          ) : null}
-        </div>
+        <WebAppDetail detail={detail} />
       )}
       {expanded && isKnowledgeReview && (
         <KnowledgeReviewDetail detail={detail} />
+      )}
+      {expanded && isKnowledgeEdit && (
+        <KnowledgeEditDetail detail={detail} reason={r.reason} requesterName={r.requester_name} />
+      )}
+      {expanded && isUnimplemented && (
+        <div className="border-t border-border px-4 py-3 bg-muted/30">
+          <div className="text-xs text-muted-foreground italic">详细审批信息功能开发中</div>
+        </div>
       )}
     </div>
   );
@@ -624,11 +775,19 @@ function SkillDetail({
   const [reportLoading, setReportLoading] = useState(false);
   useEffect(() => {
     if (!sandboxSessionId) return;
-    setReportLoading(true);
-    apiFetch(`/sandbox/interactive/${sandboxSessionId}/report`)
-      .then((r) => setSandboxReport(r as Record<string, unknown>))
-      .catch(() => setSandboxReport(null))
-      .finally(() => setReportLoading(false));
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const r = await apiFetch(`/sandbox/interactive/${sandboxSessionId}/report`);
+        if (!cancelled) setSandboxReport(r as Record<string, unknown>);
+      } catch {
+        if (!cancelled) setSandboxReport(null);
+      } finally {
+        if (!cancelled) setReportLoading(false);
+      }
+    };
+    load();
+    return () => { cancelled = true; };
   }, [sandboxSessionId]);
 
   // Group files by category
@@ -753,6 +912,11 @@ function SkillDetail({
         {/* System Prompt */}
         <SystemPromptBlock value={detail.system_prompt} />
 
+        {/* 版本变更对比 */}
+        {detail.prev_system_prompt != null && (
+          <PromptDiffBlock current={String(detail.system_prompt || "")} previous={String(detail.prev_system_prompt)} prevVersion={detail.prev_version as number | undefined} currentVersion={detail.version as number | undefined} />
+        )}
+
         {/* 附属信息 */}
         {knowledgeTags.length > 0 && (
           <div className="flex items-center gap-1 flex-wrap">
@@ -858,12 +1022,15 @@ function SkillDetail({
 }
 
 function KnowledgeReviewDetail({ detail }: { detail: Record<string, unknown> }) {
+  const [contentOpen, setContentOpen] = useState(false);
   const content = String(detail.content || "");
+  const preview = content.length > 500 ? content.slice(0, 500) + "…" : content;
   const category = String(detail.category || "");
   const reviewLevel = detail.review_level as number | undefined;
   const reviewStage = String(detail.review_stage || "");
   const sensitivityFlags = (detail.sensitivity_flags || []) as string[];
   const autoReviewNote = String(detail.auto_review_note || "");
+  const entryId = detail.entry_id as number | undefined;
 
   const levelLabel: Record<number, string> = { 0: "L0 自动通过", 1: "L1 自动通过", 2: "L2 部门审核", 3: "L3 两级审核" };
   const stageLabel: Record<string, string> = {
@@ -930,9 +1097,21 @@ function KnowledgeReviewDetail({ detail }: { detail: Record<string, unknown> }) 
         <div>
           <div className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider mb-1">内容预览</div>
           <pre className="text-[10px] text-foreground whitespace-pre-wrap leading-relaxed font-mono bg-background border border-border rounded px-3 py-2 max-h-64 overflow-y-auto">
-            {content}
+            {contentOpen ? content : preview}
           </pre>
+          {content.length > 500 && (
+            <button onClick={() => setContentOpen(!contentOpen)} className="text-[10px] text-primary hover:underline mt-1">
+              {contentOpen ? "收起" : "展开全文"}
+            </button>
+          )}
         </div>
+      )}
+
+      {/* 跳转链接 */}
+      {entryId && (
+        <a href={`/knowledge?doc=${entryId}`} target="_blank" rel="noopener noreferrer" className="inline-block text-xs font-medium text-primary hover:underline">
+          查看原文档 ↗
+        </a>
       )}
     </div>
   );

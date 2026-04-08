@@ -126,6 +126,7 @@ export default function PreviewPanel({
   const [permCheck, setPermCheck] = useState<EditPermissionCheck | null>(null);
   const [permLoading, setPermLoading] = useState(false);
   const [requestingEdit, setRequestingEdit] = useState(false);
+  const [editReason, setEditReason] = useState("");
   const [shareLink, setShareLink] = useState<KnowledgeShareLink | null>(null);
   const [shareLoading, setShareLoading] = useState(false);
   const [showSharePanel, setShowSharePanel] = useState(false);
@@ -330,24 +331,38 @@ export default function PreviewPanel({
                 <Lock size={12} className="text-gray-400" />
                 <span className="text-gray-400">只读</span>
                 {!permCheck?.is_owner && !permLoading && (
-                  <button
-                    disabled={requestingEdit}
-                    onClick={async () => {
-                      if (!entry) return;
-                      setRequestingEdit(true);
-                      try {
-                        await apiFetch(`/knowledge/${entry.id}/request-edit`, { method: "POST" });
-                        // Refresh permission state
-                        const updated = await apiFetch<EditPermissionCheck>(`/knowledge/${entry.id}/edit-permission`);
-                        setPermCheck(updated);
-                      } catch { /* ignore */ }
-                      setRequestingEdit(false);
-                    }}
-                    className="ml-1 flex items-center gap-1 px-2 py-0.5 rounded-md bg-[#00D1FF]/10 text-[#00A3C4] hover:bg-[#00D1FF]/20 transition-colors font-medium"
-                  >
-                    <Send size={10} />
-                    {requestingEdit ? "申请中…" : "申请编辑权限"}
-                  </button>
+                  <div className="ml-1 flex flex-col gap-1">
+                    <div className="flex items-center gap-1">
+                      <input
+                        type="text"
+                        placeholder="申请理由（可选）"
+                        value={editReason}
+                        onChange={(e) => setEditReason(e.target.value)}
+                        className="text-[10px] px-2 py-0.5 border border-border rounded-md bg-background text-foreground w-40 focus:outline-none focus:ring-1 focus:ring-primary"
+                      />
+                      <button
+                        disabled={requestingEdit}
+                        onClick={async () => {
+                          if (!entry) return;
+                          setRequestingEdit(true);
+                          try {
+                            await apiFetch(`/knowledge/${entry.id}/request-edit`, {
+                              method: "POST",
+                              body: JSON.stringify({ reason: editReason || undefined }),
+                            });
+                            const updated = await apiFetch<EditPermissionCheck>(`/knowledge/${entry.id}/edit-permission`);
+                            setPermCheck(updated);
+                            setEditReason("");
+                          } catch { /* ignore */ }
+                          setRequestingEdit(false);
+                        }}
+                        className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-[#00D1FF]/10 text-[#00A3C4] hover:bg-[#00D1FF]/20 transition-colors font-medium"
+                      >
+                        <Send size={10} />
+                        {requestingEdit ? "申请中…" : "申请编辑权限"}
+                      </button>
+                    </div>
+                  </div>
                 )}
               </>
             )}

@@ -281,6 +281,7 @@ export interface ApprovalRequest {
   requester_name: string | null;
   status: "pending" | "approved" | "rejected" | "conditions";
   stage: string | null;
+  reason: string | null;
   conditions: unknown[];
   security_scan_result?: Record<string, unknown> | null;
   sandbox_report_id?: number | null;
