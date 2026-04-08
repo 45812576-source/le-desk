@@ -1985,6 +1985,10 @@ const STUDIO_STAGE_LABELS: Record<string, string> = {
   summarizing: "生成结构化摘要...",
   pev_start: "分析任务复杂度...",
   replanning: "重新规划中...",
+  ingest_parsing: "识别内容类型...",
+  ingest_splitting: "拆分内容块...",
+  ingest_saving: "存储子文件...",
+  ingest_analyzing: "分析与 Skill 的关系...",
 };
 
 function stageLabel(stage: string | null): string {
@@ -2227,8 +2231,144 @@ function StudioChat({
     }, 0);
   }
 
+  const CONTENT_MAX = 6000;
+
+  async function ingestLongText(userText: string) {
+    let msgIdx = -1;
+    setMessages((prev) => {
+      msgIdx = prev.length + 1;
+      return [...prev,
+        { role: "user", text: userText.slice(0, 300) + `…\n\n_（共 ${userText.length.toLocaleString()} 字符，正在分析…）_` },
+        { role: "assistant", text: "", loading: true },
+      ];
+    });
+    setStreaming(true);
+    setStreamStage("ingest_parsing");
+    setInput("");
+
+    try {
+      const token = getToken();
+      const resp = await fetch(`/api/proxy/skills/${skillId}/ingest-paste`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+        body: JSON.stringify({ content: userText }),
+      });
+      if (!resp.ok) {
+        let errMsg = `长文本分析失败 (${resp.status})`;
+        try {
+          const errData = await resp.json();
+          if (errData.detail) errMsg = typeof errData.detail === "string" ? errData.detail : JSON.stringify(errData.detail);
+        } catch { /* use default */ }
+        setMessages((prev) => prev.map((m, i) =>
+          i === msgIdx ? { ...m, text: errMsg, loading: false } : m
+        ));
+        return;
+      }
+
+      const reader = resp.body?.getReader();
+      if (!reader) {
+        setMessages((prev) => prev.map((m, i) =>
+          i === msgIdx ? { ...m, text: "无法读取响应", loading: false } : m
+        ));
+        return;
+      }
+      const decoder = new TextDecoder();
+      let buf = "", curEvt = "stage";
+      let savedFiles: string[] = [];
+      let summary = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        const lines = buf.split("\n"); buf = lines.pop() || "";
+        for (const line of lines) {
+          if (line.startsWith("event: ")) { curEvt = line.slice(7).trim(); }
+          else if (line.startsWith("data: ")) {
+            try {
+              const data = JSON.parse(line.slice(6));
+              if (curEvt === "stage") {
+                setStreamStage(data.stage);
+              } else if (curEvt === "ingest_files_saved") {
+                savedFiles = data.files;
+                onFileSplitDone();
+              } else if (curEvt === "ingest_result") {
+                summary = data.summary;
+              } else if (curEvt === "error") {
+                setMessages((prev) => prev.map((m, i) =>
+                  i === msgIdx ? { ...m, text: data.message || "长文本分析失败", loading: false } : m
+                ));
+                return;
+              }
+            } catch { /* skip */ }
+            curEvt = "stage";
+          }
+        }
+      }
+
+      // 展示分析结果
+      const fileList = savedFiles.map(f => `\`${f}\``).join("、");
+      setMessages((prev) => prev.map((m, i) =>
+        i === msgIdx ? { ...m, text: `已存储 ${savedFiles.length} 个子文件（${fileList}），正在分析与 Skill 的关系…`, loading: false } : m
+      ));
+      setStreaming(false);
+      setStreamStage(null);
+
+      // 刷新 memo 状态（后端 ingest 已更新 memo 任务树）
+      onMemoRefresh();
+
+      // 写入 _memo.md 归档 ingest 记录
+      if (skillId && savedFiles.length > 0) {
+        try {
+          const now = new Date().toLocaleString("zh-CN", { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
+          const fileListMd = savedFiles.map(f => `- \`${f}\``).join("\n");
+          const newEntry = `## ${now} 长文本粘贴\n\n${summary || "用户粘贴了长文本内容"}\n\n存储文件：\n${fileListMd}\n\n---\n`;
+
+          let existing = "";
+          try {
+            const res = await apiFetch<{ content: string }>(`/skills/${skillId}/files/_memo.md`);
+            existing = res.content || "";
+          } catch { /* 文件不存在 */ }
+
+          const header = existing ? "" : `# Skill Memo - Ingest Log\n\n`;
+          const content = header + newEntry + existing.replace(/^# Skill Memo.*\n\n/, "");
+
+          await apiFetch(`/skills/${skillId}/files/${encodeURIComponent("_memo.md")}`, {
+            method: "PUT",
+            body: JSON.stringify({ content }),
+          });
+        } catch { /* memo 写入失败不阻塞 */ }
+      }
+
+      // 自动发送 summary 继续与 Studio Agent 交互
+      if (summary) {
+        send(summary);
+      }
+    } catch {
+      setMessages((prev) => prev.map((m, i) =>
+        i === msgIdx ? { ...m, text: "长文本分析失败，请重试", loading: false } : m
+      ));
+    } finally {
+      setStreaming(false);
+      setStreamStage(null);
+    }
+  }
+
   async function send(userText: string) {
     if (!userText.trim() || streaming) return;
+
+    // 长文本拦截：超过 CONTENT_MAX 走 ingest 管线
+    if (userText.length > CONTENT_MAX) {
+      if (!skillId) {
+        setMessages((prev) => [...prev,
+          { role: "user", text: userText.slice(0, 200) + "…" },
+          { role: "assistant", text: `文本较长（${userText.length.toLocaleString()} 字符）。请先选中一个 Skill，系统会自动分析并存储为子文件。`, loading: false },
+        ]);
+        setInput("");
+        return;
+      }
+      return ingestLongText(userText);
+    }
 
     // 立即添加用户消息 + assistant loading 气泡，让用户马上看到反馈
     let msgIdx = -1;
@@ -2271,8 +2411,18 @@ function StudioChat({
         if (resp.status === 401) {
           dispatchAuthExpired();
         }
+        let errText = `发送失败 (${resp.status})`;
+        if (resp.status === 401) {
+          errText = "登录已过期，请重新登录";
+        } else if (resp.status === 422) {
+          try {
+            const errData = await resp.json();
+            const detail = errData.detail;
+            errText = typeof detail === "string" ? detail : Array.isArray(detail) ? detail.map((d: { msg?: string }) => d.msg).join("；") : `请求参数错误 (422)`;
+          } catch { errText = "请求参数错误 (422)"; }
+        }
         setMessages((prev) => prev.map((m, i) =>
-          i === msgIdx ? { ...m, text: resp.status === 401 ? "登录已过期，请重新登录" : `发送失败 (${resp.status})`, loading: false } : m
+          i === msgIdx ? { ...m, text: errText, loading: false } : m
         ));
         return;
       }
