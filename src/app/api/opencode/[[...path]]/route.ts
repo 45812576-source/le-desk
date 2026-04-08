@@ -180,6 +180,31 @@ export async function GET(
 
   // patch WebSocket：同源 ws/wss 连接重定向到 /api/opencode-rpc，并带端口参数
   var _origWS = window.WebSocket;
+
+  // MutationObserver：拦截动态添加的 <link>/<script>/<img>，把 /assets/ 重写到代理路径
+  try {
+    var _rewriteAttr = function(el, attr) {
+      var val = el.getAttribute(attr);
+      if (val && val.startsWith("/assets/")) {
+        el.setAttribute(attr, "/api/opencode" + val);
+      } else if (val && val.startsWith("/") && !val.startsWith("/api/")) {
+        el.setAttribute(attr, "/api/opencode" + val);
+      }
+    };
+    new MutationObserver(function(mutations) {
+      for (var i = 0; i < mutations.length; i++) {
+        var nodes = mutations[i].addedNodes;
+        for (var j = 0; j < nodes.length; j++) {
+          var n = nodes[j];
+          if (n.nodeType !== 1) continue;
+          var tag = n.tagName;
+          if (tag === "LINK") _rewriteAttr(n, "href");
+          else if (tag === "SCRIPT" || tag === "IMG") _rewriteAttr(n, "src");
+        }
+      }
+    }).observe(document.documentElement, { childList: true, subtree: true });
+  } catch(e) {}
+
   window.WebSocket = function(url, protocols) {
     var wsUrl = String(url);
     var originWs = location.origin.replace(/^http/, "ws");
@@ -224,11 +249,26 @@ export async function GET(
     // 注意：new URL(path, base) 要求 base 是绝对 URL，不能用相对路径
     // 只替换 baseUrl 上下文，避免破坏 placeholder 等普通字符串
     js = js.replace(new RegExp("baseUrl:" + '"http:' + "//localhost:4096" + '"', "g"), 'baseUrl:location.origin+"/api/opencode-rpc"');
+    // Vite 打包的 JS 中硬编码了 "/assets/..." 路径用于 CSS preload 和动态 import
+    // 这些不经过 fetch patch，必须在源码级别重写到代理路径
+    js = js.replace(/(["'])\/assets\//g, '$1/api/opencode/assets/');
     const respHeaders = new Headers();
     respHeaders.set("content-type", contentType || "application/javascript");
     respHeaders.set("cache-control", "no-store, no-cache, must-revalidate");
     respHeaders.delete("content-security-policy");
     return new NextResponse(js, { status: upstream.status, headers: respHeaders });
+  }
+
+  // CSS 文件：重写 url(/assets/...) 引用到代理路径
+  const isCss = contentType.includes("text/css") || subpath.endsWith(".css");
+  if (isCss) {
+    let css = await upstream.text();
+    css = css.replace(/url\(\s*\/assets\//g, "url(/api/opencode/assets/");
+    const respHeaders = new Headers();
+    respHeaders.set("content-type", contentType || "text/css");
+    respHeaders.set("cache-control", "public, max-age=31536000, immutable");
+    respHeaders.delete("content-security-policy");
+    return new NextResponse(css, { status: upstream.status, headers: respHeaders });
   }
 
   // 其他资源直接透传
