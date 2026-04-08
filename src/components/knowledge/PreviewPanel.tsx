@@ -814,14 +814,28 @@ function DocumentRenderResolver({
 }) {
   const ext = (entry.file_ext || "").toLowerCase();
   const renderStatus = entry.doc_render_status;
+  const isLarkDoc = entry.source_type === "lark_doc";
+  const isDetachedLarkCopy = isLarkDoc && entry.external_edit_mode === "detached_copy";
   // PDF 转换成功后不再视为 media，走 OnlyOffice 路径
-  const isMedia = entry.oss_key && MEDIA_EXTS.has(ext) && !(ext === ".pdf" && entry.can_open_onlyoffice);
+  const isMedia = !!entry.oss_key && MEDIA_EXTS.has(ext) && !(ext === ".pdf" && entry.can_open_onlyoffice);
+  const hasRenderableContent = Boolean(entry.content_html || entry.content || htmlVal);
+  const prefersWorkbenchEditor =
+    !isMedia &&
+    !entry.can_open_onlyoffice &&
+    (
+      isDetachedLarkCopy ||
+      hasRenderableContent ||
+      !entry.oss_key ||
+      renderStatus === "failed" ||
+      renderStatus === "pending" ||
+      renderStatus === "processing"
+    );
 
   // 1. 正在转换中 — 显示进度提示，同时允许编辑正文 fallback
   //    仅当有实际文件（oss_key）时才视为真正在转换；无文件的手动文档跳过
   //    媒体文件（PDF/图片/音视频）不需要等转换完成，直接走原生预览
   if ((renderStatus === "processing" || renderStatus === "pending") && entry.oss_key && !isMedia) {
-    const hasFallback = !!(entry.content || htmlVal);
+    const hasFallback = hasRenderableContent;
     return (
       <div className="flex flex-col h-full">
         <div className="flex items-center gap-2 px-4 py-2 bg-[#F0F9FF] border-b border-[#00D1FF]/20 flex-shrink-0">
@@ -900,7 +914,7 @@ function DocumentRenderResolver({
   }
 
   // 5. OnlyOffice 可打开的 Office 文件
-  if (entry.can_open_onlyoffice && entry.oss_key) {
+  if (entry.can_open_onlyoffice && entry.oss_key && !isDetachedLarkCopy) {
     return (
       <EditorErrorBoundary fallback={<ViewerFallback entry={entry} />}>
         <div className="h-full overflow-y-auto">
@@ -912,7 +926,7 @@ function DocumentRenderResolver({
 
   // 6. 非媒体、非 OnlyOffice → 直接进编辑器
   // 即使 content 为空（如新建空白文档），也必须打开编辑器让用户输入
-  if (currentUser && canEdit) {
+  if (prefersWorkbenchEditor && currentUser && canEdit) {
     return (
       <EditorErrorBoundary fallback={<RichEditor key={entry.id} content={htmlVal} onChange={onContentChange} editable={canEdit} />}>
         <CollabEditor
@@ -928,8 +942,41 @@ function DocumentRenderResolver({
   }
 
   // 7. 只读 — 有内容则展示
-  if (entry.content || htmlVal) {
+  if (prefersWorkbenchEditor && hasRenderableContent) {
     return <RichEditor key={entry.id} content={htmlVal} onChange={onContentChange} editable={false} />;
+  }
+
+  if ((isDetachedLarkCopy || renderStatus === "ready") && !hasRenderableContent) {
+    return (
+      <div className="flex flex-col items-center justify-center h-64 gap-3 text-gray-400">
+        <AlertTriangle size={24} />
+        <p className="text-[11px]">文档已入库，但正文转换结果为空</p>
+        <p className="text-[9px] text-gray-500">这通常表示导入/转换链路没有产出可编辑正文，不应再静默显示为空白。</p>
+        <div className="flex items-center gap-3">
+          {onRetry && (
+            <button
+              onClick={onRetry}
+              className="flex items-center gap-1 text-[10px] text-[#00A3C4] hover:underline"
+            >
+              <RefreshCw size={12} /> 重试转换
+            </button>
+          )}
+          {entry.oss_key && (
+            <button
+              onClick={async () => {
+                try {
+                  const res = await fetch(`/api/proxy/knowledge/${entry.id}/file-url`);
+                  if (res.ok) { const data = await res.json(); window.open(data.url, "_blank"); }
+                } catch {}
+              }}
+              className="flex items-center gap-1 text-[10px] text-[#00A3C4] hover:underline"
+            >
+              <Download size={12} /> 打开原文件
+            </button>
+          )}
+        </div>
+      </div>
+    );
   }
 
   // 8. 兜底 — 真正无内容且只读

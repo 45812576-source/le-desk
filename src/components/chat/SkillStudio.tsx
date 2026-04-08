@@ -2101,12 +2101,21 @@ function StudioChat({
   async function handleMemoStartTask(taskId: string) {
     if (!skillId) return;
     try {
-      await apiFetch(`/skills/${skillId}/memo/tasks/${taskId}/start`, {
+      const result = await apiFetch<{ ok: boolean; editor_target?: { mode: string; file_type: string; filename: string } }>(`/skills/${skillId}/memo/tasks/${taskId}/start`, {
         method: "POST",
         body: JSON.stringify({ source: "studio_chat" }),
       });
       onMemoRefresh();
-    } catch { /* ignore */ }
+      // 如果后端返回了 editor_target，自动打开对应文件
+      if (result.editor_target?.filename) {
+        onEditorTarget(result.editor_target.file_type || "asset", result.editor_target.filename);
+      }
+    } catch (err) {
+      console.error("handleMemoStartTask failed:", err);
+      setMessages((prev) => [...prev,
+        { role: "assistant", text: `任务启动失败：${err instanceof Error ? err.message : "未知错误"}`, loading: false },
+      ]);
+    }
   }
 
   async function handleMemoDirectTest() {
@@ -2117,7 +2126,16 @@ function StudioChat({
         body: JSON.stringify({ source: "persistent_notice" }),
       });
       onMemoRefresh();
-    } catch { /* ignore */ }
+      // 提示用户已进入测试流程
+      setMessages((prev) => [...prev,
+        { role: "assistant", text: "已进入测试流程，请前往沙箱运行测试。", loading: false },
+      ]);
+    } catch (err) {
+      console.error("handleMemoDirectTest failed:", err);
+      setMessages((prev) => [...prev,
+        { role: "assistant", text: `操作失败：${err instanceof Error ? err.message : "未知错误"}`, loading: false },
+      ]);
+    }
   }
 
   const [hashQuery, setHashQuery] = useState<string | null>(null);

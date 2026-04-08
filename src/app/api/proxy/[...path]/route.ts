@@ -37,9 +37,12 @@ export async function handler(
 
   // SSE streaming endpoints need longer timeout (5min) for AI generation
   // Sandbox interactive run involves multiple LLM calls (execution + evaluation + report)
+  // Preflight and ingest-paste are also SSE endpoints with multiple LLM calls
   const isStreamEndpoint = targetPath.includes("/stream") || targetPath.includes("/upload-stream");
   const isLongRunEndpoint = targetPath.includes("/sandbox/interactive/") && targetPath.endsWith("/run");
-  const timeout = (isStreamEndpoint || isLongRunEndpoint) ? 300_000 : 115_000;
+  const isPreflightEndpoint = targetPath.includes("/sandbox/preflight/");
+  const isIngestEndpoint = targetPath.includes("/ingest-paste");
+  const timeout = (isStreamEndpoint || isLongRunEndpoint || isPreflightEndpoint || isIngestEndpoint) ? 300_000 : 115_000;
 
   let resp: Response;
   try {
