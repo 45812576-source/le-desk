@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { ChevronDown, ChevronRight, File, FileCode, Upload, Trash2, Zap, BookOpen, FileText, Lightbulb, Terminal, Layout, Plus, Download, Package, X, Search, ExternalLink } from "lucide-react";
 import { PixelButton } from "@/components/pixel/PixelButton";
 import { PixelBadge } from "@/components/pixel/PixelBadge";
@@ -2083,7 +2084,7 @@ function StudioChat({
   setInputRef?: { current: ((text: string) => void) | null };
 }) {
   // 消息主存在后端 DB，localStorage 只做草稿和 UI 状态缓存
-  const _storageKey = `studio_msgs_${convId}_${skillId ?? "free"}`;
+  const _storageKey = `studio_msgs_${convId}`;
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [backendLoaded, setBackendLoaded] = useState(false);
   const [backendFailed, setBackendFailed] = useState(false);
@@ -2654,18 +2655,6 @@ function StudioChat({
       {/* Header */}
       <div className="px-3 py-2.5 border-b-2 border-[#1A202C] flex items-center gap-2 flex-shrink-0 bg-[#EBF4F7]">
         <span className="text-[9px] font-bold uppercase tracking-widest text-[#00A3C4]">Studio Chat</span>
-        {/* 视图模式切换 */}
-        <div className="flex gap-0.5 border border-gray-300 rounded overflow-hidden ml-1">
-          <button
-            onClick={() => setViewMode("all_messages")}
-            className={`px-1.5 py-0.5 text-[8px] font-bold uppercase transition-colors ${viewMode === "all_messages" ? "bg-[#00D1FF] text-white" : "text-gray-400 hover:text-gray-600"}`}
-          >全部</button>
-          <button
-            onClick={() => setViewMode("current_skill_messages")}
-            disabled={!skillId}
-            className={`px-1.5 py-0.5 text-[8px] font-bold uppercase transition-colors ${viewMode === "current_skill_messages" ? "bg-[#00D1FF] text-white" : "text-gray-400 hover:text-gray-600"} ${!skillId ? "opacity-30 cursor-not-allowed" : ""}`}
-          >当前 Skill</button>
-        </div>
         <span className="flex-1" />
         {messages.length > 0 && (
           <button
@@ -2694,16 +2683,6 @@ function StudioChat({
           正在显示本地缓存，服务器历史加载失败
         </div>
       )}
-      {viewMode === "current_skill_messages" && skillId && backendLoaded && !backendFailed && (
-        <div className="px-3 py-1 bg-sky-50 border-b border-sky-200 text-[9px] text-sky-700 font-mono flex items-center gap-2">
-          <span>当前仅查看该 Skill 的相关消息</span>
-          <button
-            onClick={() => setViewMode("all_messages")}
-            className="underline hover:text-sky-900"
-          >查看全部 Studio 对话</button>
-        </div>
-      )}
-
       {/* Memo panel: persistent notices + current task + latest test + fix tasks */}
       {memo && (
         <SkillMemoPanel
@@ -2999,10 +2978,12 @@ function StudioChat({
 
 // ─── Main page ────────────────────────────────────────────────────────────────
 
-export function SkillStudio({ convId }: { convId: number }) {
+export function SkillStudio({ convId, initialSkillId }: { convId: number; initialSkillId?: number }) {
   const [skills, setSkills] = useState<SkillDetail[]>([]);
   const [skillsLoading, setSkillsLoading] = useState(true);
   const [selectedFile, _setSelectedFile] = useState<SelectedFile | null>(() => {
+    // URL 的 initialSkillId 是权威来源，优先于 localStorage
+    if (initialSkillId) return { skillId: initialSkillId, fileType: "prompt" as const };
     try {
       const saved = localStorage.getItem("skill_studio_selected");
       return saved ? JSON.parse(saved) : null;
@@ -3030,30 +3011,46 @@ export function SkillStudio({ convId }: { convId: number }) {
 
   const editorIsDirty = prompt !== savedPrompt && prompt.trim().length > 0;
 
-  // 每 Skill 独立会话：切换 skill 时请求该 skill 的专属 conversation
-  const [activeConvId, setActiveConvId] = useState(convId);
-  const [convLoading, setConvLoading] = useState(false);
+  const router = useRouter();
 
+  // Skill 切换时做页面级路由跳转：resolve 该 skill 的独立 conversation → router.replace
+  const navigateToSkillConv = useCallback(async (skillId: number) => {
+    try {
+      const entry = await apiFetch<{ conversation_id: number }>(
+        `/conversations/studio-entry?type=skill_studio&skill_id=${skillId}`
+      );
+      if (entry.conversation_id !== convId) {
+        router.replace(`/chat/${entry.conversation_id}?ws=skill_studio&skill_id=${skillId}`);
+      }
+    } catch { /* resolve 失败则留在当前 conversation */ }
+  }, [convId, router]);
+
+  // 选择新 skill 时触发路由跳转
   useEffect(() => {
     const skillId = selectedFile?.skillId;
-    if (!skillId) {
-      // 无选中 skill 时回到总览 conversation
-      setActiveConvId(convId);
-      return;
+    if (skillId && skillId !== initialSkillId) {
+      navigateToSkillConv(skillId);
     }
-    setConvLoading(true);
-    apiFetch<{ conversation_id: number }>(
-      `/conversations/studio-entry?type=skill_studio&skill_id=${skillId}`
-    )
-      .then((res) => {
-        setActiveConvId(res.conversation_id);
-      })
-      .catch(() => {
-        // fallback 到总览 conversation
-        setActiveConvId(convId);
-      })
-      .finally(() => setConvLoading(false));
-  }, [selectedFile?.skillId, convId]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedFile?.skillId]);
+
+  // URL skill_id 变化时（路由跳转但组件未重新挂载），强制同步 selectedFile
+  useEffect(() => {
+    if (initialSkillId && selectedFile?.skillId !== initialSkillId) {
+      _setSelectedFile({ skillId: initialSkillId, fileType: "prompt" });
+      // 同步写入 localStorage
+      try { localStorage.setItem("skill_studio_selected", JSON.stringify({ skillId: initialSkillId, fileType: "prompt" })); } catch { /* ignore */ }
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialSkillId]);
+
+  // 一次性迁移旧共享会话中的消息到各 Skill 独立 conversation
+  const migrationDone = useRef(false);
+  useEffect(() => {
+    if (migrationDone.current) return;
+    migrationDone.current = true;
+    apiFetch("/conversations/studio-entry/migrate-skill-conversations", { method: "POST" }).catch(() => {});
+  }, []);
 
   const selectedSkill = selectedFile
     ? (skills.find((s) => s.id === selectedFile.skillId) ?? null)
@@ -3158,19 +3155,15 @@ export function SkillStudio({ convId }: { convId: number }) {
     fetchSkills();
 
     // 将本轮 chat 摘要写入 skill 的 _memo.md 附属文件
-    const chatKey = `studio_msgs_${convId}_${skill.id}`;
+    // convId 已经是该 skill 的独立 conversation，无需再按 skill_id 过滤
+    const chatKey = `studio_msgs_${convId}`;
     try {
-      // 从后端加载消息，localStorage 作为 fallback
       let chatMsgs: ChatMessage[] = [];
       try {
         const dbMsgs = await apiFetch<{ role: string; content: string; metadata?: Record<string, unknown> }[]>(
           `/conversations/${convId}/messages`
         );
-        const filtered = dbMsgs.filter((m) => {
-          const meta = m.metadata as Record<string, unknown> | undefined;
-          return !meta?.skill_id || meta.skill_id === skill.id;
-        });
-        chatMsgs = filtered.map((m) => ({ role: m.role as "user" | "assistant", text: m.content, loading: false }));
+        chatMsgs = dbMsgs.map((m) => ({ role: m.role as "user" | "assistant", text: m.content, loading: false }));
       } catch {
         const raw = localStorage.getItem(chatKey);
         chatMsgs = raw ? JSON.parse(raw) : [];
@@ -3349,7 +3342,7 @@ export function SkillStudio({ convId }: { convId: number }) {
         )}
 
         <StudioChat
-          convId={activeConvId}
+          convId={convId}
           skillId={selectedSkill?.id ?? null}
           currentPrompt={prompt}
           editorIsDirty={editorIsDirty}

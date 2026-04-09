@@ -388,7 +388,8 @@ export default function ChatDetailPage() {
   }
 
   if (isSkillStudio) {
-    return <SkillStudio convId={convId} />;
+    const skillIdParam = searchParams.get("skill_id");
+    return <SkillStudio convId={convId} initialSkillId={skillIdParam ? Number(skillIdParam) : undefined} />;
   }
 
   return (
