@@ -234,6 +234,68 @@ export async function saveExportRule(tableId: number, rule: Partial<ExportRule>)
   });
 }
 
+// ── 字段管理（平台表） ──
+
+export async function addColumn(tableId: number, data: { name: string; field_type: string; options?: string[] }): Promise<void> {
+  await apiFetch(`/business-tables/${tableId}/columns`, {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
+export async function renameColumn(tableId: number, colName: string, data: { new_name?: string; comment?: string }): Promise<void> {
+  await apiFetch(`/business-tables/${tableId}/columns/${encodeURIComponent(colName)}`, {
+    method: "PATCH",
+    body: JSON.stringify(data),
+  });
+}
+
+export async function deleteColumn(tableId: number, colName: string): Promise<void> {
+  await apiFetch(`/business-tables/${tableId}/columns/${encodeURIComponent(colName)}`, {
+    method: "DELETE",
+  });
+}
+
+// ── 数据行操作 ──
+
+export async function fetchRows(tableName: string, page: number, pageSize: number): Promise<{
+  total: number;
+  page: number;
+  page_size: number;
+  columns: string[];
+  rows: Record<string, unknown>[];
+}> {
+  return apiFetch(`/data/${encodeURIComponent(tableName)}/rows?page=${page}&page_size=${pageSize}`);
+}
+
+export async function createRow(tableName: string, data: Record<string, unknown>): Promise<{ id: number; ok: boolean }> {
+  return apiFetch(`/data/${encodeURIComponent(tableName)}/rows`, {
+    method: "POST",
+    body: JSON.stringify({ data }),
+  });
+}
+
+export async function deleteRow(tableName: string, rowId: number): Promise<void> {
+  await apiFetch(`/data/${encodeURIComponent(tableName)}/rows/${rowId}`, {
+    method: "DELETE",
+  });
+}
+
+// ── 元信息编辑 ──
+
+export async function patchTableMeta(tableId: number, data: { display_name?: string; description?: string }): Promise<void> {
+  await apiFetch(`/business-tables/${tableId}`, {
+    method: "PATCH",
+    body: JSON.stringify(data),
+  });
+}
+
+// ── 导出 ──
+
+export function getExportUrl(tableName: string, format: "csv" | "excel" | "json"): string {
+  return `/api/proxy/data/${encodeURIComponent(tableName)}/export?format=${format}`;
+}
+
 // ── 目录 ──
 
 export async function fetchFolders(): Promise<DataAssetFolder[]> {

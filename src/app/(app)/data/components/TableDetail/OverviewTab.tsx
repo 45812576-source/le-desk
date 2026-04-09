@@ -5,7 +5,8 @@ import { PixelBadge } from "@/components/pixel/PixelBadge";
 import { PixelButton } from "@/components/pixel/PixelButton";
 import { apiFetch } from "@/lib/api";
 import { useV2DataAssets } from "../shared/feature-flags";
-import type { TableDetail, TableDetailV2 } from "../shared/types";
+import type { TableDetail, TableDetailV2, TableCapabilities } from "../shared/types";
+import { patchTableMeta } from "../shared/api";
 import RiskScorePanel from "./security/RiskScorePanel";
 import SourceProfilePanel from "./source/SourceProfilePanel";
 import DegradationAlert from "./source/DegradationAlert";
@@ -38,12 +39,41 @@ interface Props {
   detail: TableDetail;
   onRefresh: () => void;
   onDeleteTable?: (id: number) => void;
+  capabilities?: TableCapabilities;
 }
 
-export default function OverviewTab({ detail, onRefresh, onDeleteTable }: Props) {
+export default function OverviewTab({ detail, onRefresh, onDeleteTable, capabilities }: Props) {
   const isV2 = useV2DataAssets();
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
+
+  // 元信息编辑状态
+  const [editingName, setEditingName] = useState(false);
+  const [editingDesc, setEditingDesc] = useState(false);
+  const [nameValue, setNameValue] = useState(detail.display_name);
+  const [descValue, setDescValue] = useState(detail.description || "");
+
+  async function saveName() {
+    if (nameValue.trim() === detail.display_name) { setEditingName(false); return; }
+    try {
+      await patchTableMeta(detail.id, { display_name: nameValue.trim() });
+      setEditingName(false);
+      onRefresh();
+    } catch (e: unknown) {
+      alert(e instanceof Error ? e.message : "保存失败");
+    }
+  }
+
+  async function saveDesc() {
+    if (descValue === (detail.description || "")) { setEditingDesc(false); return; }
+    try {
+      await patchTableMeta(detail.id, { description: descValue });
+      setEditingDesc(false);
+      onRefresh();
+    } catch (e: unknown) {
+      alert(e instanceof Error ? e.message : "保存失败");
+    }
+  }
 
   async function handleDelete() {
     setDeleting(true);
@@ -90,6 +120,58 @@ export default function OverviewTab({ detail, onRefresh, onDeleteTable }: Props)
       {/* 基本信息 */}
       <div className="border-2 border-[#1A202C] p-3">
         <div className="text-[9px] font-bold uppercase tracking-widest text-[#00A3C4] mb-2">基本信息</div>
+
+        {/* 可编辑名称 */}
+        <InfoRow label="名称">
+          {capabilities?.can_edit_meta && editingName ? (
+            <div className="flex items-center gap-1">
+              <input
+                value={nameValue}
+                onChange={(e) => setNameValue(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") saveName(); if (e.key === "Escape") setEditingName(false); }}
+                className="flex-1 border border-border px-1.5 py-0.5 text-[10px] bg-background focus:outline-none focus:border-[#00D1FF]"
+                autoFocus
+              />
+              <button onClick={saveName} className="text-[8px] font-bold text-[#00A3C4]">保存</button>
+              <button onClick={() => setEditingName(false)} className="text-[8px] text-muted-foreground">取消</button>
+            </div>
+          ) : (
+            <span
+              className={capabilities?.can_edit_meta ? "cursor-pointer hover:text-[#00A3C4] transition-colors" : ""}
+              onClick={() => { if (capabilities?.can_edit_meta) { setNameValue(detail.display_name); setEditingName(true); } }}
+            >
+              {detail.display_name}
+              {capabilities?.can_edit_meta && <span className="text-[7px] text-muted-foreground ml-1">✎</span>}
+            </span>
+          )}
+        </InfoRow>
+
+        {/* 可编辑描述 */}
+        <InfoRow label="描述">
+          {capabilities?.can_edit_meta && editingDesc ? (
+            <div className="flex items-center gap-1">
+              <input
+                value={descValue}
+                onChange={(e) => setDescValue(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") saveDesc(); if (e.key === "Escape") setEditingDesc(false); }}
+                placeholder="添加表描述..."
+                className="flex-1 border border-border px-1.5 py-0.5 text-[10px] bg-background focus:outline-none focus:border-[#00D1FF]"
+                autoFocus
+              />
+              <button onClick={saveDesc} className="text-[8px] font-bold text-[#00A3C4]">保存</button>
+              <button onClick={() => setEditingDesc(false)} className="text-[8px] text-muted-foreground">取消</button>
+            </div>
+          ) : (
+            <span
+              className={capabilities?.can_edit_meta ? "cursor-pointer hover:text-[#00A3C4] transition-colors" : ""}
+              onClick={() => { if (capabilities?.can_edit_meta) { setDescValue(detail.description || ""); setEditingDesc(true); } }}
+            >
+              {detail.description || <span className="text-muted-foreground">无描述</span>}
+              {capabilities?.can_edit_meta && <span className="text-[7px] text-muted-foreground ml-1">✎</span>}
+            </span>
+          )}
+        </InfoRow>
+
         <InfoRow label="来源">{SOURCE_LABELS[detail.source_type] || detail.source_type}</InfoRow>
         <InfoRow label="记录数">{detail.record_count ?? "未统计"}</InfoRow>
         <InfoRow label="字段数">{detail.fields.length}</InfoRow>

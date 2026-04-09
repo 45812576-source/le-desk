@@ -1,3 +1,21 @@
+// ─── 能力分层 ─────────────────────────────────────────────────────────────────
+export interface TableCapabilities {
+  can_edit_schema: boolean;
+  can_edit_rows: boolean;
+  can_edit_meta: boolean;
+  can_export: boolean;
+}
+
+export function getTableCapabilities(sourceType: string): TableCapabilities {
+  const isLocal = sourceType === "blank" || sourceType === "imported";
+  return {
+    can_edit_schema: isLocal,
+    can_edit_rows: isLocal,
+    can_edit_meta: isLocal,
+    can_export: true,
+  };
+}
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 export interface Column {
   name: string;

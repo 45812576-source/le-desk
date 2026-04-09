@@ -4,7 +4,8 @@ import React, { useState, useEffect, useCallback } from "react";
 import { PixelButton } from "@/components/pixel/PixelButton";
 import { apiFetch } from "@/lib/api";
 import { useV2DataAssets } from "../shared/feature-flags";
-import type { TableDetail } from "../shared/types";
+import type { TableDetail, TableCapabilities } from "../shared/types";
+import { getTableCapabilities } from "../shared/types";
 import HeaderBar from "./HeaderBar";
 import GovernancePanel from "./GovernancePanel";
 import OverviewTab from "./OverviewTab";
@@ -117,6 +118,8 @@ export default function TableDetailPanel({ tableId, onRefresh, onDeleteTable }: 
     );
   }
 
+  const capabilities = getTableCapabilities(detail.source_type);
+
   function handleRefresh() {
     fetchDetail();
     onRefresh?.();
@@ -155,9 +158,9 @@ export default function TableDetailPanel({ tableId, onRefresh, onDeleteTable }: 
           ))}
         </div>
         <div className="flex-1 min-h-0 overflow-y-auto">
-          {v1Tab === "overview" && <OverviewTab detail={detail} onRefresh={handleRefresh} onDeleteTable={onDeleteTable} />}
-          {v1Tab === "preview" && <PreviewTab detail={detail} />}
-          {v1Tab === "fields" && <FieldsTab detail={detail} />}
+          {v1Tab === "overview" && <OverviewTab detail={detail} onRefresh={handleRefresh} onDeleteTable={onDeleteTable} capabilities={capabilities} />}
+          {v1Tab === "preview" && <PreviewTab detail={detail} capabilities={capabilities} />}
+          {v1Tab === "fields" && <FieldsTab detail={detail} capabilities={capabilities} />}
           {v1Tab === "views" && <ViewsTab detail={detail} onRefresh={handleRefresh} />}
           {v1Tab === "permissions" && <PermissionsTab detail={detail} onRefresh={handleRefresh} />}
           {v1Tab === "bindings" && <SkillBindingsTab detail={detail} onRefresh={handleRefresh} />}
@@ -220,13 +223,13 @@ export default function TableDetailPanel({ tableId, onRefresh, onDeleteTable }: 
       {/* Tab content */}
       <div className="flex-1 min-h-0 overflow-y-auto">
         {/* 数据结构 */}
-        {v2Tab === "fields" && <FieldsTab detail={detail} onRefresh={handleRefresh} />}
-        {v2Tab === "overview" && <OverviewTab detail={detail} onRefresh={handleRefresh} onDeleteTable={onDeleteTable} />}
+        {v2Tab === "fields" && <FieldsTab detail={detail} onRefresh={handleRefresh} capabilities={capabilities} />}
+        {v2Tab === "overview" && <OverviewTab detail={detail} onRefresh={handleRefresh} onDeleteTable={onDeleteTable} capabilities={capabilities} />}
         {/* 消费方式 */}
         {v2Tab === "views" && <ViewsTab detail={detail} onRefresh={handleRefresh} />}
         {v2Tab === "logical_views" && <LogicalViewWorkbench tableId={detail.id} />}
         {v2Tab === "export_summary" && <ExportRuleSummary tableId={detail.id} />}
-        {v2Tab === "preview" && <PreviewTab detail={detail} />}
+        {v2Tab === "preview" && <PreviewTab detail={detail} capabilities={capabilities} />}
         {/* 安全治理 */}
         {v2Tab === "permissions" && <UnifiedPermissionTab detail={detail} onRefresh={handleRefresh} />}
         {v2Tab === "export_editor" && <ExportRuleEditor detail={detail} onSaved={handleRefresh} />}

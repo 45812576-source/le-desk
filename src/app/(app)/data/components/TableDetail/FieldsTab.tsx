@@ -5,8 +5,9 @@ import { PixelBadge } from "@/components/pixel/PixelBadge";
 import { PixelButton } from "@/components/pixel/PixelButton";
 import { apiFetch } from "@/lib/api";
 import { useV2DataAssets } from "../shared/feature-flags";
-import { updateFieldTags, batchUpdateFieldTags } from "../shared/api";
-import type { TableDetail, TableFieldDetail, FieldValueDictionary } from "../shared/types";
+import { updateFieldTags, batchUpdateFieldTags, renameColumn, deleteColumn } from "../shared/api";
+import type { TableDetail, TableFieldDetail, FieldValueDictionary, TableCapabilities } from "../shared/types";
+import AddColumnModal from "../manage/AddColumnModal";
 import {
   SENSITIVITY_LABELS,
   SENSITIVITY_COLORS,
@@ -127,15 +128,43 @@ function FieldRow({
   detail,
   isV2,
   onRefresh,
+  capabilities,
 }: {
   field: TableFieldDetail;
   detail: TableDetail;
   isV2: boolean;
   onRefresh: () => void;
+  capabilities?: TableCapabilities;
 }) {
   const typeColor = TYPE_COLORS[field.field_type] || TYPE_COLORS.text;
   const [showDict, setShowDict] = useState(false);
   const [showImpact, setShowImpact] = useState(false);
+  const [renaming, setRenaming] = useState(false);
+  const [newName, setNewName] = useState("");
+  const [confirmDelete, setConfirmDelete] = useState(false);
+
+  const canManageField = capabilities?.can_edit_schema && !field.is_system;
+
+  async function handleRename() {
+    if (!newName.trim() || newName.trim() === field.field_name) { setRenaming(false); return; }
+    try {
+      await renameColumn(detail.id, field.field_name, { new_name: newName.trim() });
+      setRenaming(false);
+      onRefresh();
+    } catch (e: unknown) {
+      alert(e instanceof Error ? e.message : "重命名失败");
+    }
+  }
+
+  async function handleDelete() {
+    try {
+      await deleteColumn(detail.id, field.field_name);
+      setConfirmDelete(false);
+      onRefresh();
+    } catch (e: unknown) {
+      alert(e instanceof Error ? e.message : "删除失败");
+    }
+  }
 
   // V2 字段扩展
   const v2Field = field as TableFieldDetailV2;
@@ -321,8 +350,52 @@ function FieldRow({
               影响
             </button>
           )}
+
+          {/* 字段管理：重命名/删除 */}
+          {canManageField && (
+            <>
+              <button
+                onClick={() => { setNewName(field.field_name); setRenaming(true); }}
+                className="text-[7px] px-1 py-px border border-border rounded text-muted-foreground hover:text-[#00A3C4] transition-colors"
+                title="重命名"
+              >
+                改名
+              </button>
+              {!confirmDelete ? (
+                <button
+                  onClick={() => setConfirmDelete(true)}
+                  className="text-[7px] px-1 py-px border border-border rounded text-muted-foreground hover:text-red-400 transition-colors"
+                  title="删除字段"
+                >
+                  删除
+                </button>
+              ) : (
+                <button
+                  onClick={handleDelete}
+                  className="text-[7px] px-1 py-px border border-red-300 rounded text-red-500 bg-red-50 dark:bg-red-950 font-bold"
+                >
+                  确认删除
+                </button>
+              )}
+            </>
+          )}
         </div>
       </div>
+      {/* 重命名内联输入 */}
+      {renaming && (
+        <div className="flex items-center gap-2 px-4 py-1.5 bg-[#F0FBFF] dark:bg-[#0A2A3A] border-b border-[#00D1FF]">
+          <span className="text-[8px] text-[#00A3C4] font-bold">重命名为:</span>
+          <input
+            value={newName}
+            onChange={(e) => setNewName(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") handleRename(); if (e.key === "Escape") setRenaming(false); }}
+            className="flex-1 text-[9px] border border-border bg-background px-1.5 py-0.5 focus:outline-none focus:border-[#00D1FF]"
+            autoFocus
+          />
+          <button onClick={handleRename} className="text-[8px] font-bold text-[#00A3C4] hover:underline">确认</button>
+          <button onClick={() => setRenaming(false)} className="text-[8px] text-muted-foreground hover:text-foreground">取消</button>
+        </div>
+      )}
       {showDict && field.id && (
         <FieldDictionaryPanel fieldId={field.id} onClose={() => setShowDict(false)} />
       )}
@@ -472,11 +545,13 @@ function BatchActionsBar({
 interface Props {
   detail: TableDetail;
   onRefresh?: () => void;
+  capabilities?: TableCapabilities;
 }
 
-export default function FieldsTab({ detail, onRefresh }: Props) {
+export default function FieldsTab({ detail, onRefresh, capabilities }: Props) {
   const isV2 = useV2DataAssets();
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const [showAddColumn, setShowAddColumn] = useState(false);
 
   function toggleSelect(fieldId: number) {
     setSelectedIds((prev) => {
@@ -488,8 +563,18 @@ export default function FieldsTab({ detail, onRefresh }: Props) {
 
   if (detail.fields.length === 0) {
     return (
-      <div className="flex items-center justify-center h-32 text-[10px] text-muted-foreground uppercase tracking-widest">
-        {detail.field_profile_status === "pending" ? "字段画像待分析" : "暂无字段信息"}
+      <div className="flex flex-col items-center justify-center h-32 gap-2">
+        <div className="text-[10px] text-muted-foreground uppercase tracking-widest">
+          {detail.field_profile_status === "pending" ? "字段画像待分析" : "暂无字段信息"}
+        </div>
+        {capabilities?.can_edit_schema && (
+          <>
+            <PixelButton size="sm" onClick={() => setShowAddColumn(true)}>+ 新增字段</PixelButton>
+            {showAddColumn && (
+              <AddColumnModal tableId={detail.id} onDone={() => onRefresh?.()} onClose={() => setShowAddColumn(false)} />
+            )}
+          </>
+        )}
       </div>
     );
   }
@@ -503,6 +588,15 @@ export default function FieldsTab({ detail, onRefresh }: Props) {
         onClear={() => setSelectedIds(new Set())}
         onRefresh={onRefresh || (() => {})}
       />
+      {/* 新增字段按钮 */}
+      {capabilities?.can_edit_schema && (
+        <div className="flex items-center gap-2 px-4 py-2 border-b border-border">
+          <PixelButton size="sm" onClick={() => setShowAddColumn(true)}>+ 新增字段</PixelButton>
+        </div>
+      )}
+      {showAddColumn && (
+        <AddColumnModal tableId={detail.id} onDone={() => onRefresh?.()} onClose={() => setShowAddColumn(false)} />
+      )}
       <div className="flex items-center gap-4 px-4 py-2 border-b-2 border-border bg-muted text-[8px] font-bold uppercase tracking-widest text-muted-foreground">
         <input
           type="checkbox"
@@ -532,7 +626,7 @@ export default function FieldsTab({ detail, onRefresh }: Props) {
             </div>
           )}
           <div className="flex-1 min-w-0">
-            <FieldRow field={f} detail={detail} isV2={isV2} onRefresh={onRefresh || (() => {})} />
+            <FieldRow field={f} detail={detail} isV2={isV2} onRefresh={onRefresh || (() => {})} capabilities={capabilities} />
           </div>
         </div>
       ))}
