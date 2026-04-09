@@ -490,7 +490,7 @@ export function RichEditor({ content, onChange, editable = true }: RichEditorPro
   if (!editor) return null;
 
   return (
-    <div className={`flex flex-col ${editable ? "h-full" : ""} le-editor-wrapper`}>
+    <div className="flex flex-col h-full le-editor-wrapper">
       {editable && (
         <>
           <Toolbar editor={editor} onImageUpload={() => fileInputRef.current?.click()} />
@@ -513,8 +513,8 @@ export function RichEditor({ content, onChange, editable = true }: RichEditorPro
         onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadMedia(f); e.target.value = ""; }}
       />
 
-      <div className={editable ? "flex-1 overflow-y-auto" : "overflow-y-auto"}>
-        <EditorContent editor={editor} className={editable ? "h-full" : ""} />
+      <div className="flex-1 overflow-y-auto">
+        <EditorContent editor={editor} className="h-full" />
       </div>
 
       {slashMenu && editor && (
