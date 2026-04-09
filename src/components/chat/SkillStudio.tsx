@@ -2087,10 +2087,6 @@ function StudioChat({
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [backendLoaded, setBackendLoaded] = useState(false);
   const [backendFailed, setBackendFailed] = useState(false);
-  // 视图模式：all_messages 显示全部 Studio 消息，current_skill_messages 只看当前 skill
-  const [viewMode, setViewMode] = useState<"all_messages" | "current_skill_messages">(
-    skillId ? "current_skill_messages" : "all_messages"
-  );
   const [input, setInput] = useState("");
   const [streaming, setStreaming] = useState(false);
   const [streamStage, setStreamStage] = useState<string | null>(null);
@@ -2186,23 +2182,13 @@ function StudioChat({
     return () => { if (setInputRef) setInputRef.current = null; };
   }, [setInputRef]);
 
-  // skillId/viewMode 切换时从后端加载历史，localStorage 作为草稿缓存
+  // convId 切换时从后端加载历史
   useEffect(() => {
     setBackendLoaded(false);
     setBackendFailed(false);
     setPendingDraft(null);
     setPendingSummary(null);
     setPendingFileSplit(null);
-    // 选中 skill 时默认切到 current_skill，无选中时切回 all
-    if (skillId) setViewMode("current_skill_messages");
-    else setViewMode("all_messages");
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [skillId]);
-
-  // 根据 viewMode 从后端加载消息
-  useEffect(() => {
-    setBackendLoaded(false);
-    setBackendFailed(false);
 
     // 先从 localStorage 快速显示（避免白屏）
     try {
@@ -2211,13 +2197,7 @@ function StudioChat({
       else setMessages([]);
     } catch { setMessages([]); }
 
-    // 构建后端查询 URL：skill_id 过滤由后端完成
-    const params = new URLSearchParams();
-    if (viewMode === "current_skill_messages" && skillId) {
-      params.set("skill_id", String(skillId));
-    }
-    const qs = params.toString();
-    const url = `/conversations/${convId}/messages${qs ? `?${qs}` : ""}`;
+    const url = `/conversations/${convId}/messages`;
 
     apiFetch<{ id: number; role: string; content: string; metadata?: Record<string, unknown> }[]>(url)
       .then((dbMsgs) => {
@@ -2235,7 +2215,7 @@ function StudioChat({
         setBackendLoaded(true);
       });
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [convId, viewMode, skillId, _storageKey]);
+  }, [convId, _storageKey]);
 
   // 每次 messages 变化时同步到 localStorage（仅作缓存）
   useEffect(() => {
@@ -2739,9 +2719,32 @@ function StudioChat({
             const fixMessage = `请帮我修复以下测试问题：\n${task.title}\n${task.description || ""}\n验收标准：${task.acceptance_rule_text || ""}`;
             send(fixMessage);
           }}
-          onTargetedRetest={async () => {
-            // 触发局部重测 — 打开 sandbox 测试
-            handleMemoDirectTest();
+          onTargetedRetest={async (taskId) => {
+            // 按 fix task 的 problem_refs 调 targeted-rerun
+            const allTasks = ((memo.memo as Record<string, unknown>)?.tasks as Array<{
+              id: string;
+              problem_refs?: string[];
+              source_report_id?: number;
+            }>) || [];
+            const task = allTasks.find(t => t.id === taskId);
+            if (!task?.problem_refs?.length || !task.source_report_id) {
+              handleMemoDirectTest();
+              return;
+            }
+            try {
+              await apiFetch(
+                `/sandbox/interactive/by-report/${task.source_report_id}/targeted-rerun`,
+                { method: "POST", body: JSON.stringify({ issue_ids: task.problem_refs }) }
+              );
+              onMemoRefresh();
+            } catch (err) {
+              // 不静默 fallback，先展示失败原因
+              const errMsg = err instanceof Error ? err.message : "未知错误";
+              const fallback = confirm(`局部重测失败：${errMsg}\n\n是否改为打开完整测试？`);
+              if (fallback) {
+                handleMemoDirectTest();
+              }
+            }
           }}
         />
       )}
@@ -3026,6 +3029,31 @@ export function SkillStudio({ convId }: { convId: number }) {
   const setInputRef = useRef<((text: string) => void) | null>(null);
 
   const editorIsDirty = prompt !== savedPrompt && prompt.trim().length > 0;
+
+  // 每 Skill 独立会话：切换 skill 时请求该 skill 的专属 conversation
+  const [activeConvId, setActiveConvId] = useState(convId);
+  const [convLoading, setConvLoading] = useState(false);
+
+  useEffect(() => {
+    const skillId = selectedFile?.skillId;
+    if (!skillId) {
+      // 无选中 skill 时回到总览 conversation
+      setActiveConvId(convId);
+      return;
+    }
+    setConvLoading(true);
+    apiFetch<{ conversation_id: number }>(
+      `/conversations/studio-entry?type=skill_studio&skill_id=${skillId}`
+    )
+      .then((res) => {
+        setActiveConvId(res.conversation_id);
+      })
+      .catch(() => {
+        // fallback 到总览 conversation
+        setActiveConvId(convId);
+      })
+      .finally(() => setConvLoading(false));
+  }, [selectedFile?.skillId, convId]);
 
   const selectedSkill = selectedFile
     ? (skills.find((s) => s.id === selectedFile.skillId) ?? null)
@@ -3321,7 +3349,7 @@ export function SkillStudio({ convId }: { convId: number }) {
         )}
 
         <StudioChat
-          convId={convId}
+          convId={activeConvId}
           skillId={selectedSkill?.id ?? null}
           currentPrompt={prompt}
           editorIsDirty={editorIsDirty}
@@ -3349,6 +3377,17 @@ export function SkillStudio({ convId }: { convId: number }) {
           name={skills.find(s => s.id === showSandbox)?.name ?? ""}
           onPassed={() => { setShowSandbox(null); handleMemoRefresh(); }}
           onCancel={() => { setShowSandbox(null); handleMemoRefresh(); }}
+          onImportToStudio={() => {
+            // 1. 关闭弹窗
+            setShowSandbox(null);
+            // 2. 刷新 memo（会自动加载 fixing 状态的 fix tasks）
+            handleMemoRefresh();
+            // 3. 确保 Skill 被选中并打开 prompt 编辑器
+            const sandboxSkillId = showSandbox;
+            if (sandboxSkillId) {
+              setSelectedFile({ skillId: sandboxSkillId, fileType: "prompt" });
+            }
+          }}
         />
       )}
 

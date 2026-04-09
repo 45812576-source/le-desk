@@ -20,6 +20,7 @@ interface SandboxTestModalProps {
   name: string;
   onPassed: () => void;
   onCancel: () => void;
+  onImportToStudio?: () => void;
   passedLabel?: string;
 }
 
@@ -33,6 +34,7 @@ export function SandboxTestModal({
   name,
   onPassed,
   onCancel,
+  onImportToStudio: onImportToStudioProp,
   passedLabel = "OK 通过，继续发布",
 }: SandboxTestModalProps) {
   const [session, setSession] = useState<SandboxSession | null>(null);
@@ -288,19 +290,20 @@ export function SandboxTestModal({
                 }
               }}
               onImportToStudio={() => {
-                // 关闭测试弹窗，由 Skill Studio 处理 fixing mode
-                onCancel();
+                // 触发外部处理：刷新 memo + 聚焦 fix task + 打开编辑器
+                if (onImportToStudioProp) {
+                  onImportToStudioProp();
+                } else {
+                  onCancel();
+                }
               }}
-              onTargetedRerun={async () => {
+              onTargetedRerun={async (fixPlanItemIds) => {
                 setLoading(true);
                 setError(null);
                 try {
-                  // 从 report 中提取所有 issue_ids 进行局部重测
-                  const p3eval = report.part3_evaluation as { issues?: SandboxIssue[] };
-                  const issueIds = (p3eval.issues || []).map((i) => i.issue_id);
                   const data = await apiFetch<SandboxSession & { covered_issues: string[]; remaining_issues: string[] }>(
                     `/sandbox/interactive/${session.session_id}/targeted-rerun`,
-                    { method: "POST", body: JSON.stringify({ issue_ids: issueIds }) }
+                    { method: "POST", body: JSON.stringify({ fix_plan_item_ids: fixPlanItemIds }) }
                   );
                   setSession(data);
                   if (data.status === "completed" && data.report_id) {
@@ -311,6 +314,21 @@ export function SandboxTestModal({
                   }
                 } catch (err) {
                   setError(err instanceof Error ? err.message : "局部重测失败");
+                } finally {
+                  setLoading(false);
+                }
+              }}
+              onRetryMemoSync={async () => {
+                setLoading(true);
+                setError(null);
+                try {
+                  const data = await apiFetch<SandboxSession>(
+                    `/sandbox/interactive/${session.session_id}/retry-from-step`,
+                    { method: "POST", body: JSON.stringify({ step: "memo_sync" }) }
+                  );
+                  setSession(data);
+                } catch (err) {
+                  setError(err instanceof Error ? err.message : "Memo 同步重试失败");
                 } finally {
                   setLoading(false);
                 }
@@ -1054,6 +1072,7 @@ function Step5Report({
   onSubmitApproval,
   onImportToStudio,
   onTargetedRerun,
+  onRetryMemoSync,
   loading,
   passedLabel,
 }: {
@@ -1061,7 +1080,8 @@ function Step5Report({
   report: SandboxReport;
   onSubmitApproval: () => void;
   onImportToStudio?: () => void;
-  onTargetedRerun?: () => void;
+  onTargetedRerun?: (fixPlanItemIds?: string[]) => void;
+  onRetryMemoSync?: () => void;
   loading: boolean;
   passedLabel: string;
 }) {
@@ -1109,6 +1129,8 @@ function Step5Report({
 
   const issues = (p3.issues || []) as SandboxIssue[];
   const fixPlan = (p3.fix_plan_structured || []) as SandboxFixPlanItem[];
+  const memoSyncStatus = session.step_statuses?.memo_sync as SandboxStepStatus | undefined;
+  const memoSyncFailed = memoSyncStatus?.status === "failed";
 
   const p2 = report.part2_test_matrix as {
     theoretical_combo_count?: number;
@@ -1134,6 +1156,24 @@ function Step5Report({
           : "FAIL 未满足全部通过条件"
         }
       </div>
+
+      {/* Memo 同步失败提示 */}
+      {memoSyncFailed && (
+        <div className="border-2 border-amber-400 bg-amber-50 px-3 py-2 flex items-center gap-2">
+          <span className="text-[9px] font-bold text-amber-700 flex-1">
+            报告已生成，但 Memo 同步失败：{memoSyncStatus?.error_message || "未知错误"}
+          </span>
+          {onRetryMemoSync && (
+            <button
+              className="text-[7px] font-bold text-[#00A3C4] border border-[#00A3C4] px-2 py-0.5 hover:bg-[#00A3C4] hover:text-white"
+              onClick={onRetryMemoSync}
+              disabled={loading}
+            >
+              重试同步
+            </button>
+          )}
+        </div>
+      )}
 
       {/* Part 2: 测试矩阵 */}
       <div className="border border-gray-200 bg-[#F8FAFB] rounded">
@@ -1312,7 +1352,7 @@ function Step5Report({
             </span>
           </div>
           <div className="px-3 py-2 space-y-1.5">
-            {fixPlan.map((fp, i) => (
+            {fixPlan.map((fp) => (
               <div key={fp.id} className="flex items-start gap-2 text-[8px]">
                 <span className={`flex-shrink-0 font-bold px-1 py-0.5 rounded text-[7px] ${
                   fp.priority === "p0" ? "bg-red-500 text-white" :
@@ -1326,6 +1366,15 @@ function Step5Report({
                     <div className="text-gray-400 text-[7px]">验收: {fp.acceptance_rule}</div>
                   )}
                 </div>
+                {onTargetedRerun && fp.retest_scope.length > 0 && (
+                  <button
+                    className="flex-shrink-0 text-[7px] font-bold text-[#00CC99] border border-[#00CC99] px-1 py-0.5 hover:bg-[#00CC99] hover:text-white"
+                    onClick={() => onTargetedRerun([fp.id])}
+                    disabled={loading}
+                  >
+                    重测
+                  </button>
+                )}
               </div>
             ))}
           </div>
@@ -1370,9 +1419,9 @@ function Step5Report({
             导入 Skill Studio 整改
           </PixelButton>
         )}
-        {!session.approval_eligible && issues.length > 0 && onTargetedRerun && (
-          <PixelButton variant="secondary" onClick={onTargetedRerun} disabled={loading}>
-            针对问题重测
+        {!session.approval_eligible && fixPlan.length > 0 && onTargetedRerun && (
+          <PixelButton variant="secondary" onClick={() => onTargetedRerun(fixPlan.map(fp => fp.id))} disabled={loading}>
+            全部问题重测
           </PixelButton>
         )}
         <button
