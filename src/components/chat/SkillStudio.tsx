@@ -2167,10 +2167,12 @@ function StudioChat({
         setPendingSummary(null);
         setPendingFileSplit(null);
         try { localStorage.removeItem(_storageKey); } catch { /* ignore */ }
+        // 同步清除后端消息
+        apiFetch(`/conversations/${convId}/messages`, { method: "DELETE" }).catch(() => {});
       };
     }
     return () => { if (clearRef) clearRef.current = null; };
-  }, [clearRef, _storageKey]);
+  }, [clearRef, _storageKey, convId]);
 
   // 注册 setInput 回调给父组件（用于意见采纳填充）
   useEffect(() => {
