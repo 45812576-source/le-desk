@@ -185,6 +185,10 @@ function MySkillActions({ skill, onRefresh }: { skill: SkillDetail; onRefresh: (
           name={skill.name}
           onPassed={() => { setShowSandbox(false); onRefresh(); }}
           onCancel={() => setShowSandbox(false)}
+          onImportToStudio={() => {
+            setShowSandbox(false);
+            window.location.href = `/skill-studio?skill_id=${skill.id}`;
+          }}
         />
       )}
       {(skill.status === "draft" || skill.status === "archived") && (

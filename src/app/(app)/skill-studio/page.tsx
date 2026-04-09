@@ -1,27 +1,30 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { apiFetch } from "@/lib/api";
 import type { StudioEntryResolution } from "@/lib/types";
 
 export default function SkillStudioEntryPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     async function enter() {
       try {
-        const entry = await apiFetch<StudioEntryResolution>(
-          "/conversations/studio-entry?type=skill_studio"
-        );
+        const skillId = searchParams.get("skill_id");
+        const qs = skillId
+          ? `/conversations/studio-entry?type=skill_studio&skill_id=${skillId}`
+          : "/conversations/studio-entry?type=skill_studio";
+        const entry = await apiFetch<StudioEntryResolution>(qs);
         router.replace(`/chat/${entry.conversation_id}?ws=skill_studio`);
       } catch (e) {
         setError(e instanceof Error ? e.message : "启动失败");
       }
     }
     enter();
-  }, [router]);
+  }, [router, searchParams]);
 
   if (error) {
     return (
