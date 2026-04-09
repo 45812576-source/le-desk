@@ -8,12 +8,18 @@ import { BusinessTable } from "../shared/types";
 export default function BitableResyncButton({ table, onDone }: { table: BusinessTable; onDone: () => void }) {
   const [syncing, setSyncing] = useState(false);
   const [msg, setMsg] = useState("");
+  const [syncStage, setSyncStage] = useState("");
 
   async function handleResync() {
     setSyncing(true);
     setMsg("");
+
+    setSyncStage("读取字段中");
+    const t1 = setTimeout(() => setSyncStage("拉取记录中"), 1500);
+    const t2 = setTimeout(() => setSyncStage("写入记录中"), 4000);
+
     try {
-      const res = await apiFetch<{ ok: boolean; inserted: number; total_fields: number }>(
+      const res = await apiFetch<{ ok: boolean; inserted: number; total_fields: number; degraded?: boolean; effective_page_size?: number }>(
         "/business-tables/sync-bitable",
         {
           method: "POST",
@@ -25,10 +31,24 @@ export default function BitableResyncButton({ table, onDone }: { table: Business
           }),
         }
       );
-      setMsg(`✓ ${res.inserted} 条`);
+      clearTimeout(t1); clearTimeout(t2);
+      setSyncStage("");
+      const degradedMsg = res.degraded ? `（降级到 ${res.effective_page_size}）` : "";
+      setMsg(`✓ ${res.inserted} 条${degradedMsg}`);
       onDone();
     } catch (e: unknown) {
-      setMsg(e instanceof Error ? e.message : "同步失败");
+      clearTimeout(t1); clearTimeout(t2);
+      setSyncStage("");
+      if (e instanceof Error) {
+        try {
+          const errData = JSON.parse(e.message);
+          setMsg(`${errData.stage || "同步"}失败: ${errData.error}`);
+        } catch {
+          setMsg(e.message);
+        }
+      } else {
+        setMsg("同步失败");
+      }
     } finally {
       setSyncing(false);
     }
@@ -42,7 +62,7 @@ export default function BitableResyncButton({ table, onDone }: { table: Business
         disabled={syncing}
         className="px-2 py-0.5 border-2 border-[#00A3C4] text-[#00A3C4] text-[8px] font-bold uppercase hover:bg-[#00A3C4] hover:text-white transition-colors disabled:opacity-40"
       >
-        {syncing ? "同步中..." : "⟳ 重新同步"}
+        {syncing ? (syncStage || "同步中...") : "⟳ 重新同步"}
       </button>
       {msg && <span className={`text-[9px] font-bold ${msg.startsWith("✓") ? "text-green-600" : "text-red-500"}`}>{msg}</span>}
     </div>

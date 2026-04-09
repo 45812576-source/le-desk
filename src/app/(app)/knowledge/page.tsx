@@ -543,7 +543,12 @@ const FileManagerTab = forwardRef<{ createDoc: () => void; triggerUpload: () => 
     setLarkImporting(true);
     try {
       if (urls.length === 1) {
-        setLarkImportStatus("解析链接中");
+        const isBitable = /\/(base|bitable)\//.test(urls[0]);
+        setLarkImportStatus(isBitable ? "解析多维表链接" : "解析链接中");
+        if (isBitable) {
+          setTimeout(() => setLarkImportStatus("导出中"), 1500);
+          setTimeout(() => setLarkImportStatus("生成工作台云文档"), 4000);
+        }
         const res = await apiFetch<LarkImportResult>("/knowledge/import-from-lark", {
           method: "POST",
           body: JSON.stringify({

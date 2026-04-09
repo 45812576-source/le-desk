@@ -82,13 +82,21 @@ function BitablePanel({ onAdded }: { onAdded: () => void }) {
     }
   }
 
+  const [syncStage, setSyncStage] = useState("");
+
   async function handleSync() {
     if (!probeResult) return;
     setSyncing(true);
     setError("");
     setSyncMsg("");
+
+    setSyncStage("读取字段中");
+    const t1 = setTimeout(() => setSyncStage("拉取记录中"), 1500);
+    const t2 = setTimeout(() => setSyncStage("创建本地表中"), 4000);
+    const t3 = setTimeout(() => setSyncStage("写入记录中"), 6000);
+
     try {
-      await apiFetch("/business-tables/sync-bitable", {
+      const res = await apiFetch<{ ok: boolean; inserted: number; total_fields: number; degraded?: boolean; effective_page_size?: number }>("/business-tables/sync-bitable", {
         method: "POST",
         body: JSON.stringify({
           app_token: probeResult.app_token,
@@ -96,10 +104,24 @@ function BitablePanel({ onAdded }: { onAdded: () => void }) {
           display_name: displayName.trim(),
         }),
       });
-      setSyncMsg("✓ 同步完成");
+      clearTimeout(t1); clearTimeout(t2); clearTimeout(t3);
+      const degradedMsg = res.degraded ? `（分页已降级到 ${res.effective_page_size}）` : "";
+      setSyncMsg(`✓ 同步完成${degradedMsg}`);
+      setSyncStage("");
       onAdded();
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "同步失败");
+      clearTimeout(t1); clearTimeout(t2); clearTimeout(t3);
+      setSyncStage("");
+      if (e instanceof Error) {
+        try {
+          const errData = JSON.parse(e.message);
+          setError(`${errData.stage || "同步"}失败: ${errData.error}\n${errData.suggestion || ""}`);
+        } catch {
+          setError(e.message);
+        }
+      } else {
+        setError("同步失败");
+      }
     } finally {
       setSyncing(false);
     }
@@ -193,7 +215,7 @@ function BitablePanel({ onAdded }: { onAdded: () => void }) {
             </PixelButton>
             {probeResult && (
               <PixelButton variant="secondary" onClick={handleSync} disabled={syncing}>
-                {syncing ? "同步中..." : "⟳ 全量同步到本地"}
+                {syncing ? (syncStage || "同步中...") : "⟳ 全量同步到本地"}
               </PixelButton>
             )}
           </div>
