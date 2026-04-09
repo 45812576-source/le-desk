@@ -1025,6 +1025,18 @@ export interface SandboxReport {
   part1_evidence_check: Record<string, unknown>;
   part2_test_matrix: Record<string, unknown>;
   part3_evaluation: Record<string, unknown>;
+  cases?: {
+    case_index: number;
+    row_visibility: string | null;
+    field_output_semantic: string | null;
+    group_semantic: string | null;
+    tool_precondition: string | null;
+    test_input: string | null;
+    llm_response: string | null;
+    verdict: string | null;
+    verdict_reason: string | null;
+    execution_duration_ms: number | null;
+  }[];
   quality_passed: boolean | null;
   usability_passed: boolean | null;
   anti_hallucination_passed: boolean | null;

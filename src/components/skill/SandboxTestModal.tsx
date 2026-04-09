@@ -1175,6 +1175,76 @@ function Step5Report({
         </div>
       )}
 
+      {/* Part 1: 证据审查 */}
+      {report.part1_evidence_check && (() => {
+        const p1 = report.part1_evidence_check as {
+          q1_input_slots?: { total_slots: number; verified: number; failed: number; slots?: { slot_key?: string; source_kind?: string; decision?: string; reason?: string }[] };
+          q2_tool_review?: { total_tools: number; confirmed: number; must_call: number; no_need: number; tools?: { tool_name?: string; decision?: string; reason?: string }[] };
+          q3_permission_review?: { total_tables: number; confirmed: number; tables?: { table_name?: string; decision?: string; reason?: string }[] };
+        };
+        return (
+          <div className="border border-gray-200 bg-[#F8FAFB] rounded">
+            <div className="px-3 py-1.5 border-b border-gray-100">
+              <span className="text-[8px] font-bold uppercase tracking-widest text-gray-500">Part 1 -- 证据审查</span>
+            </div>
+            <div className="px-3 py-2 space-y-2">
+              {/* Q1 输入槽位 */}
+              {p1.q1_input_slots && (
+                <div>
+                  <div className="text-[8px] font-bold text-gray-600 mb-1">
+                    Q1 输入槽位: {p1.q1_input_slots.verified}/{p1.q1_input_slots.total_slots} 已验证
+                    {p1.q1_input_slots.failed > 0 && <span className="text-red-500 ml-1">({p1.q1_input_slots.failed} 失败)</span>}
+                  </div>
+                  {p1.q1_input_slots.slots?.map((s, i) => (
+                    <div key={i} className="ml-2 text-[8px] flex items-start gap-1.5">
+                      <span className={s.decision === "verified" ? "text-green-600" : s.decision === "failed" ? "text-red-500" : "text-gray-400"}>
+                        {s.decision === "verified" ? "OK" : s.decision === "failed" ? "FAIL" : "—"}
+                      </span>
+                      <span className="text-gray-600">{s.slot_key}</span>
+                      <span className="text-gray-400">({s.source_kind})</span>
+                      {s.reason && <span className="text-gray-400 truncate max-w-[200px]">{s.reason}</span>}
+                    </div>
+                  ))}
+                </div>
+              )}
+              {/* Q2 工具 */}
+              {p1.q2_tool_review && (
+                <div>
+                  <div className="text-[8px] font-bold text-gray-600 mb-1">
+                    Q2 工具: {p1.q2_tool_review.must_call} 必须调用 / {p1.q2_tool_review.no_need} 无需
+                  </div>
+                  {p1.q2_tool_review.tools?.map((t, i) => (
+                    <div key={i} className="ml-2 text-[8px] flex items-center gap-1.5">
+                      <span className={t.decision === "must_call" ? "text-[#00A3C4]" : "text-gray-400"}>
+                        {t.decision === "must_call" ? "CALL" : t.decision === "no_need" ? "SKIP" : "—"}
+                      </span>
+                      <span className="text-gray-600">{t.tool_name}</span>
+                      {t.reason && <span className="text-gray-400 truncate max-w-[200px]">{t.reason}</span>}
+                    </div>
+                  ))}
+                </div>
+              )}
+              {/* Q3 权限 */}
+              {p1.q3_permission_review && p1.q3_permission_review.total_tables > 0 && (
+                <div>
+                  <div className="text-[8px] font-bold text-gray-600 mb-1">
+                    Q3 权限: {p1.q3_permission_review.confirmed}/{p1.q3_permission_review.total_tables} 已确认
+                  </div>
+                  {p1.q3_permission_review.tables?.map((t, i) => (
+                    <div key={i} className="ml-2 text-[8px] flex items-center gap-1.5">
+                      <span className={t.decision?.includes("confirmed") ? "text-green-600" : "text-gray-400"}>
+                        {t.decision?.includes("confirmed") ? "OK" : "—"}
+                      </span>
+                      <span className="text-gray-600">{t.table_name}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      })()}
+
       {/* Part 2: 测试矩阵 */}
       <div className="border border-gray-200 bg-[#F8FAFB] rounded">
         <div className="px-3 py-1.5 border-b border-gray-100">
@@ -1194,6 +1264,54 @@ function Step5Report({
           </div>
         )}
       </div>
+
+      {/* 测试用例明细 */}
+      {report.cases && report.cases.length > 0 && (
+        <div className="border border-gray-200 bg-[#F8FAFB] rounded">
+          <div className="px-3 py-1.5 border-b border-gray-100">
+            <span className="text-[8px] font-bold uppercase tracking-widest text-gray-500">
+              测试用例明细 ({report.cases.length})
+            </span>
+          </div>
+          <div className="px-3 py-2 space-y-2 max-h-[300px] overflow-y-auto">
+            {report.cases.map((c) => {
+              const verdictColor = c.verdict === "pass" ? "text-green-600 bg-green-50 border-green-200"
+                : c.verdict === "fail" ? "text-red-600 bg-red-50 border-red-200"
+                : "text-gray-500 bg-gray-50 border-gray-200";
+              return (
+                <div key={c.case_index} className={`border rounded p-2 ${verdictColor}`}>
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="text-[7px] font-bold px-1 py-0.5 rounded bg-current/10">
+                      #{c.case_index} {c.verdict?.toUpperCase() ?? "—"}
+                    </span>
+                    <span className="text-[7px] text-gray-400 flex gap-1.5">
+                      {c.row_visibility && <span>行:{c.row_visibility}</span>}
+                      {c.field_output_semantic && <span>字段:{c.field_output_semantic}</span>}
+                      {c.tool_precondition && <span>工具:{c.tool_precondition}</span>}
+                    </span>
+                    {c.execution_duration_ms != null && (
+                      <span className="text-[7px] text-gray-300 ml-auto">{c.execution_duration_ms}ms</span>
+                    )}
+                  </div>
+                  {c.test_input && (
+                    <div className="text-[8px] text-gray-600 mb-1">
+                      <span className="font-bold text-gray-500">输入:</span> {c.test_input.length > 150 ? c.test_input.slice(0, 150) + "..." : c.test_input}
+                    </div>
+                  )}
+                  {c.llm_response && (
+                    <div className="text-[8px] text-gray-600 mb-1">
+                      <span className="font-bold text-gray-500">输出:</span> {c.llm_response.length > 200 ? c.llm_response.slice(0, 200) + "..." : c.llm_response}
+                    </div>
+                  )}
+                  {c.verdict_reason && (
+                    <div className="text-[7px] text-gray-400">{c.verdict_reason.length > 150 ? c.verdict_reason.slice(0, 150) + "..." : c.verdict_reason}</div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* Part 3: 评价 */}
       <div className="border border-gray-200 bg-[#F8FAFB] rounded">
