@@ -140,7 +140,7 @@ export default function AdminToolsPage() {
     setMcpSubmitting(true);
     setMcpSubmitError(null);
     try {
-      // 将 AI 生成的 manifest 写入工具记录，触发审批
+      // 将 AI 生成的 manifest 写入工具记录
       const manifest = {
         invocation_mode: mcpGenerated.invocation_mode ?? "chat",
         data_sources: mcpGenerated.data_sources ?? [],
@@ -157,12 +157,7 @@ export default function AdminToolsPage() {
           config: { install_dir: undefined, project_type: undefined, run_cmd: undefined, manifest, deploy_info: deployInfo },
         }),
       });
-      // 提交审批
-      await apiFetch(`/tools/${mcpZipResult.id}/status`, {
-        method: "PATCH",
-        body: JSON.stringify({ status: "published", scope: "company" }),
-      });
-      setMcpSubmitSuccess(`「${mcpGenerated.display_name ?? mcpZipResult.name}」已提交发布审批`);
+      setMcpSubmitSuccess(`「${mcpGenerated.display_name ?? mcpZipResult.name}」配置已保存，请在下方工具卡片中绑定 Skill 后统一发布`);
       fetchTools();
     } catch (err) {
       setMcpSubmitError(err instanceof Error ? err.message : String(err));
@@ -424,7 +419,7 @@ export default function AdminToolsPage() {
                   </div>
                 )}
 
-                {/* Step 3: 提交审批 */}
+                {/* Step 3: 保存配置 */}
                 {mcpZipResult && mcpGenerated && (
                   <div className="pt-2 flex items-center gap-3 border-t border-gray-100">
                     <PixelButton
@@ -433,7 +428,7 @@ export default function AdminToolsPage() {
                       onClick={handleMcpSubmit}
                       disabled={mcpSubmitting}
                     >
-                      {mcpSubmitting ? "提交中..." : "提交审批"}
+                      {mcpSubmitting ? "保存中..." : "保存配置"}
                     </PixelButton>
                     {mcpSubmitError && <span className="text-[8px] text-red-500">{mcpSubmitError}</span>}
                     {mcpSubmitSuccess && <span className="text-[8px] text-[#00CC99] font-bold">{mcpSubmitSuccess}</span>}
@@ -494,7 +489,17 @@ function ToolCard({
   const [boundSkills, setBoundSkills] = useState<SkillOption[]>([]);
   const [allSkills, setAllSkills] = useState<SkillOption[]>([]);
   const [bindLoading, setBindLoading] = useState(false);
+  const [initLoaded, setInitLoaded] = useState(false);
   const typeColor = TYPE_COLOR[t.tool_type ?? ""] ?? "gray";
+
+  // draft 工具自动加载绑定状态（仅一次）
+  useEffect(() => {
+    if (initLoaded || t.status === "published") return;
+    apiFetch<SkillOption[]>(`/tools/tool-bindings/${t.id}`)
+      .then(setBoundSkills)
+      .catch(() => {})
+      .finally(() => setInitLoaded(true));
+  }, [t.id, t.status, initLoaded]);
 
   async function openBindPanel() {
     if (bindOpen) { setBindOpen(false); return; }
@@ -618,7 +623,16 @@ function ToolCard({
           绑定 Skill
         </PixelButton>
         {(t.status === "draft" || !t.status) && (
-          <span className="text-[8px] text-gray-400 font-bold uppercase tracking-widest">请绑定 Skill 后统一发布</span>
+          boundSkills.length > 0 ? (
+            <a
+              href="/skills"
+              className="text-[8px] font-bold text-[#00A3C4] hover:text-[#00D1FF] uppercase tracking-widest underline underline-offset-2"
+            >
+              已绑定 {boundSkills.length} 个 Skill → 前往 Skill 管理发布
+            </a>
+          ) : (
+            <span className="text-[8px] text-gray-400 font-bold uppercase tracking-widest">请先绑定 Skill，再由 Skill 统一提交发布</span>
+          )
         )}
         {t.status === "reviewing" && (
           <span className="text-[8px] font-bold text-amber-500 uppercase tracking-widest border border-amber-300 px-1.5 py-0.5">审批中</span>
