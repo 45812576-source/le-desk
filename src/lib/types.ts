@@ -1,3 +1,14 @@
+export interface StudioEntryResolution {
+  registration_id: number;
+  conversation_id: number;
+  workspace_root: string;
+  project_dir: string;
+  runtime_status: "stopped" | "starting" | "running" | "unhealthy";
+  runtime_port: number | null;
+  generation: number;
+  needs_recover: boolean;
+}
+
 export interface User {
   id: number;
   username: string;

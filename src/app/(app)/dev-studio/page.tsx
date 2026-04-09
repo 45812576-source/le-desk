@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { apiFetch } from "@/lib/api";
-import type { Workspace } from "@/lib/types";
+import type { StudioEntryResolution } from "@/lib/types";
 
 export default function DevStudioEntryPage() {
   const router = useRouter();
@@ -15,23 +15,12 @@ export default function DevStudioEntryPage() {
   useEffect(() => {
     async function enter() {
       try {
-        // 找到 opencode workspace
-        const workspaces = await apiFetch<Workspace[]>("/workspaces");
-        const devWs = workspaces.find((ws) => ws.workspace_type === "opencode");
-        if (!devWs) {
-          setError("工具开发工作台尚未配置，请联系管理员");
-          return;
-        }
-        // 创建新对话并绑定该 workspace
-        const conv = await apiFetch<{ id: number }>("/conversations", {
-          method: "POST",
-          body: JSON.stringify({ workspace_id: devWs.id }),
-        });
+        const entry = await apiFetch<StudioEntryResolution>("/dev-studio/entry");
         const qsParts: string[] = [];
         if (fromSkill) qsParts.push(`from_skill=${fromSkill}`);
         if (viewId) qsParts.push(`view_id=${viewId}`);
         const qs = qsParts.length > 0 ? `?${qsParts.join("&")}` : "";
-        router.replace(`/chat/${conv.id}${qs}`);
+        router.replace(`/chat/${entry.conversation_id}${qs}`);
       } catch (e) {
         setError(e instanceof Error ? e.message : "启动失败");
       }

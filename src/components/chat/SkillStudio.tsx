@@ -2071,14 +2071,10 @@ function StudioChat({
   clearRef?: { current: (() => void) | null };
   setInputRef?: { current: ((text: string) => void) | null };
 }) {
-  // 消息按 conv+skill 分 key 持久化到 localStorage，跨 tab/页面重启后恢复
+  // 消息主存在后端 DB，localStorage 只做跨 tab 即时缓存
   const _storageKey = `studio_msgs_${convId}_${skillId ?? "free"}`;
-  const [messages, setMessages] = useState<ChatMessage[]>(() => {
-    try {
-      const raw = localStorage.getItem(_storageKey);
-      return raw ? (JSON.parse(raw) as ChatMessage[]) : [];
-    } catch { return []; }
-  });
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [backendLoaded, setBackendLoaded] = useState(false);
   const [input, setInput] = useState("");
   const [streaming, setStreaming] = useState(false);
   const [streamStage, setStreamStage] = useState<string | null>(null);
@@ -2174,22 +2170,53 @@ function StudioChat({
     return () => { if (setInputRef) setInputRef.current = null; };
   }, [setInputRef]);
 
-  // skillId 切换时从 localStorage 加载对应历史
+  // skillId 切换时从后端加载历史，localStorage 作为即时 fallback
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem(_storageKey);
-      setMessages(raw ? (JSON.parse(raw) as ChatMessage[]) : []);
-    } catch { setMessages([]); }
+    setBackendLoaded(false);
     setPendingDraft(null);
     setPendingSummary(null);
     setPendingFileSplit(null);
-  }, [_storageKey]);
 
-  // 每次 messages 变化时同步到 localStorage
+    // 先从 localStorage 快速显示（避免白屏）
+    try {
+      const raw = localStorage.getItem(_storageKey);
+      if (raw) setMessages(JSON.parse(raw) as ChatMessage[]);
+      else setMessages([]);
+    } catch { setMessages([]); }
+
+    // 再从后端加载权威历史
+    apiFetch<{ id: number; role: string; content: string; metadata?: Record<string, unknown> }[]>(
+      `/conversations/${convId}/messages`
+    ).then((dbMsgs) => {
+      // 按 skill_id 过滤（后端存了 metadata.skill_id）
+      const filtered = skillId
+        ? dbMsgs.filter((m) => {
+            const meta = m.metadata as Record<string, unknown> | undefined;
+            return !meta?.skill_id || meta.skill_id === skillId;
+          })
+        : dbMsgs;
+      const mapped: ChatMessage[] = filtered.map((m) => ({
+        role: m.role as "user" | "assistant",
+        text: m.content,
+        loading: false,
+      }));
+      if (mapped.length > 0) {
+        setMessages(mapped);
+        try { localStorage.setItem(_storageKey, JSON.stringify(mapped)); } catch { /* ignore */ }
+      }
+      setBackendLoaded(true);
+    }).catch(() => {
+      setBackendLoaded(true); // 失败时保留 localStorage 版本
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [convId, skillId, _storageKey]);
+
+  // 每次 messages 变化时同步到 localStorage（仅作缓存）
   useEffect(() => {
+    if (!backendLoaded) return; // 后端加载完成前不覆盖缓存
     try { localStorage.setItem(_storageKey, JSON.stringify(messages)); } catch { /* quota exceeded */ }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [messages]);
+  }, [messages, backendLoaded]);
 
   // 18w token 自动压缩
   const [compressing, setCompressing] = useState(false);
@@ -3019,8 +3046,21 @@ export function SkillStudio({ convId }: { convId: number }) {
     // 将本轮 chat 摘要写入 skill 的 _memo.md 附属文件
     const chatKey = `studio_msgs_${convId}_${skill.id}`;
     try {
-      const raw = localStorage.getItem(chatKey);
-      const chatMsgs: ChatMessage[] = raw ? JSON.parse(raw) : [];
+      // 从后端加载消息，localStorage 作为 fallback
+      let chatMsgs: ChatMessage[] = [];
+      try {
+        const dbMsgs = await apiFetch<{ role: string; content: string; metadata?: Record<string, unknown> }[]>(
+          `/conversations/${convId}/messages`
+        );
+        const filtered = dbMsgs.filter((m) => {
+          const meta = m.metadata as Record<string, unknown> | undefined;
+          return !meta?.skill_id || meta.skill_id === skill.id;
+        });
+        chatMsgs = filtered.map((m) => ({ role: m.role as "user" | "assistant", text: m.content, loading: false }));
+      } catch {
+        const raw = localStorage.getItem(chatKey);
+        chatMsgs = raw ? JSON.parse(raw) : [];
+      }
       if (chatMsgs.length > 0) {
         // 取最近 10 条消息作为摘要
         const recent = chatMsgs.slice(-10);

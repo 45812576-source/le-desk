@@ -1542,8 +1542,31 @@ export function DevStudio({ workspaceId, fromSkillId, initialViewId }: { convId:
   const [selectedViewId, setSelectedViewId] = useState<number | null>(initialViewId ?? null);
   const [uploadTargetPath, setUploadTargetPath] = useState("");
   const [uploadMsg, setUploadMsg] = useState<string | null>(null);
+  const [runtimeStatus, setRuntimeStatus] = useState<string>("unknown");
+  const [runtimeGeneration, setRuntimeGeneration] = useState<number>(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const retryRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // 定期轮询 runtime 健康状态
+  useEffect(() => {
+    let cancelled = false;
+    async function poll() {
+      try {
+        const h = await apiFetch<{ runtime_status: string; generation: number }>("/dev-studio/health");
+        if (cancelled) return;
+        setRuntimeStatus(h.runtime_status);
+        // runtime 重启后 generation 变化 → 只更新 iframe key，不整页刷新
+        if (h.generation > runtimeGeneration && runtimeGeneration > 0) {
+          setInstanceKey(Date.now());
+        }
+        setRuntimeGeneration(h.generation);
+      } catch { /* ignore */ }
+    }
+    poll();
+    const iv = setInterval(poll, 30_000);
+    return () => { cancelled = true; clearInterval(iv); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [runtimeGeneration]);
 
   // 拉取当前用户的受限模型授权
   useEffect(() => {
@@ -1670,11 +1693,14 @@ export function DevStudio({ workspaceId, fromSkillId, initialViewId }: { convId:
     setTimeout(() => setUploadMsg(null), 8000);
   }
 
-  const statusBadge = {
-    loading: { color: "yellow" as const, label: "连接中..." },
-    ready:   { color: "green" as const,  label: "运行中" },
-    error:   { color: "red" as const,    label: "错误" },
-  }[status];
+  const statusBadge = (() => {
+    if (status === "loading") return { color: "yellow" as const, label: "连接中..." };
+    if (status === "error") return { color: "red" as const, label: "错误" };
+    // ready 状态下根据 runtime 细分
+    if (runtimeStatus === "unhealthy") return { color: "red" as const, label: "异常" };
+    if (runtimeStatus === "starting") return { color: "yellow" as const, label: "恢复中..." };
+    return { color: "green" as const, label: "运行中" };
+  })();
 
   return (
     <div className="h-full flex flex-col bg-[#F0F4F8]">
