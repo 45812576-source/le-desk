@@ -818,20 +818,28 @@ export interface SkillMemoTask {
   priority: "high" | "medium" | "low";
   description: string;
   target_files: string[];
-  acceptance_rule: { mode: string };
+  acceptance_rule: { mode: string; text?: string };
   depends_on: string[];
   result_summary?: string | null;
+  // 结构化整改字段
+  problem_refs?: string[];
+  target_kind?: string;
+  target_ref?: string;
+  retest_scope?: string[];
+  acceptance_rule_text?: string;
+  source_report_id?: number;
 }
 
 export interface SkillMemoTestRecord {
   id: string;
-  source: "preflight" | "sandbox" | "manual";
+  source: "preflight" | "sandbox" | "sandbox_interactive" | "manual";
   version: number;
   status: "passed" | "failed";
   summary: string;
   details: Record<string, unknown>;
   created_at: string;
   followup_task_ids: string[];
+  source_report_id?: number;
 }
 
 export interface SkillMemo {
@@ -943,6 +951,43 @@ export type SandboxSessionStep =
   | "evaluation"
   | "done";
 
+export interface SandboxStepStatus {
+  status: "pending" | "running" | "completed" | "failed";
+  started_at: string | null;
+  finished_at: string | null;
+  error_code: string | null;
+  error_message: string | null;
+  retryable: boolean;
+}
+
+export interface SandboxIssue {
+  issue_id: string;
+  severity: "critical" | "major" | "minor";
+  dimension: string;
+  reason: string;
+  impact: string;
+  source_cases: number[];
+  evidence_snippets: string[];
+  fix_suggestion: string;
+  target_kind: "skill_prompt" | "source_file" | "tool_binding" | "knowledge_reference" | "input_slot_definition" | "permission_config" | "unknown";
+  target_ref: string;
+  retest_scope: string[];
+}
+
+export interface SandboxFixPlanItem {
+  id: string;
+  title: string;
+  priority: "p0" | "p1" | "p2";
+  problem_ids: string[];
+  action_type: string;
+  target_kind: string;
+  target_ref: string;
+  suggested_changes: string;
+  acceptance_rule: string;
+  retest_scope: string[];
+  estimated_gain: string;
+}
+
 export interface SandboxSession {
   session_id: number;
   target_type: string;
@@ -964,6 +1009,8 @@ export interface SandboxSession {
   anti_hallucination_passed: boolean | null;
   approval_eligible: boolean | null;
   report_id: number | null;
+  step_statuses?: Record<string, SandboxStepStatus>;
+  parent_session_id?: number;
   created_at: string | null;
   completed_at: string | null;
 }

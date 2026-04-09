@@ -1089,7 +1089,17 @@ function PromptEditor({
         setVersions(d.versions ?? []);
         setDiffBase(p);
         setShowDiff(false);
-        setDataQueries(d.data_queries ?? []);
+        const queries = d.data_queries ?? [];
+        if (queries.length > 0) {
+          setDataQueries(queries);
+          try { localStorage.setItem(`skill_data_queries_${skill.id}`, JSON.stringify(queries)); } catch {}
+        } else {
+          try {
+            const cached = localStorage.getItem(`skill_data_queries_${skill.id}`);
+            if (cached) { setDataQueries(JSON.parse(cached)); return; }
+          } catch {}
+          setDataQueries([]);
+        }
       })
       .catch(() => {});
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1120,6 +1130,7 @@ function PromptEditor({
         body: JSON.stringify({ data_queries: next }),
       });
       setDataQueries(next);
+      try { localStorage.setItem(`skill_data_queries_${skill.id}`, JSON.stringify(next)); } catch {}
     } catch { /* ignore */ }
     finally { setSavingTables(false); }
   }
@@ -2713,13 +2724,45 @@ function StudioChat({
         </div>
       )}
 
-      {/* Memo panel: persistent notices + current task + latest test */}
+      {/* Memo panel: persistent notices + current task + latest test + fix tasks */}
       {memo && (
         <SkillMemoPanel
           memo={memo}
           onStartTask={handleMemoStartTask}
           onDirectTest={handleMemoDirectTest}
+          onStartFixTask={(task) => {
+            // 根据 target_ref 打开对应文件
+            if (task.target_kind === "skill_prompt" || task.target_ref === "SKILL.md") {
+              onEditorTarget("prompt", "SKILL.md");
+            }
+            // 自动将消息发送给 agent 开始修复
+            const fixMessage = `请帮我修复以下测试问题：\n${task.title}\n${task.description || ""}\n验收标准：${task.acceptance_rule_text || ""}`;
+            send(fixMessage);
+          }}
+          onTargetedRetest={async () => {
+            // 触发局部重测 — 打开 sandbox 测试
+            handleMemoDirectTest();
+          }}
         />
+      )}
+
+      {/* Fixing mode banner */}
+      {memo && memo.lifecycle_stage === "fixing" && memo.latest_test?.status === "failed" && (
+        <div className="px-3 py-2 bg-amber-50 border-b-2 border-amber-400 flex-shrink-0">
+          <div className="flex items-center gap-2">
+            <span className="text-[9px] font-bold uppercase tracking-widest text-amber-700">
+              整改模式
+            </span>
+            <span className="text-[8px] text-amber-600 flex-1 truncate">
+              {memo.latest_test.summary}
+            </span>
+            {memo.current_task && (
+              <span className="text-[7px] font-bold text-amber-500 border border-amber-400 px-1.5 py-0.5 rounded">
+                当前: {memo.current_task.title.slice(0, 30)}
+              </span>
+            )}
+          </div>
+        </div>
       )}
 
       {/* V2 当前理解面板 */}

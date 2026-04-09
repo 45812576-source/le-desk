@@ -6,6 +6,9 @@ import { PixelButton } from "@/components/pixel/PixelButton";
 import type {
   SandboxSession,
   SandboxReport,
+  SandboxStepStatus,
+  SandboxIssue,
+  SandboxFixPlanItem,
   SkillPublishPrecheck,
 } from "@/lib/types";
 
@@ -192,6 +195,7 @@ export function SandboxTestModal({
           )}
           {wizardStep === 4 && session && (
             <Step4Execute
+              session={session}
               onRun={async () => {
                 setLoading(true);
                 setError(null);
@@ -211,7 +215,36 @@ export function SandboxTestModal({
                     setError("语义组合超阈值，测试被阻断");
                   }
                 } catch (err) {
+                  // 执行中断但 session 可能有 step_statuses，刷新 session
+                  try {
+                    const refreshed = await apiFetch<SandboxSession>(
+                      `/sandbox/interactive/${session.session_id}/session`
+                    );
+                    setSession(refreshed);
+                  } catch { /* ignore */ }
                   setError(err instanceof Error ? err.message : "执行失败");
+                } finally {
+                  setLoading(false);
+                }
+              }}
+              onRetryStep={async (step: string) => {
+                setLoading(true);
+                setError(null);
+                try {
+                  const data = await apiFetch<SandboxSession>(
+                    `/sandbox/interactive/${session.session_id}/retry-from-step`,
+                    { method: "POST", body: JSON.stringify({ step }) }
+                  );
+                  setSession(data);
+                  if (data.status === "completed" && data.report_id) {
+                    const rpt = await apiFetch<SandboxReport>(
+                      `/sandbox/interactive/${session.session_id}/report`
+                    );
+                    setReport(rpt);
+                    setWizardStep(5);
+                  }
+                } catch (err) {
+                  setError(err instanceof Error ? err.message : "重试失败");
                 } finally {
                   setLoading(false);
                 }
@@ -250,6 +283,34 @@ export function SandboxTestModal({
                   }
                 } catch (err) {
                   setError(err instanceof Error ? err.message : "提交审批失败");
+                } finally {
+                  setLoading(false);
+                }
+              }}
+              onImportToStudio={() => {
+                // 关闭测试弹窗，由 Skill Studio 处理 fixing mode
+                onCancel();
+              }}
+              onTargetedRerun={async () => {
+                setLoading(true);
+                setError(null);
+                try {
+                  // 从 report 中提取所有 issue_ids 进行局部重测
+                  const p3eval = report.part3_evaluation as { issues?: SandboxIssue[] };
+                  const issueIds = (p3eval.issues || []).map((i) => i.issue_id);
+                  const data = await apiFetch<SandboxSession & { covered_issues: string[]; remaining_issues: string[] }>(
+                    `/sandbox/interactive/${session.session_id}/targeted-rerun`,
+                    { method: "POST", body: JSON.stringify({ issue_ids: issueIds }) }
+                  );
+                  setSession(data);
+                  if (data.status === "completed" && data.report_id) {
+                    const rpt = await apiFetch<SandboxReport>(
+                      `/sandbox/interactive/${data.session_id}/report`
+                    );
+                    setReport(rpt);
+                  }
+                } catch (err) {
+                  setError(err instanceof Error ? err.message : "局部重测失败");
                 } finally {
                   setLoading(false);
                 }
@@ -897,25 +958,89 @@ function Step3PermissionReview({
 
 function Step4Execute({
   onRun,
+  onRetryStep,
   loading,
+  session,
 }: {
   onRun: () => void;
+  onRetryStep?: (step: string) => void;
   loading: boolean;
+  session?: SandboxSession | null;
 }) {
+  const stepLabels: Record<string, string> = {
+    case_generation: "用例生成",
+    case_execution: "用例执行",
+    evaluation: "质量评价",
+    report_generation: "报告生成",
+    memo_sync: "Memo 同步",
+  };
+  const stepOrder = ["case_generation", "case_execution", "evaluation", "report_generation", "memo_sync"];
+  const stepStatuses = session?.step_statuses;
+
+  const hasFailedStep = stepStatuses && stepOrder.some(s => stepStatuses[s]?.status === "failed");
+
   return (
-    <div className="text-center py-6">
-      <div className="text-[9px] font-bold uppercase tracking-widest text-gray-500 mb-2">
-        三项检查全部通过，准备执行
+    <div className="py-4">
+      <div className="text-[9px] font-bold uppercase tracking-widest text-gray-500 mb-3 text-center">
+        {hasFailedStep ? "执行中断" : "三项检查全部通过，准备执行"}
       </div>
-      <div className="text-[8px] text-gray-400 font-mono mb-4">
-        将基于真实输入与权限语义矩阵生成测试用例并逐一执行
-      </div>
-      {loading ? (
-        <div className="text-[10px] font-bold uppercase tracking-widest text-[#00A3C4] animate-pulse">
-          生成用例 -&gt; 执行 -&gt; 评价中，请稍候...
+
+      {/* 分段进度 */}
+      {stepStatuses && Object.keys(stepStatuses).length > 0 && (
+        <div className="space-y-1.5 mb-4 mx-4">
+          {stepOrder.map(step => {
+            const info = stepStatuses[step] as SandboxStepStatus | undefined;
+            if (!info) return null;
+            const statusColors: Record<string, string> = {
+              pending: "text-gray-400",
+              running: "text-[#00A3C4] animate-pulse",
+              completed: "text-[#00CC99]",
+              failed: "text-red-500",
+            };
+            const statusIcons: Record<string, string> = {
+              pending: "○",
+              running: "◎",
+              completed: "●",
+              failed: "✗",
+            };
+            return (
+              <div key={step} className="flex items-center gap-2 text-[8px]">
+                <span className={`font-bold ${statusColors[info.status] || "text-gray-400"}`}>
+                  {statusIcons[info.status] || "○"}
+                </span>
+                <span className="font-bold text-gray-600 w-20">{stepLabels[step]}</span>
+                <span className={`flex-1 ${statusColors[info.status] || ""}`}>
+                  {info.status === "running" && "执行中..."}
+                  {info.status === "completed" && "完成"}
+                  {info.status === "failed" && (
+                    <span className="text-red-500">{info.error_message || "失败"}</span>
+                  )}
+                </span>
+                {info.status === "failed" && info.retryable && onRetryStep && (
+                  <button
+                    className="text-[7px] font-bold text-[#00A3C4] border border-[#00A3C4] px-1.5 py-0.5 hover:bg-[#00A3C4] hover:text-white"
+                    onClick={() => onRetryStep(step)}
+                    disabled={loading}
+                  >
+                    重试
+                  </button>
+                )}
+              </div>
+            );
+          })}
         </div>
-      ) : (
-        <PixelButton onClick={onRun}>执行测试矩阵</PixelButton>
+      )}
+
+      {!hasFailedStep && (
+        <div className="text-center">
+          {loading ? (
+            <div className="text-[10px] font-bold uppercase tracking-widest text-[#00A3C4] animate-pulse">
+              生成用例 -&gt; 执行 -&gt; 评价中，请稍候...
+            </div>
+          ) : (
+            <PixelButton onClick={onRun}>执行测试矩阵</PixelButton>
+          )}
+        </div>
       )}
     </div>
   );
@@ -927,12 +1052,16 @@ function Step5Report({
   session,
   report,
   onSubmitApproval,
+  onImportToStudio,
+  onTargetedRerun,
   loading,
   passedLabel,
 }: {
   session: SandboxSession;
   report: SandboxReport;
   onSubmitApproval: () => void;
+  onImportToStudio?: () => void;
+  onTargetedRerun?: () => void;
   loading: boolean;
   passedLabel: string;
 }) {
@@ -973,8 +1102,13 @@ function Step5Report({
     };
     top_issues?: { source: string; dimension: string; reason: string; points?: number }[];
     fix_plan?: string[];
+    issues?: SandboxIssue[];
+    fix_plan_structured?: SandboxFixPlanItem[];
     final_verdict?: { approval_eligible: boolean };
   };
+
+  const issues = (p3.issues || []) as SandboxIssue[];
+  const fixPlan = (p3.fix_plan_structured || []) as SandboxFixPlanItem[];
 
   const p2 = report.part2_test_matrix as {
     theoretical_combo_count?: number;
@@ -1118,30 +1252,96 @@ function Step5Report({
         </div>
       </div>
 
-      {/* Top Issues + Fix Plan */}
-      {p3.top_issues && p3.top_issues.length > 0 && (
+      {/* 结构化问题清单 */}
+      {issues.length > 0 && (
         <div className="border border-gray-200 bg-[#F8FAFB] rounded">
           <div className="px-3 py-1.5 border-b border-gray-100">
-            <span className="text-[8px] font-bold uppercase tracking-widest text-gray-500">Top Issues</span>
+            <span className="text-[8px] font-bold uppercase tracking-widest text-gray-500">
+              结构化问题 ({issues.length})
+            </span>
           </div>
-          <div className="px-3 py-2 space-y-1">
-            {p3.top_issues.map((issue, i) => (
-              <div key={i} className="text-[8px] text-gray-700">
-                <span className="text-gray-400">[{issue.source}]</span> {issue.reason}
+          <div className="px-3 py-2 space-y-2">
+            {issues.map((issue) => {
+              const severityColors: Record<string, string> = {
+                critical: "border-red-300 bg-red-50",
+                major: "border-amber-300 bg-amber-50",
+                minor: "border-gray-300 bg-gray-50",
+              };
+              const severityLabels: Record<string, string> = {
+                critical: "严重",
+                major: "主要",
+                minor: "轻微",
+              };
+              return (
+                <div key={issue.issue_id} className={`border rounded p-2 ${severityColors[issue.severity] || "border-gray-200"}`}>
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className={`text-[7px] font-bold px-1 py-0.5 rounded ${
+                      issue.severity === "critical" ? "bg-red-500 text-white" :
+                      issue.severity === "major" ? "bg-amber-500 text-white" : "bg-gray-400 text-white"
+                    }`}>
+                      {severityLabels[issue.severity]}
+                    </span>
+                    <span className="text-[8px] font-bold text-gray-700">[{issue.dimension}]</span>
+                    <span className="text-[7px] text-gray-400 ml-auto">{issue.target_kind}</span>
+                  </div>
+                  <div className="text-[8px] text-gray-700">{issue.reason}</div>
+                  {issue.fix_suggestion && (
+                    <div className="text-[8px] text-amber-600 mt-0.5">建议: {issue.fix_suggestion}</div>
+                  )}
+                  {issue.evidence_snippets.length > 0 && (
+                    <div className="text-[7px] text-gray-400 mt-1 bg-gray-100 p-1 rounded font-mono truncate">
+                      {issue.evidence_snippets[0].slice(0, 150)}
+                    </div>
+                  )}
+                  {issue.target_ref && (
+                    <div className="text-[7px] text-[#00A3C4] mt-0.5">目标: {issue.target_ref}</div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* 结构化 Fix Plan */}
+      {fixPlan.length > 0 && (
+        <div className="border border-amber-200 bg-amber-50/50 rounded">
+          <div className="px-3 py-1.5 border-b border-amber-200">
+            <span className="text-[8px] font-bold uppercase tracking-widest text-amber-600">
+              整改计划 ({fixPlan.length})
+            </span>
+          </div>
+          <div className="px-3 py-2 space-y-1.5">
+            {fixPlan.map((fp, i) => (
+              <div key={fp.id} className="flex items-start gap-2 text-[8px]">
+                <span className={`flex-shrink-0 font-bold px-1 py-0.5 rounded text-[7px] ${
+                  fp.priority === "p0" ? "bg-red-500 text-white" :
+                  fp.priority === "p1" ? "bg-amber-500 text-white" : "bg-gray-400 text-white"
+                }`}>
+                  {fp.priority.toUpperCase()}
+                </span>
+                <div className="flex-1">
+                  <div className="text-gray-700">{fp.title}</div>
+                  {fp.acceptance_rule && (
+                    <div className="text-gray-400 text-[7px]">验收: {fp.acceptance_rule}</div>
+                  )}
+                </div>
               </div>
             ))}
           </div>
         </div>
       )}
-      {p3.fix_plan && p3.fix_plan.length > 0 && (
-        <div className="border border-amber-200 bg-amber-50/50 rounded">
-          <div className="px-3 py-1.5 border-b border-amber-200">
-            <span className="text-[8px] font-bold uppercase tracking-widest text-amber-600">Fix Plan</span>
+
+      {/* 兼容旧 Top Issues */}
+      {issues.length === 0 && p3.top_issues && p3.top_issues.length > 0 && (
+        <div className="border border-gray-200 bg-[#F8FAFB] rounded">
+          <div className="px-3 py-1.5 border-b border-gray-100">
+            <span className="text-[8px] font-bold uppercase tracking-widest text-gray-500">Top Issues</span>
           </div>
           <div className="px-3 py-2 space-y-1">
-            {p3.fix_plan.map((fix, i) => (
-              <div key={i} className="text-[8px] text-amber-700">
-                {i + 1}. {fix}
+            {p3.top_issues.map((issue: { source: string; reason: string }, i: number) => (
+              <div key={i} className="text-[8px] text-gray-700">
+                <span className="text-gray-400">[{issue.source}]</span> {issue.reason}
               </div>
             ))}
           </div>
@@ -1150,19 +1350,76 @@ function Step5Report({
 
       {/* 报告元信息 */}
       <div className="text-[8px] text-gray-400 font-mono">
-        报告 ID: {report.report_id} | Hash: {report.report_hash?.slice(0, 12)} | 知识库 #{report.knowledge_entry_id}
+        报告 ID: {report.report_id} | 版本 v{report.target_version ?? "?"} | Hash: {report.report_hash?.slice(0, 12)} | 知识库 #{report.knowledge_entry_id}
       </div>
 
-      {/* 提交审批 */}
-      {session.approval_eligible && (
-        <div className="pt-2">
+      {/* 操作按钮组 */}
+      {!session.approval_eligible && fixPlan.length > 0 && (
+        <div className="border border-amber-300 bg-amber-50 px-3 py-1.5 text-[8px] text-amber-700 font-bold">
+          共 {fixPlan.length} 项整改任务待完成，完成后才能提交审批
+        </div>
+      )}
+      <div className="flex items-center gap-2 pt-2 flex-wrap">
+        {session.approval_eligible && (
           <PixelButton onClick={onSubmitApproval} disabled={loading}>
             {loading ? "提交中..." : passedLabel}
           </PixelButton>
-        </div>
-      )}
+        )}
+        {!session.approval_eligible && issues.length > 0 && onImportToStudio && (
+          <PixelButton variant="secondary" onClick={onImportToStudio} disabled={loading}>
+            导入 Skill Studio 整改
+          </PixelButton>
+        )}
+        {!session.approval_eligible && issues.length > 0 && onTargetedRerun && (
+          <PixelButton variant="secondary" onClick={onTargetedRerun} disabled={loading}>
+            针对问题重测
+          </PixelButton>
+        )}
+        <button
+          className="text-[8px] font-bold uppercase tracking-widest border border-[#00A3C4] text-[#00A3C4] px-3 py-1.5 hover:bg-[#00A3C4] hover:text-white"
+          onClick={() => downloadSandboxReport(report, "json")}
+        >
+          导出 JSON
+        </button>
+        <button
+          className="text-[8px] font-bold uppercase tracking-widest border border-[#00A3C4] text-[#00A3C4] px-3 py-1.5 hover:bg-[#00A3C4] hover:text-white"
+          onClick={() => downloadSandboxReport(report, "csv")}
+        >
+          导出 CSV
+        </button>
+      </div>
     </div>
   );
+}
+
+// ─── 导出报告辅助 ────────────────────────────────────────────────────────
+
+function downloadSandboxReport(report: SandboxReport, format: "json" | "csv") {
+  if (format === "json") {
+    const blob = new Blob([JSON.stringify(report, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `sandbox-report-${report.report_id}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  } else {
+    const p2 = report.part2_test_matrix as {
+      cases?: { input: string; output: string; passed: boolean; score?: number }[];
+    };
+    const cases = p2?.cases ?? [];
+    const header = "序号,输入,输出,通过,分数\n";
+    const rows = cases.map((c, i) =>
+      `${i + 1},"${(c.input || "").replace(/"/g, '""')}","${(c.output || "").replace(/"/g, '""')}",${c.passed ? "是" : "否"},${c.score ?? ""}`
+    ).join("\n");
+    const blob = new Blob(["\uFEFF" + header + rows], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `sandbox-report-${report.report_id}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
 }
 
 // ─── 辅助组件 ──────────────────────────────────────────────────────────────
