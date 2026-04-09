@@ -1,44 +1,73 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { PixelBadge } from "@/components/pixel/PixelBadge";
 import { apiFetch } from "@/lib/api";
+import { useJobPoller } from "@/lib/useJobPoller";
 import { BusinessTable } from "../shared/types";
+
+const STAGE_LABELS: Record<string, string> = {
+  queued: "排队中",
+  fetch_fields: "读取字段中",
+  fetch_records: "拉取记录中",
+  create_table: "创建本地表中",
+  insert_records: "写入记录中",
+  register: "注册表信息",
+  done: "完成",
+  failed: "失败",
+};
 
 export default function BitableResyncButton({ table, onDone }: { table: BusinessTable; onDone: () => void }) {
   const [syncing, setSyncing] = useState(false);
   const [msg, setMsg] = useState("");
   const [syncStage, setSyncStage] = useState("");
 
+  const { jobStatus, startPolling } = useJobPoller("/business-tables/sync-bitable/jobs");
+
+  useEffect(() => {
+    if (!jobStatus) return;
+    const label = STAGE_LABELS[jobStatus.stage || ""] || jobStatus.stage || "";
+    setSyncStage(label);
+
+    if (jobStatus.status === "success") {
+      setSyncing(false);
+      setSyncStage("");
+      const inserted = (jobStatus.stats as Record<string, unknown>)?.inserted ?? "?";
+      const degraded = (jobStatus.stats as Record<string, unknown>)?.degraded;
+      const pageSize = (jobStatus.stats as Record<string, unknown>)?.effective_page_size;
+      const degradedMsg = degraded ? `（降级到 ${pageSize}）` : "";
+      setMsg(`✓ ${inserted} 条${degradedMsg}`);
+      onDone();
+    } else if (jobStatus.status === "partial_success") {
+      setSyncing(false);
+      setSyncStage("");
+      setMsg("⚠ 部分同步成功，数据不完整，请重试");
+    } else if (jobStatus.status === "failed") {
+      setSyncing(false);
+      setSyncStage("");
+      setMsg(`${label || "同步"}失败: ${jobStatus.error || "未知错误"}`);
+    }
+  }, [jobStatus, onDone]);
+
   async function handleResync() {
     setSyncing(true);
     setMsg("");
-
-    setSyncStage("读取字段中");
-    const t1 = setTimeout(() => setSyncStage("拉取记录中"), 1500);
-    const t2 = setTimeout(() => setSyncStage("写入记录中"), 4000);
+    setSyncStage("提交任务中");
 
     try {
-      const res = await apiFetch<{ ok: boolean; inserted: number; total_fields: number; degraded?: boolean; effective_page_size?: number }>(
-        "/business-tables/sync-bitable",
-        {
-          method: "POST",
-          body: JSON.stringify({
-            app_token: table.validation_rules.bitable_app_token,
-            table_id: table.validation_rules.bitable_table_id,
-            display_name: table.display_name,
-            sync_table_name: table.table_name,
-          }),
-        }
-      );
-      clearTimeout(t1); clearTimeout(t2);
-      setSyncStage("");
-      const degradedMsg = res.degraded ? `（降级到 ${res.effective_page_size}）` : "";
-      setMsg(`✓ ${res.inserted} 条${degradedMsg}`);
-      onDone();
+      const res = await apiFetch<{ job_id: number }>("/business-tables/sync-bitable/jobs", {
+        method: "POST",
+        body: JSON.stringify({
+          app_token: table.validation_rules.bitable_app_token,
+          table_id: table.validation_rules.bitable_table_id,
+          display_name: table.display_name,
+          sync_table_name: table.table_name,
+        }),
+      });
+      startPolling(res.job_id);
     } catch (e: unknown) {
-      clearTimeout(t1); clearTimeout(t2);
       setSyncStage("");
+      setSyncing(false);
       if (e instanceof Error) {
         try {
           const errData = JSON.parse(e.message);
@@ -49,8 +78,6 @@ export default function BitableResyncButton({ table, onDone }: { table: Business
       } else {
         setMsg("同步失败");
       }
-    } finally {
-      setSyncing(false);
     }
   }
 
@@ -64,7 +91,7 @@ export default function BitableResyncButton({ table, onDone }: { table: Business
       >
         {syncing ? (syncStage || "同步中...") : "⟳ 重新同步"}
       </button>
-      {msg && <span className={`text-[9px] font-bold ${msg.startsWith("✓") ? "text-green-600" : "text-red-500"}`}>{msg}</span>}
+      {msg && <span className={`text-[9px] font-bold ${msg.startsWith("✓") ? "text-green-600" : msg.startsWith("⚠") ? "text-amber-600" : "text-red-500"}`}>{msg}</span>}
     </div>
   );
 }

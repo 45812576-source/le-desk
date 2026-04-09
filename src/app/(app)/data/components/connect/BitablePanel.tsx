@@ -1,11 +1,23 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { PixelButton } from "@/components/pixel/PixelButton";
 import { PixelBadge } from "@/components/pixel/PixelBadge";
 import { apiFetch } from "@/lib/api";
+import { useJobPoller } from "@/lib/useJobPoller";
 import PreviewTable from "../shared/PreviewTable";
 import { BitableProbeResult, WikiTable } from "../shared/types";
+
+const STAGE_LABELS: Record<string, string> = {
+  queued: "排队中",
+  fetch_fields: "读取字段中",
+  fetch_records: "拉取记录中",
+  create_table: "创建本地表中",
+  insert_records: "写入记录中",
+  register: "注册表信息",
+  done: "完成",
+  failed: "失败",
+};
 
 function BitablePanel({ onAdded }: { onAdded: () => void }) {
   const [appToken, setAppToken] = useState("");
@@ -18,6 +30,34 @@ function BitablePanel({ onAdded }: { onAdded: () => void }) {
   const [syncMsg, setSyncMsg] = useState("");
   const [wikiTables, setWikiTables] = useState<WikiTable[] | null>(null);
   const [resolvingWiki, setResolvingWiki] = useState(false);
+  const [syncStage, setSyncStage] = useState("");
+
+  const { jobStatus, startPolling, stopPolling } = useJobPoller("/business-tables/sync-bitable/jobs");
+
+  // 监听 job 状态变化
+  useEffect(() => {
+    if (!jobStatus) return;
+    const label = STAGE_LABELS[jobStatus.stage || ""] || jobStatus.stage || "";
+    setSyncStage(label);
+
+    if (jobStatus.status === "success") {
+      setSyncing(false);
+      setSyncStage("");
+      const degraded = jobStatus.stats?.degraded;
+      const pageSize = jobStatus.stats?.effective_page_size;
+      const degradedMsg = degraded ? `（分页已降级到 ${pageSize}）` : "";
+      setSyncMsg(`✓ 同步完成${degradedMsg}`);
+      onAdded();
+    } else if (jobStatus.status === "partial_success") {
+      setSyncing(false);
+      setSyncStage("");
+      setError("⚠ 部分同步成功，部分记录未能同步，数据不完整，请重试或检查飞书权限");
+    } else if (jobStatus.status === "failed") {
+      setSyncing(false);
+      setSyncStage("");
+      setError(`${label || "同步"}失败: ${jobStatus.error || "未知错误"}`);
+    }
+  }, [jobStatus, onAdded, stopPolling]);
 
   // Parse app_token + table_id from a pasted URL
   async function parseUrl(url: string) {
@@ -55,9 +95,30 @@ function BitablePanel({ onAdded }: { onAdded: () => void }) {
     setError("");
     setWikiTables(null);
     const m = url.match(/\/base\/([A-Za-z0-9]+)/);
-    if (m) setAppToken(m[1]);
-    const t = url.match(/[?&]table=([A-Za-z0-9]+)/);
-    if (t) setTableId(t[1]);
+    if (m) {
+      setAppToken(m[1]);
+      const t = url.match(/[?&]table=([A-Za-z0-9]+)/);
+      if (t) {
+        setTableId(t[1]);
+      } else {
+        try {
+          const res = await apiFetch<{ tables: WikiTable[] }>(
+            "/business-tables/list-bitable-tables",
+            { method: "POST", body: JSON.stringify({ app_token: m[1] }) }
+          );
+          if (res.tables.length === 1) {
+            setTableId(res.tables[0].table_id);
+          } else if (res.tables.length > 1) {
+            setWikiTables(res.tables);
+          }
+        } catch (e: unknown) {
+          setError(e instanceof Error ? e.message : "获取表列表失败");
+        }
+      }
+    } else {
+      const t = url.match(/[?&]table=([A-Za-z0-9]+)/);
+      if (t) setTableId(t[1]);
+    }
   }
 
   async function handleProbe() {
@@ -82,21 +143,15 @@ function BitablePanel({ onAdded }: { onAdded: () => void }) {
     }
   }
 
-  const [syncStage, setSyncStage] = useState("");
-
   async function handleSync() {
     if (!probeResult) return;
     setSyncing(true);
     setError("");
     setSyncMsg("");
-
-    setSyncStage("读取字段中");
-    const t1 = setTimeout(() => setSyncStage("拉取记录中"), 1500);
-    const t2 = setTimeout(() => setSyncStage("创建本地表中"), 4000);
-    const t3 = setTimeout(() => setSyncStage("写入记录中"), 6000);
+    setSyncStage("提交任务中");
 
     try {
-      const res = await apiFetch<{ ok: boolean; inserted: number; total_fields: number; degraded?: boolean; effective_page_size?: number }>("/business-tables/sync-bitable", {
+      const res = await apiFetch<{ job_id: number }>("/business-tables/sync-bitable/jobs", {
         method: "POST",
         body: JSON.stringify({
           app_token: probeResult.app_token,
@@ -104,26 +159,11 @@ function BitablePanel({ onAdded }: { onAdded: () => void }) {
           display_name: displayName.trim(),
         }),
       });
-      clearTimeout(t1); clearTimeout(t2); clearTimeout(t3);
-      const degradedMsg = res.degraded ? `（分页已降级到 ${res.effective_page_size}）` : "";
-      setSyncMsg(`✓ 同步完成${degradedMsg}`);
-      setSyncStage("");
-      onAdded();
+      startPolling(res.job_id);
     } catch (e: unknown) {
-      clearTimeout(t1); clearTimeout(t2); clearTimeout(t3);
       setSyncStage("");
-      if (e instanceof Error) {
-        try {
-          const errData = JSON.parse(e.message);
-          setError(`${errData.stage || "同步"}失败: ${errData.error}\n${errData.suggestion || ""}`);
-        } catch {
-          setError(e.message);
-        }
-      } else {
-        setError("同步失败");
-      }
-    } finally {
       setSyncing(false);
+      setError(e instanceof Error ? e.message : "同步失败");
     }
   }
 
@@ -184,7 +224,7 @@ function BitablePanel({ onAdded }: { onAdded: () => void }) {
             <p className="text-[10px] text-[#00A3C4] font-bold animate-pulse">正在解析 Wiki 节点...</p>
           )}
           {error && <p className="text-[10px] text-red-500 font-bold">{error}</p>}
-          {syncMsg && <p className="text-[10px] text-green-600 font-bold">{syncMsg}</p>}
+          {syncMsg && <p className={`text-[10px] font-bold ${syncMsg.startsWith("⚠") ? "text-amber-600" : "text-green-600"}`}>{syncMsg}</p>}
 
           {wikiTables && wikiTables.length > 0 && (
             <div>

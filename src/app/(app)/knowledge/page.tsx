@@ -7,6 +7,7 @@ import { PixelButton } from "@/components/pixel/PixelButton";
 import { ThemedPageIcon } from "@/components/layout/PageShell";
 import { useAuth } from "@/lib/auth";
 import { apiFetch } from "@/lib/api";
+import { useJobPoller, type JobStatus } from "@/lib/useJobPoller";
 import type { KnowledgeDetail } from "@/lib/types";
 
 // Extracted components
@@ -134,6 +135,52 @@ const FileManagerTab = forwardRef<{ createDoc: () => void; triggerUpload: () => 
   const [larkUrls, setLarkUrls] = useState("");
   const [larkImporting, setLarkImporting] = useState(false);
   const [larkImportStatus, setLarkImportStatus] = useState("准备导入");
+
+  const larkJobPoller = useJobPoller("/knowledge/import-from-lark/jobs");
+
+  // 监听飞书多维表导入 job 完成
+  const larkJobRef = useRef<JobStatus | null>(null);
+  useEffect(() => {
+    const js = larkJobPoller.jobStatus;
+    if (!js || js === larkJobRef.current) return;
+    larkJobRef.current = js;
+
+    const PHASE_LABELS: Record<string, string> = {
+      parse_url: "解析链接中",
+      resolve_wiki: "解析知识库节点",
+      exporting: "导出中",
+      downloading: "下载中",
+      generating_doc: "生成工作台云文档",
+      done: "已导入，可编辑",
+      failed: "导入失败",
+    };
+    setLarkImportStatus(PHASE_LABELS[js.phase || ""] || js.phase || "处理中");
+
+    if (js.status === "success") {
+      setLarkImporting(false);
+      setLarkImportStatus("已导入，可编辑");
+      setLarkUrls("");
+      setShowLarkImport(false);
+      const payload = js.result as Record<string, unknown> | undefined;
+      const knowledgeId = payload?.knowledge_id as number | undefined;
+      const title = payload?.title as string | undefined;
+      if (knowledgeId) {
+        fetchAll(true).then(() =>
+          apiFetch<KnowledgeDetail>(`/knowledge/${knowledgeId}`).then((full) => {
+            setSelectedEntry(full);
+            setSelectedEntryError(null);
+            addRecentFile(knowledgeId);
+          }).catch(() => {})
+        );
+        setToast(`已导入飞书文档「${title || ""}」`);
+      }
+    } else if (js.status === "failed") {
+      setLarkImporting(false);
+      setLarkImportStatus("导入失败");
+      setToast(`飞书导入失败: ${js.error || "未知错误"}`);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [larkJobPoller.jobStatus]);
 
   // Context menu state
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; entry: KnowledgeDetail } | null>(null);
@@ -544,11 +591,23 @@ const FileManagerTab = forwardRef<{ createDoc: () => void; triggerUpload: () => 
     try {
       if (urls.length === 1) {
         const isBitable = /\/(base|bitable)\//.test(urls[0]);
-        setLarkImportStatus(isBitable ? "解析多维表链接" : "解析链接中");
+
+        // 多维表类型走异步 job + 轮询，避免超时
         if (isBitable) {
-          setTimeout(() => setLarkImportStatus("导出中"), 1500);
-          setTimeout(() => setLarkImportStatus("生成工作台云文档"), 4000);
+          setLarkImportStatus("解析多维表链接");
+          const jobRes = await apiFetch<{ job_id: number }>("/knowledge/import-from-lark/jobs", {
+            method: "POST",
+            body: JSON.stringify({
+              url: urls[0],
+              folder_id: selectedEntry?.folder_id ?? null,
+            }),
+          });
+          larkJobPoller.startPolling(jobRes.job_id);
+          return; // useEffect 会处理后续状态更新
         }
+
+        // 非多维表仍走同步接口
+        setLarkImportStatus("解析链接中");
         const res = await apiFetch<LarkImportResult>("/knowledge/import-from-lark", {
           method: "POST",
           body: JSON.stringify({
