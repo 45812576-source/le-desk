@@ -1,3 +1,5 @@
+export type SkillStudioViewMode = "all_messages" | "current_skill_messages";
+
 export interface StudioEntryResolution {
   registration_id: number;
   conversation_id: number;

@@ -2071,10 +2071,15 @@ function StudioChat({
   clearRef?: { current: (() => void) | null };
   setInputRef?: { current: ((text: string) => void) | null };
 }) {
-  // 消息主存在后端 DB，localStorage 只做跨 tab 即时缓存
+  // 消息主存在后端 DB，localStorage 只做草稿和 UI 状态缓存
   const _storageKey = `studio_msgs_${convId}_${skillId ?? "free"}`;
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [backendLoaded, setBackendLoaded] = useState(false);
+  const [backendFailed, setBackendFailed] = useState(false);
+  // 视图模式：all_messages 显示全部 Studio 消息，current_skill_messages 只看当前 skill
+  const [viewMode, setViewMode] = useState<"all_messages" | "current_skill_messages">(
+    skillId ? "current_skill_messages" : "all_messages"
+  );
   const [input, setInput] = useState("");
   const [streaming, setStreaming] = useState(false);
   const [streamStage, setStreamStage] = useState<string | null>(null);
@@ -2170,12 +2175,23 @@ function StudioChat({
     return () => { if (setInputRef) setInputRef.current = null; };
   }, [setInputRef]);
 
-  // skillId 切换时从后端加载历史，localStorage 作为即时 fallback
+  // skillId/viewMode 切换时从后端加载历史，localStorage 作为草稿缓存
   useEffect(() => {
     setBackendLoaded(false);
+    setBackendFailed(false);
     setPendingDraft(null);
     setPendingSummary(null);
     setPendingFileSplit(null);
+    // 选中 skill 时默认切到 current_skill，无选中时切回 all
+    if (skillId) setViewMode("current_skill_messages");
+    else setViewMode("all_messages");
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [skillId]);
+
+  // 根据 viewMode 从后端加载消息
+  useEffect(() => {
+    setBackendLoaded(false);
+    setBackendFailed(false);
 
     // 先从 localStorage 快速显示（避免白屏）
     try {
@@ -2184,36 +2200,35 @@ function StudioChat({
       else setMessages([]);
     } catch { setMessages([]); }
 
-    // 再从后端加载权威历史
-    apiFetch<{ id: number; role: string; content: string; metadata?: Record<string, unknown> }[]>(
-      `/conversations/${convId}/messages`
-    ).then((dbMsgs) => {
-      // 按 skill_id 过滤（后端存了 metadata.skill_id）
-      const filtered = skillId
-        ? dbMsgs.filter((m) => {
-            const meta = m.metadata as Record<string, unknown> | undefined;
-            return !meta?.skill_id || meta.skill_id === skillId;
-          })
-        : dbMsgs;
-      const mapped: ChatMessage[] = filtered.map((m) => ({
-        role: m.role as "user" | "assistant",
-        text: m.content,
-        loading: false,
-      }));
-      if (mapped.length > 0) {
+    // 构建后端查询 URL：skill_id 过滤由后端完成
+    const params = new URLSearchParams();
+    if (viewMode === "current_skill_messages" && skillId) {
+      params.set("skill_id", String(skillId));
+    }
+    const qs = params.toString();
+    const url = `/conversations/${convId}/messages${qs ? `?${qs}` : ""}`;
+
+    apiFetch<{ id: number; role: string; content: string; metadata?: Record<string, unknown> }[]>(url)
+      .then((dbMsgs) => {
+        const mapped: ChatMessage[] = dbMsgs.map((m) => ({
+          role: m.role as "user" | "assistant",
+          text: m.content,
+          loading: false,
+        }));
         setMessages(mapped);
         try { localStorage.setItem(_storageKey, JSON.stringify(mapped)); } catch { /* ignore */ }
-      }
-      setBackendLoaded(true);
-    }).catch(() => {
-      setBackendLoaded(true); // 失败时保留 localStorage 版本
-    });
+        setBackendLoaded(true);
+      })
+      .catch(() => {
+        setBackendFailed(true);
+        setBackendLoaded(true);
+      });
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [convId, skillId, _storageKey]);
+  }, [convId, viewMode, skillId, _storageKey]);
 
   // 每次 messages 变化时同步到 localStorage（仅作缓存）
   useEffect(() => {
-    if (!backendLoaded) return; // 后端加载完成前不覆盖缓存
+    if (!backendLoaded) return;
     try { localStorage.setItem(_storageKey, JSON.stringify(messages)); } catch { /* quota exceeded */ }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [messages, backendLoaded]);
@@ -2647,7 +2662,20 @@ function StudioChat({
     <div className="flex flex-col flex-[1] min-w-0 border-l-2 border-[#1A202C] bg-white">
       {/* Header */}
       <div className="px-3 py-2.5 border-b-2 border-[#1A202C] flex items-center gap-2 flex-shrink-0 bg-[#EBF4F7]">
-        <span className="text-[9px] font-bold uppercase tracking-widest text-[#00A3C4] flex-1">Studio Chat</span>
+        <span className="text-[9px] font-bold uppercase tracking-widest text-[#00A3C4]">Studio Chat</span>
+        {/* 视图模式切换 */}
+        <div className="flex gap-0.5 border border-gray-300 rounded overflow-hidden ml-1">
+          <button
+            onClick={() => setViewMode("all_messages")}
+            className={`px-1.5 py-0.5 text-[8px] font-bold uppercase transition-colors ${viewMode === "all_messages" ? "bg-[#00D1FF] text-white" : "text-gray-400 hover:text-gray-600"}`}
+          >全部</button>
+          <button
+            onClick={() => setViewMode("current_skill_messages")}
+            disabled={!skillId}
+            className={`px-1.5 py-0.5 text-[8px] font-bold uppercase transition-colors ${viewMode === "current_skill_messages" ? "bg-[#00D1FF] text-white" : "text-gray-400 hover:text-gray-600"} ${!skillId ? "opacity-30 cursor-not-allowed" : ""}`}
+          >当前 Skill</button>
+        </div>
+        <span className="flex-1" />
         {messages.length > 0 && (
           <button
             onClick={() => {
@@ -2669,6 +2697,21 @@ function StudioChat({
           新建会话
         </button>
       </div>
+      {/* 状态提示条 */}
+      {backendFailed && (
+        <div className="px-3 py-1 bg-amber-50 border-b border-amber-200 text-[9px] text-amber-700 font-mono">
+          正在显示本地缓存，服务器历史加载失败
+        </div>
+      )}
+      {viewMode === "current_skill_messages" && skillId && backendLoaded && !backendFailed && (
+        <div className="px-3 py-1 bg-sky-50 border-b border-sky-200 text-[9px] text-sky-700 font-mono flex items-center gap-2">
+          <span>当前仅查看该 Skill 的相关消息</span>
+          <button
+            onClick={() => setViewMode("all_messages")}
+            className="underline hover:text-sky-900"
+          >查看全部 Studio 对话</button>
+        </div>
+      )}
 
       {/* Memo panel: persistent notices + current task + latest test */}
       {memo && (
@@ -3184,6 +3227,12 @@ export function SkillStudio({ convId }: { convId: number }) {
                 : "选择或新建 Skill 开始"}
         </span>
         <div className="ml-auto" />
+      </div>
+
+      {/* 工程文件区共用提示 */}
+      <div className="flex-shrink-0 px-4 py-1 bg-violet-50 border-b border-violet-200 text-[9px] text-violet-600 font-mono flex items-center gap-1.5">
+        <span className="w-1.5 h-1.5 bg-violet-400 rounded-full inline-block" />
+        当前与 OpenCode 共用个人工程文件区
       </div>
 
       {/* Three-column body */}
