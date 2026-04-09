@@ -1527,9 +1527,18 @@ export function DevStudio({ workspaceId, fromSkillId, initialViewId }: { convId:
   const { theme } = useTheme();
   const [status, setStatus] = useState<Status>("loading");
   const [opencodeUrl, setOpencodeUrl] = useState<string | null>(null);
+  const [opencodePort, setOpencodePort] = useState<number | null>(null);
   const [instanceKey, setInstanceKey] = useState<number>(0);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [restarting, setRestarting] = useState(false);
+  const [entryInfo, setEntryInfo] = useState<{
+    workspace_root?: string;
+    last_active_at?: string | null;
+    recent_conversation_ids?: number[];
+    opencode_sessions?: { id: string; title: string | null; directory: string | null; message_count: number; created_at: string | null; updated_at: string | null }[];
+    opencode_session_count?: number;
+  } | null>(null);
+  const [showSessionList, setShowSessionList] = useState(false);
   const [saveMode, setSaveMode] = useState<SaveMode | null>(null);
   const [saveSuccess, setSaveSuccess] = useState<string | null>(null);
   const [grantedModels, setGrantedModels] = useState<string[]>([]);
@@ -1594,11 +1603,16 @@ export function DevStudio({ workspaceId, fromSkillId, initialViewId }: { convId:
       setStatus("loading");
       setErrorMsg(null);
       try {
+        // 先获取 entry 信息（即使 runtime 启动失败也有上下文）
+        try {
+          const entry = await apiFetch<{ workspace_root?: string; last_active_at?: string | null; recent_conversation_ids?: number[] }>("/dev-studio/entry");
+          if (!cancelled) setEntryInfo(entry);
+        } catch { /* entry 失败不阻断 */ }
+
         const info = await apiFetch<{ url: string; port: number }>("/dev-studio/instance");
         if (!cancelled) {
-          // 把端口写入 cookie（备用），并直接编码进代理 URL（主用）
           document.cookie = `oc_port=${info.port}; path=/; SameSite=Lax`;
-          // _oc_port 直接放进 URL，代理层优先读 query 参数，不依赖 cookie
+          setOpencodePort(info.port);
           setOpencodeUrl(`/api/opencode?_oc_port=${info.port}`);
           setInstanceKey(Date.now());
           setStatus("ready");
@@ -1722,6 +1736,19 @@ export function DevStudio({ workspaceId, fromSkillId, initialViewId }: { convId:
           )}
         </div>
         <div className="flex items-center gap-2">
+          {(entryInfo?.opencode_session_count ?? 0) > 0 && (
+            <button
+              onClick={() => setShowSessionList((v) => !v)}
+              title="查看所有历史 OpenCode 会话"
+              className={`px-3 py-1 text-[9px] font-bold uppercase tracking-widest border-2 transition-colors ${
+                showSessionList
+                  ? "border-[#6B46C1] bg-[#6B46C1]/10 text-[#6B46C1]"
+                  : "border-[#1A202C] bg-white text-[#1A202C] hover:bg-[#F0F4F8]"
+              }`}
+            >
+              ☰ 会话 ({entryInfo?.opencode_session_count})
+            </button>
+          )}
           {status === "ready" && opencodeUrl && (
             <a
               href={opencodeUrl}
@@ -1744,52 +1771,123 @@ export function DevStudio({ workspaceId, fromSkillId, initialViewId }: { convId:
       </div>
 
       {/* Main area */}
-      <div className="flex-1 overflow-hidden relative">
-        {status === "loading" && (
-          <div className="h-full flex flex-col items-center justify-center gap-4">
-            <div className="w-10 h-10 border-2 border-[#6B46C1] bg-[#6B46C1]/10 flex items-center justify-center">
-              <div className="w-4 h-4 border-2 border-[#6B46C1] border-t-transparent rounded-full animate-spin" />
+      <div className="flex-1 overflow-hidden relative flex">
+        {/* Session list sidebar */}
+        {showSessionList && entryInfo?.opencode_sessions && (
+          <div className="w-64 flex-shrink-0 border-r-2 border-[#1A202C] bg-white overflow-y-auto">
+            <div className="px-3 py-2 border-b border-gray-200 sticky top-0 bg-white z-10">
+              <div className="text-[9px] font-bold uppercase tracking-widest text-[#6B46C1]">
+                OpenCode 历史会话 ({entryInfo.opencode_session_count})
+              </div>
+              <div className="text-[8px] text-gray-400 mt-0.5">
+                所有会话数据永久保留
+              </div>
             </div>
-            <p className="text-[10px] font-bold uppercase tracking-widest text-[#6B46C1] animate-pulse">
-              正在连接 OpenCode...
-            </p>
-          </div>
-        )}
-
-        {status === "error" && (
-          <div className="h-full flex flex-col items-center justify-center gap-4 px-6">
-            <div className="w-10 h-10 border-2 border-red-300 bg-red-50 flex items-center justify-center flex-shrink-0">
-              <span className="text-red-400 font-bold text-sm">!</span>
-            </div>
-            <div className="text-center max-w-sm">
-              <p className="text-[11px] font-bold text-red-500 mb-2">工作台服务未启动</p>
-              <p className="text-[10px] text-gray-500 leading-relaxed mb-3">
-                OpenCode 服务无法连接。请联系管理员检查后端服务是否正常运行。
-              </p>
-              {errorMsg && (
-                <p className="text-[9px] text-gray-400 font-mono bg-gray-100 border border-gray-200 px-3 py-1.5 mb-4 text-left break-all">
-                  {errorMsg}
-                </p>
+            <div className="divide-y divide-gray-100">
+              {entryInfo.opencode_sessions.map((session) => (
+                <button
+                  key={session.id}
+                  onClick={async () => {
+                    if (!opencodePort) return;
+                    // 通过 OpenCode RPC API 切换到指定 session，然后刷新 iframe
+                    try {
+                      await fetch(`/api/opencode-rpc/session/set?_oc_port=${opencodePort}`, {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ id: session.id }),
+                      });
+                    } catch {
+                      // RPC 失败时 fallback: 在 URL 上带 session 参数让 OpenCode 尝试恢复
+                    }
+                    setOpencodeUrl(`/api/opencode?_oc_port=${opencodePort}`);
+                    setInstanceKey(Date.now());
+                  }}
+                  className="w-full text-left px-3 py-2 hover:bg-[#F0F4F8] transition-colors group"
+                >
+                  <div className="text-[10px] font-bold text-[#1A202C] truncate group-hover:text-[#6B46C1]">
+                    {session.title || "未命名会话"}
+                  </div>
+                  <div className="flex items-center gap-2 mt-0.5">
+                    <span className="text-[8px] text-gray-400">
+                      {session.message_count} 条消息
+                    </span>
+                    {session.updated_at && (
+                      <span className="text-[8px] text-gray-300">
+                        {new Date(session.updated_at).toLocaleDateString("zh-CN")}
+                      </span>
+                    )}
+                  </div>
+                </button>
+              ))}
+              {entryInfo.opencode_sessions.length === 0 && (
+                <div className="px-3 py-4 text-[9px] text-gray-400 text-center">
+                  暂无历史会话
+                </div>
               )}
-              <button
-                onClick={handleRetry}
-                className="px-4 py-2 text-[9px] font-bold uppercase tracking-widest border-2 border-[#6B46C1] text-[#6B46C1] hover:bg-[#6B46C1]/10 transition-colors"
-              >
-                重试连接
-              </button>
             </div>
           </div>
         )}
 
-        {status === "ready" && opencodeUrl && (
-          <>
-            <StableIframe
-              src={`${opencodeUrl}?t=${instanceKey}`}
-              colorScheme={theme === "dark" ? "dark" : "light"}
-            />
-            {/* 受限模型：不再显示持续遮罩，改为一次性 toast（见下方 RestrictedModelToast） */}
-          </>
-        )}
+        {/* Main content area */}
+        <div className="flex-1 overflow-hidden relative">
+          {status === "loading" && (
+            <div className="h-full flex flex-col items-center justify-center gap-4">
+              <div className="w-10 h-10 border-2 border-[#6B46C1] bg-[#6B46C1]/10 flex items-center justify-center">
+                <div className="w-4 h-4 border-2 border-[#6B46C1] border-t-transparent rounded-full animate-spin" />
+              </div>
+              <p className="text-[10px] font-bold uppercase tracking-widest text-[#6B46C1] animate-pulse">
+                正在连接 OpenCode...
+              </p>
+            </div>
+          )}
+
+          {status === "error" && (
+            <div className="h-full flex flex-col items-center justify-center gap-4 px-6">
+              <div className="w-10 h-10 border-2 border-red-300 bg-red-50 flex items-center justify-center flex-shrink-0">
+                <span className="text-red-400 font-bold text-sm">!</span>
+              </div>
+              <div className="text-center max-w-sm">
+                <p className="text-[11px] font-bold text-red-500 mb-2">
+                  {entryInfo ? "工作区存在，运行时启动失败" : "工作台服务未启动"}
+                </p>
+                <p className="text-[10px] text-gray-500 leading-relaxed mb-3">
+                  {entryInfo
+                    ? "您的工作区数据完好，运行时进程启动失败，请重试。"
+                    : "OpenCode 服务无法连接。请联系管理员检查后端服务是否正常运行。"}
+                </p>
+                {entryInfo && (
+                  <div className="text-[9px] text-gray-400 font-mono bg-gray-50 border border-gray-200 px-3 py-2 mb-3 text-left space-y-1">
+                    {entryInfo.workspace_root && <div>工作区: {entryInfo.workspace_root}</div>}
+                    {entryInfo.last_active_at && <div>上次活跃: {new Date(entryInfo.last_active_at).toLocaleString("zh-CN")}</div>}
+                    {(entryInfo.opencode_session_count ?? 0) > 0 && (
+                      <div>OpenCode 历史会话: {entryInfo.opencode_session_count} 个（数据完好）</div>
+                    )}
+                  </div>
+                )}
+                {errorMsg && (
+                  <p className="text-[9px] text-gray-400 font-mono bg-gray-100 border border-gray-200 px-3 py-1.5 mb-4 text-left break-all">
+                    {errorMsg}
+                  </p>
+                )}
+                <button
+                  onClick={handleRetry}
+                  className="px-4 py-2 text-[9px] font-bold uppercase tracking-widest border-2 border-[#6B46C1] text-[#6B46C1] hover:bg-[#6B46C1]/10 transition-colors"
+                >
+                  重试连接
+                </button>
+              </div>
+            </div>
+          )}
+
+          {status === "ready" && opencodeUrl && (
+            <>
+              <StableIframe
+                src={`${opencodeUrl}?t=${instanceKey}`}
+                colorScheme={theme === "dark" ? "dark" : "light"}
+              />
+            </>
+          )}
+        </div>
       </div>
 
       {/* 受限模型一次性 toast */}

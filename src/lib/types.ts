@@ -1,5 +1,14 @@
 export type SkillStudioViewMode = "all_messages" | "current_skill_messages";
 
+export interface OpenCodeSessionInfo {
+  id: string;
+  title: string | null;
+  directory: string | null;
+  message_count: number;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
 export interface StudioEntryResolution {
   registration_id: number;
   conversation_id: number;
@@ -9,6 +18,15 @@ export interface StudioEntryResolution {
   runtime_port: number | null;
   generation: number;
   needs_recover: boolean;
+  recent_conversation_ids: number[];
+  last_active_at: string | null;
+  /** opencode.db 中的全量 session 列表 */
+  opencode_sessions: OpenCodeSessionInfo[];
+  opencode_session_count: number;
+  /** POST /entry 返回时额外字段 */
+  port?: number | null;
+  url?: string | null;
+  runtime_error?: string | null;
 }
 
 export interface User {

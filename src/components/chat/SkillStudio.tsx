@@ -3046,13 +3046,8 @@ export function SkillStudio({ convId, initialSkillId }: { convId: number; initia
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialSkillId]);
 
-  // 一次性迁移旧共享会话中的消息到各 Skill 独立 conversation
-  const migrationDone = useRef(false);
-  useEffect(() => {
-    if (migrationDone.current) return;
-    migrationDone.current = true;
-    apiFetch("/conversations/studio-entry/migrate-skill-conversations", { method: "POST" }).catch(() => {});
-  }, []);
+  // 旧共享会话迁移已移至管理员巡检脚本（opencode_audit.py --fix），
+  // 不再在前端页面挂载时自动触发，避免大用户打开页面时扫描大量消息导致性能问题。
 
   const selectedSkill = selectedFile
     ? (skills.find((s) => s.id === selectedFile.skillId) ?? null)
