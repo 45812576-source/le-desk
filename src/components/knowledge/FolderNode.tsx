@@ -12,7 +12,9 @@ interface Folder {
   name: string;
   parent_id: number | null;
   sort_order: number;
+  created_by?: number;
   is_system?: number;
+  visibility?: "own" | "system" | "visible_doc";
   taxonomy_board?: string | null;
   taxonomy_code?: string | null;
 }

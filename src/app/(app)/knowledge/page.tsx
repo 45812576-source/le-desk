@@ -400,10 +400,15 @@ const FileManagerTab = forwardRef<{ createDoc: () => void; triggerUpload: () => 
     return true;
   });
 
-  const userFolders = folders.filter((f) => !f.is_system);
+  // own: 自己创建的非系统文件夹 → "我的整理"树
+  // system: 系统归档目录 → RAG 视图
+  // visible_doc: 他人文件夹（因文档可见）→ 其中文档平铺到根级
+  const ownFolders = folders.filter((f) => !f.is_system && (f.visibility === "own" || (!f.visibility && f.created_by === currentUser?.id)));
+  const visibleDocFolderIds = new Set(folders.filter((f) => f.visibility === "visible_doc").map((f) => f.id));
   const systemFolders = folders.filter((f) => Boolean(f.is_system));
-  const tree = buildTree(userFolders);
-  const rootFiles = filteredEntries.filter((e) => !e.folder_id);
+  const tree = buildTree(ownFolders);
+  // 根级文件：无文件夹的 + 在他人文件夹中的可见文档（平铺显示）
+  const rootFiles = filteredEntries.filter((e) => !e.folder_id || visibleDocFolderIds.has(e.folder_id!));
   const visibleRootFiles = rootFiles.filter((e) => !systemFolders.some((f) => f.id === e.folder_id));
 
   function openNewFolder() {
@@ -1070,7 +1075,7 @@ const FileManagerTab = forwardRef<{ createDoc: () => void; triggerUpload: () => 
             onUpdateContent={handleUpdateContent}
             onDelete={handleDeleteEntry}
             onRename={handleRenameEntry}
-            folders={treeMode === "rag" ? systemFolders : userFolders}
+            folders={treeMode === "rag" ? systemFolders : ownFolders}
             onMoveToFolder={treeMode === "rag" && currentUser?.role === "super_admin" ? handleMoveEntry : undefined}
             onRetryRender={selectedEntry ? async () => {
               try {
