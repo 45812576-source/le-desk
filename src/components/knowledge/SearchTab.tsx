@@ -71,7 +71,7 @@ export default function SearchTab() {
 
   return (
     <div>
-      <div className="flex items-center gap-2 mb-4">
+      <div className="flex items-center gap-2 mb-4 flex-shrink-0">
         <input
           type="text"
           placeholder="输入关键词搜索知识切片..."
@@ -85,7 +85,7 @@ export default function SearchTab() {
         </PixelButton>
       </div>
 
-      <div className="flex items-center gap-1 flex-wrap mb-5">
+      <div className="flex items-center gap-1 flex-wrap mb-5 flex-shrink-0">
         {TAXONOMY_OPTIONS.map((o) => (
           <button
             key={o.value}
@@ -134,7 +134,7 @@ export default function SearchTab() {
                     <div className="flex items-center gap-2 mb-1 flex-wrap">
                       <span className="text-[10px] font-bold truncate max-w-[140px]">{chunk.title}</span>
                       {taxOpt?.value && <PixelBadge color={taxOpt.color}>{taxOpt.label}</PixelBadge>}
-                      <span className="text-[8px] text-gray-400 ml-auto">{Math.round(chunk.score * 100)}%</span>
+                      <span className="text-[8px] text-gray-400 ml-auto">相关度 {Math.round(chunk.score * 100)}%</span>
                     </div>
                     {chunk.heading_path && (
                       <p className="text-[8px] text-gray-400 mb-1 truncate">📍 {chunk.heading_path}</p>
@@ -166,7 +166,7 @@ export default function SearchTab() {
                   </div>
                 )}
                 <div className="text-[10px] font-bold uppercase tracking-widest text-[#00A3C4] mb-2">全文内容</div>
-                <div className="space-y-3">
+                <div className="text-[10px] leading-relaxed whitespace-pre-wrap text-gray-600">
                   {preview.chunks.map((c) => {
                     const isHit = selectedChunk?.chunk_index === c.index;
                     return (
@@ -174,7 +174,7 @@ export default function SearchTab() {
                         key={c.index}
                         id={`chunk-${c.index}`}
                         ref={isHit ? (el) => { el?.scrollIntoView({ behavior: "smooth", block: "center" }); } : undefined}
-                        className={`border-l-2 pl-3 py-1 text-[10px] leading-relaxed whitespace-pre-wrap transition-colors ${isHit ? "border-[#00D1FF] bg-[#CCF2FF]/30 text-[#1A202C]" : "border-gray-200 text-gray-500"}`}
+                        className={isHit ? "border-l-2 border-[#00D1FF] bg-[#CCF2FF]/30 pl-3 py-1 my-1 text-[#1A202C] transition-colors" : "py-0.5"}
                       >
                         {c.text}
                       </div>

@@ -13,6 +13,7 @@ import type {
   User,
 } from "@/lib/types";
 import { apiFetch } from "@/lib/api";
+import { marked } from "marked";
 import { RichEditor } from "@/components/knowledge/RichEditor";
 import { CollabEditor } from "@/components/knowledge/CollabEditor";
 import DocumentViewer from "@/components/knowledge/DocumentViewer";
@@ -58,6 +59,16 @@ function ThemedEyeIcon({ size }: { size: number }) {
 function toHtml(raw: string): string {
   if (!raw) return "";
   if (/^</.test(raw.trim())) return raw;
+  // Detect markdown features: headings, lists, bold, code blocks
+  const hasMarkdown = /^(#{1,6}\s|[-*]\s|\*\*.+\*\*|```)/.test(raw) ||
+    raw.split("\n").some((l) => /^(#{1,6}\s|[-*]\s|\d+\.\s|>\s|```)/.test(l.trim()));
+  if (hasMarkdown) {
+    try {
+      return marked.parse(raw, { async: false }) as string;
+    } catch {
+      // fallback to simple conversion
+    }
+  }
   return raw.split("\n").map((l) => `<p>${l || "<br>"}</p>`).join("");
 }
 
@@ -212,12 +223,21 @@ export default function PreviewPanel({
 
   const canEdit = permCheck?.can_edit ?? false;
 
+  // Track previous entryId to distinguish entry switch from auto-save callback
+  const prevEntryIdRef = useRef<number | null>(null);
+
   // Init content on entry switch
   useEffect(() => {
+    const currentId = entry?.id ?? null;
+    // If same entry (auto-save updated entry object), skip resetting editor content
+    if (currentId === prevEntryIdRef.current && prevEntryIdRef.current !== null) {
+      return;
+    }
+    prevEntryIdRef.current = currentId;
     setEditingTitle(false);
     setTitleVal(entry?.title ?? "");
     setSaveState("saved");
-    entryIdRef.current = entry?.id ?? null;
+    entryIdRef.current = currentId;
     // Use content_html if available, otherwise convert content to HTML
     const html = entry?.content_html || toHtml(entry?.content ?? "");
     setHtmlVal(html);
@@ -1183,7 +1203,7 @@ function AiSummaryBar({ entry, currentUser }: { entry: KnowledgeDetail; currentU
         <span className="text-[8px] text-gray-400 ml-auto flex-shrink-0">{expanded ? "收起" : "展开"}</span>
       </button>
       {expanded && (
-        <div className="px-5 pb-2.5 space-y-2">
+        <div className="px-5 pb-2.5 space-y-2 max-h-[50vh] overflow-y-auto">
           {/* 文档理解摘要 */}
           {entry.understanding_summary_short && (
             <p className="text-[11px] text-gray-600 leading-relaxed">{entry.understanding_summary_short}</p>
