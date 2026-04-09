@@ -14,8 +14,9 @@ import GapManagementPanel from "@/components/governance/GapManagementPanel";
 import MigrationWizard from "@/components/governance/MigrationWizard";
 import ThresholdExperiment from "@/components/governance/ThresholdExperiment";
 import DeptAdminReviewPanel from "@/components/governance/DeptAdminReviewPanel";
-import FolderGovernanceTab from "@/components/governance/FolderGovernanceTab";
 import TagGovernanceTab from "@/components/governance/TagGovernanceTab";
+import MaskTab from "@/app/(app)/admin/assets/tabs/MaskTab";
+import SchemaTab from "@/app/(app)/admin/assets/tabs/SchemaTab";
 import GovernanceObjectsTab from "@/components/governance/GovernanceObjectsTab";
 
 type TabKey =
@@ -29,8 +30,9 @@ type TabKey =
   | "experiment"
   | "dept_review"
   | "objects"
-  | "folders"
-  | "tags";
+  | "tags"
+  | "mask"
+  | "schema";
 
 interface TabDef {
   key: TabKey;
@@ -49,8 +51,9 @@ const TABS: TabDef[] = [
   { key: "experiment", label: "阈值实验", roles: ["super_admin"] },
   { key: "dept_review", label: "分类纠偏", roles: ["super_admin", "dept_admin"] },
   { key: "objects", label: "治理对象", roles: ["super_admin"] },
-  { key: "folders", label: "目录治理", roles: ["super_admin"] },
   { key: "tags", label: "标签治理", roles: ["super_admin"] },
+  { key: "mask", label: "脱敏规则", roles: ["super_admin"] },
+  { key: "schema", label: "Schema", roles: ["super_admin"] },
 ];
 
 export default function AdminGovernancePage() {
@@ -101,7 +104,7 @@ export default function AdminGovernancePage() {
         </div>
         <div className="text-[10px] text-gray-500">
           {isSuperAdmin
-            ? "统一治理总控：审查、基线、缺口、迁移、实验、目录、标签"
+            ? "统一治理总控：审查、基线、缺口、迁移、实验、标签、脱敏、Schema"
             : "审核 AI 低置信度分类，你的每次判断都在帮 AI 变好"}
         </div>
       </div>
@@ -135,8 +138,9 @@ export default function AdminGovernancePage() {
         {effectiveTab === "experiment" && <ThresholdExperiment />}
         {effectiveTab === "dept_review" && <DeptAdminReviewPanel />}
         {effectiveTab === "objects" && <GovernanceObjectsTab />}
-        {effectiveTab === "folders" && <FolderGovernanceTab isSuperAdmin={isSuperAdmin} />}
         {effectiveTab === "tags" && <TagGovernanceTab />}
+        {effectiveTab === "mask" && <MaskTab />}
+        {effectiveTab === "schema" && <SchemaTab />}
       </div>
     </div>
   );

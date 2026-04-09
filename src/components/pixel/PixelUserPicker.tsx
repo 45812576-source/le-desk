@@ -13,7 +13,7 @@ export interface SuggestedUser {
 }
 
 interface PixelUserPickerProps {
-  value: { user_id: number; display_name: string } | null;
+  value: { user_id?: number; id?: number; display_name: string } | null;
   onChange: (user: SuggestedUser | null) => void;
   excludeIds?: number[];
   placeholder?: string;

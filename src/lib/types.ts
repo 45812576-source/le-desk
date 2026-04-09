@@ -1149,3 +1149,383 @@ export interface GovernanceBlueprintPayload {
     default_consumption_modes?: string[];
   }>;
 }
+
+// ─── 统一权限模型（P1） ────────────────────────────────────────────────────
+
+export type PermissionResourceType = "folder" | "approval_capability";
+export type PermissionSource = "direct" | "approval" | "role_default";
+export type PermissionActionCategory = "folder_mgmt" | "content_review" | "publish_approval" | "data_security";
+
+export interface KnowledgePermissionGrantDetail {
+  id: number;
+  grantee_user_id: number;
+  resource_type: PermissionResourceType;
+  resource_id: number | null;
+  action: string;
+  scope: "exact" | "subtree";
+  granted_by: number | null;
+  granted_at: string;
+  expires_at: string | null;
+  source: PermissionSource;
+  resource_name?: string;
+  action_label?: string;
+  action_category?: PermissionActionCategory;
+}
+
+export type PermissionChangeDomain = "feature_flag" | "model_grant" | "capability_grant";
+
+export interface PermissionChangeRequest {
+  id: number;
+  target_user_id: number;
+  domain: PermissionChangeDomain;
+  action_key: string;
+  current_value: unknown;
+  target_value: unknown;
+  reason: string | null;
+  risk_note: string | null;
+  requester_id: number;
+  status: "pending" | "approved" | "rejected";
+  reviewer_id: number | null;
+  review_comment: string | null;
+  reviewed_at: string | null;
+  created_at: string;
+}
+
+export interface UserPermissionSummary {
+  feature_flags: Record<string, boolean>;
+  model_grants: { id: number; user_id: number; model_key: string; granted_at: string | null }[];
+  knowledge_permissions: KnowledgePermissionGrantDetail[];
+  approval_capabilities: KnowledgePermissionGrantDetail[];
+  pending_changes: PermissionChangeRequest[];
+}
+
+// ── 组织管理模块 ────────────────────────────────────────────────────────────
+
+export interface OrgImportSession {
+  id: number;
+  import_type: string;
+  file_name: string | null;
+  status: "uploading" | "parsing" | "parsed" | "confirmed" | "applied" | "failed";
+  row_count: number;
+  parsed_count: number;
+  raw_data?: unknown;
+  ai_parsed_data?: unknown;
+  ai_parse_note?: string | null;
+  error_rows?: Array<{ row: number; reason: string }>;
+  created_at: string | null;
+  applied_at: string | null;
+}
+
+export interface OrgChangeEvent {
+  id: number;
+  entity_type: string;
+  entity_id: number;
+  change_type: "created" | "updated" | "deleted" | "imported" | "confirmed";
+  field_changes: Array<{ field: string; old_value: unknown; new_value: unknown }>;
+  change_source: string;
+  import_session_id: number | null;
+  baseline_version: string | null;
+  created_by: number | null;
+  created_at: string | null;
+}
+
+export interface OkrPeriod {
+  id: number;
+  name: string;
+  period_type: "quarter" | "half_year" | "year";
+  start_date: string | null;
+  end_date: string | null;
+  status: "draft" | "active" | "evaluating" | "archived";
+}
+
+export interface OkrObjective {
+  id: number;
+  period_id: number;
+  owner_type: "company" | "department" | "user";
+  owner_id: number;
+  parent_objective_id: number | null;
+  title: string;
+  weight: number;
+  progress: number;
+  status: "draft" | "active" | "completed" | "cancelled";
+  sort_order: number;
+  key_results?: OkrKeyResult[];
+  children?: OkrObjective[];
+}
+
+export interface OkrKeyResult {
+  id: number;
+  objective_id: number;
+  title: string;
+  metric_type: "number" | "percentage" | "boolean" | "milestone";
+  target_value: string | null;
+  current_value: string | null;
+  unit: string | null;
+  weight: number;
+  progress: number;
+  status: "on_track" | "at_risk" | "behind" | "completed";
+  owner_user_id: number | null;
+  sort_order: number;
+}
+
+export interface KpiAssignment {
+  id: number;
+  user_id: number;
+  period_id: number;
+  position_id: number | null;
+  department_id: number | null;
+  kpi_data: Array<{ name: string; weight: number; target: string; actual: string; score: number; metric_type?: string; unit?: string }>;
+  total_score: number | null;
+  level: string | null;
+  evaluator_id: number | null;
+  status: "draft" | "submitted" | "evaluated" | "confirmed";
+}
+
+export interface DeptMissionDetail {
+  id: number;
+  department_id: number;
+  mission_summary: string | null;
+  core_functions: Array<{ name: string; description: string }>;
+  upstream_deps: Array<{ dept_id: number; what_receive: string }>;
+  downstream_deliveries: Array<{ dept_id: number; what_deliver: string }>;
+  owned_data_types: string[];
+}
+
+export interface BizProcess {
+  id: number;
+  name: string;
+  code: string;
+  description: string | null;
+  process_nodes: Array<{ order: number; name: string; dept_id?: number; position_id?: number; input_data?: string[]; output_data?: string[] }>;
+  is_active: boolean;
+}
+
+export interface BizTerminology {
+  id: number;
+  term: string;
+  aliases: string[];
+  definition: string | null;
+  resource_library_code: string | null;
+  department_id: number | null;
+}
+
+export interface DataAssetOwnership {
+  id: number;
+  asset_name: string;
+  asset_code: string;
+  owner_department_id: number;
+  update_frequency: string;
+  consumer_department_ids: number[];
+  resource_library_code: string | null;
+  description: string | null;
+}
+
+export interface DeptCollabLink {
+  id: number;
+  dept_a_id: number;
+  dept_b_id: number;
+  frequency: "high" | "medium" | "low";
+  scenarios: string[];
+}
+
+export interface PositionAccessRule {
+  id: number;
+  position_id: number;
+  data_domain: string;
+  access_range: string;
+  excluded_fields: string[];
+}
+
+export interface OrgBaselineStatus {
+  baseline_version: string | null;
+  baseline_status: string;
+  baseline_created_at: string | null;
+  department_count: number;
+  user_count: number;
+  import_count: number;
+  change_event_count: number;
+  governance_coverage_rate: number;
+}
+
+export interface OrgDepartment {
+  id: number;
+  name: string;
+  parent_id: number | null;
+  category: string | null;
+  business_unit: string | null;
+  code: string | null;
+  level: string | null;
+  headcount_budget: number | null;
+  lifecycle_status: string;
+  established_at: string | null;
+  dissolved_at: string | null;
+  sort_order: number;
+  created_at: string | null;
+}
+
+export interface OrgRosterUser {
+  id: number;
+  username: string;
+  display_name: string;
+  role: string;
+  department_id: number | null;
+  position_id: number | null;
+  report_to_id: number | null;
+  is_active: boolean;
+  employee_no: string | null;
+  employee_status: string | null;
+  job_title: string | null;
+  job_level: string | null;
+  entry_date: string | null;
+  exit_date: string | null;
+  avatar_url: string | null;
+}
+
+// ─── 资产权限模型 ────────────────────────────────────────────────────────────
+
+export type AssetType = "knowledge_folder" | "business_table" | "data_table" | "skill" | "tool";
+export type AssetAction = "owner" | "view" | "edit" | "bind_skill" | "bind_tool";
+
+export interface AssetPermissionGrant {
+  id: number;
+  asset_type: AssetType;
+  asset_id: number;
+  asset_name: string;
+  grantee_type: "user";
+  grantee_user_id: number;
+  grantee_display_name: string;
+  permission_key: AssetAction;
+  scope: "exact" | "subtree";
+  granted_by: number | null;
+  granted_at: string;
+  expires_at: string | null;
+  source: "direct" | "approval" | "role_default";
+}
+
+export interface AssetPermissionChangeRequest {
+  id: number;
+  asset_type: AssetType;
+  asset_id: number;
+  asset_name: string;
+  grantee_user_id: number;
+  grantee_display_name: string;
+  permission_key: AssetAction;
+  scope: "exact" | "subtree";
+  change_type: "grant" | "revoke";
+  reason: string | null;
+  risk_note: string | null;
+  requester_id: number;
+  status: "pending" | "approved" | "rejected";
+  reviewer_id: number | null;
+  review_comment: string | null;
+  reviewed_at: string | null;
+  created_at: string;
+}
+
+// ─── 用户资格能力模型 ────────────────────────────────────────────────────────
+
+export type UserCapabilityKey =
+  | "knowledge_asset_admin"
+  | "knowledge_asset_operator"
+  | "knowledge_folder_governance_admin"
+  | "skill_release_reviewer"
+  | "tool_release_reviewer"
+  | "data_asset_reviewer";
+
+export interface UserCapabilityGrant {
+  id: number;
+  user_id: number;
+  capability_key: UserCapabilityKey;
+  granted_by: number | null;
+  granted_at: string;
+  expires_at: string | null;
+  source: "direct" | "approval" | "role_default";
+  scope_json: Record<string, unknown> | null;
+}
+
+// ── 组织基线版本中心 V2 ─────────────────────────────────────────────────────
+
+export interface OrgBaselineVersion {
+  id: number;
+  version: string;
+  version_type: "init" | "incremental" | "major";
+  status: "draft" | "candidate" | "active" | "archived";
+  snapshot_summary: Record<string, number>;
+  diff_from_previous: Array<{ entity_type: string; entity_id: number; change_type: string; summary: string }>;
+  impact_analysis: { affected_resource_libraries?: number; affected_policies?: number; affected_rules?: number; affected_missions?: number; total_changes?: number };
+  governance_snapshot_id: number | null;
+  trigger_source: string;
+  created_by: number | null;
+  activated_at: string | null;
+  created_at: string | null;
+  note: string | null;
+  impacts?: OrgChangeImpactItem[];
+}
+
+export interface OrgChangeImpactItem {
+  id: number;
+  impact_type: string;
+  target_type: string;
+  target_id: number | null;
+  target_name: string | null;
+  severity: "high" | "medium" | "low";
+  description: string | null;
+  resolved: boolean;
+  created_at: string | null;
+}
+
+export interface GovernanceSyncStatus {
+  active_baseline: { version: string | null; status: string; activated_at: string | null; snapshot_summary: Record<string, number> };
+  candidate_baseline: { version: string | null; diff_count: number; impact_analysis: Record<string, number> } | null;
+  governance_snapshot: { version: string | null; is_active: boolean };
+  baseline_consistent: boolean;
+  mission_sync: { total_depts: number; synced: number; pending_sync: number; missing_detail: number };
+  resource_library_gaps: { total: number; missing_fields: Array<{ id: number; code: string; name: string; issue: string }>; missing_cycle: Array<Record<string, unknown>>; missing_consumer: Array<Record<string, unknown>> };
+  access_rule_sync: { total_rules: number; synced_to_policy: number; pending_sync: number };
+  governance_tasks: { pending_suggestions: number };
+  unresolved_impacts: number;
+}
+
+export interface PositionCompetencyModel {
+  id: number;
+  position_id: number;
+  responsibilities: Array<{ name: string; description: string; priority?: string }>;
+  competencies: Array<{ name: string; level_required: string; description?: string }>;
+  output_standards: Array<{ deliverable: string; quality_criteria: string; frequency?: string }>;
+  career_path: Array<{ from_level: string; to_level: string; typical_duration?: string; requirements?: string }>;
+}
+
+export interface ResourceLibraryDef {
+  id: number;
+  library_code: string;
+  display_name: string;
+  owner_department_id: number | null;
+  owner_position_id: number | null;
+  required_fields: Array<{ field_key: string; label: string; type: string; required: boolean }>;
+  consumption_scenarios: Array<{ scenario: string; consumer_roles: string[]; frequency: string }>;
+  read_write_policy: Record<string, unknown>;
+  update_cycle_sla: string | null;
+  quality_baseline: Record<string, unknown>;
+}
+
+export interface KrResourceMappingItem {
+  id: number;
+  kr_id: number;
+  target_type: string;
+  target_code: string;
+  target_id: number | null;
+  relevance: "direct" | "indirect" | "supporting";
+  description: string | null;
+}
+
+export interface CollabProtocolItem {
+  id: number;
+  provider_department_id: number;
+  consumer_department_id: number;
+  data_object: string;
+  trigger_event: string | null;
+  sync_frequency: string;
+  latency_tolerance: string | null;
+  sla_description: string | null;
+  is_active: boolean;
+}

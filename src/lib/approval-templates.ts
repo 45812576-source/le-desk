@@ -70,12 +70,25 @@ export interface KnowledgeEditDetail {
   entry_id?: number;
 }
 
+export interface PermissionChangeDetail {
+  target_user_id?: number;
+  target_user_name?: string;
+  domain?: "feature_flag" | "model_grant" | "capability_grant";
+  action_key?: string;
+  action_label?: string;
+  current_value?: unknown;
+  target_value?: unknown;
+  reason?: string;
+  risk_note?: string;
+}
+
 export type ApprovalEvidenceDetail =
   | SkillEvidenceDetail
   | ToolEvidenceDetail
   | WebAppEvidenceDetail
   | KnowledgeReviewDetail
   | KnowledgeEditDetail
+  | PermissionChangeDetail
   | Record<string, unknown>;  // fallback for data-security types not yet typed
 
 // 条件类型结构化

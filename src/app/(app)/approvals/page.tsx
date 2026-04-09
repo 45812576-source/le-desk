@@ -19,6 +19,7 @@ const TYPE_TABS: { key: string; label: string }[] = [
   { key: "webapp_publish", label: "Web APP" },
   { key: "scope_change,mask_override,schema_approval", label: "权限&脱敏" },
   { key: "export_sensitive,elevate_disclosure,grant_access,policy_change,field_sensitivity_change,small_sample_change", label: "数据安全" },
+  { key: "permission_change", label: "权限变更" },
 ];
 
 function requestTypeLabel(type: string): string {
@@ -39,6 +40,7 @@ function requestTypeLabel(type: string): string {
     policy_change: "策略变更",
     field_sensitivity_change: "字段敏感级别变更",
     small_sample_change: "小样本保护变更",
+    permission_change: "用户权限变更",
   };
   return map[type] || type;
 }
@@ -848,6 +850,7 @@ function TypeSpecificEvidence({
   const isWebApp = request.request_type === "webapp_publish";
   const isKnowledgeReview = request.request_type === "knowledge_review";
   const isKnowledgeEdit = request.request_type === "knowledge_edit";
+  const isPermissionChange = request.request_type === "permission_change";
 
   if (isSkill) {
     return <SkillEvidenceContent detail={detail as SkillEvidenceDetail} targetId={request.target_id} fileContents={fileContents} fileLoading={fileLoading} onLoadFile={onLoadFile} securityScanResult={request.security_scan_result} />;
@@ -863,6 +866,9 @@ function TypeSpecificEvidence({
   }
   if (isKnowledgeEdit) {
     return <KnowledgeEditContent detail={detail as KnowledgeEditDetail} reason={request.reason} requesterName={request.requester_name} />;
+  }
+  if (isPermissionChange) {
+    return <PermissionChangeContent detail={detail} />;
   }
   return null;
 }
@@ -1001,6 +1007,71 @@ function SkillEvidenceContent({ detail, targetId, fileContents, fileLoading, onL
               </table>
             </div>
           )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+const PERM_DOMAIN_LABELS: Record<string, string> = {
+  feature_flag: "系统功能权限",
+  model_grant: "特殊 AI 模型授权",
+  capability_grant: "审批体系资格",
+};
+
+function PermissionChangeContent({ detail }: { detail: Record<string, unknown> }) {
+  const domain = String(detail.domain || "");
+  const actionKey = String(detail.action_key || "");
+  const actionLabel = String(detail.action_label || actionKey);
+  const targetUserName = String(detail.target_user_name || detail.target_user_id || "");
+  const currentValue = detail.current_value;
+  const targetValue = detail.target_value;
+  const reason = detail.reason as string | undefined;
+  const riskNote = detail.risk_note as string | undefined;
+
+  function formatValue(v: unknown): string {
+    if (typeof v === "boolean") return v ? "开启" : "关闭";
+    if (v === null || v === undefined) return "—";
+    if (typeof v === "object") return JSON.stringify(v);
+    return String(v);
+  }
+
+  return (
+    <div className="space-y-2 mt-2 pt-2 border-t border-border">
+      <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-[10px]">
+        <div>
+          <span className="text-muted-foreground">目标用户:</span>{" "}
+          <span className="text-foreground font-medium">{targetUserName}</span>
+        </div>
+        <div>
+          <span className="text-muted-foreground">权限域:</span>{" "}
+          <span className="text-foreground font-medium">{PERM_DOMAIN_LABELS[domain] || domain}</span>
+        </div>
+        <div>
+          <span className="text-muted-foreground">变更项:</span>{" "}
+          <span className="text-foreground font-medium">{actionLabel}</span>
+        </div>
+        <div>
+          <span className="text-muted-foreground">动作 Key:</span>{" "}
+          <span className="text-foreground font-mono">{actionKey}</span>
+        </div>
+      </div>
+      <div className="flex items-center gap-2 text-[10px]">
+        <span className="text-muted-foreground">当前状态:</span>
+        <span className="px-1.5 py-0.5 rounded bg-muted text-foreground font-medium">{formatValue(currentValue)}</span>
+        <span className="text-muted-foreground">→</span>
+        <span className="px-1.5 py-0.5 rounded bg-primary/10 text-primary font-medium">{formatValue(targetValue)}</span>
+      </div>
+      {reason && (
+        <div className="text-[10px]">
+          <span className="text-muted-foreground">变更原因:</span>{" "}
+          <span className="text-foreground">{reason}</span>
+        </div>
+      )}
+      {riskNote && (
+        <div className="text-[10px] flex items-start gap-1">
+          <AlertTriangle size={10} className="text-amber-500 mt-0.5 flex-shrink-0" />
+          <span className="text-amber-700">{riskNote}</span>
         </div>
       )}
     </div>

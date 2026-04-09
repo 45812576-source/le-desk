@@ -35,6 +35,7 @@ const LUCIDE_ICONS: Record<string, React.ElementType> = {
   "/admin/intel":             Globe2,
   "/approvals":               FileCheck2,
   "/admin/governance":            BookOpen,
+  "/admin/org-management":        Users,
   "/admin/contributions":     BarChart2,
   "/admin/token-dashboard":   Coins,
   "/admin/audit":             ScrollText,
@@ -275,6 +276,9 @@ export function Sidebar({ user, taskPending = 0, onLogout }: SidebarProps) {
             {isSuperAdmin && (
               <NavItem href="/admin/user-permissions" label="用户权限" icon={ICONS.users} {...navItemProps} />
             )}
+            {isSuperAdmin && (
+              <NavItem href="/admin/org-management" label="组织管理" icon={ICONS.users} {...navItemProps} />
+            )}
             {(isSuperAdmin || user.role === "dept_admin") && (
               <NavItem href="/admin/governance" label="治理引擎" icon={ICONS.review} {...navItemProps} />
             )}
@@ -282,7 +286,7 @@ export function Sidebar({ user, taskPending = 0, onLogout }: SidebarProps) {
 
           {isSuperAdmin && (
             <NavGroup label="系统运营" storageKey="nav_group_admin_ops" collapsed={collapsed} isLab={isLab}>
-              <NavItem href="/admin/assets" label="AI 资产管理" icon={ICONS.skillsAdmin} {...navItemProps} />
+              <NavItem href="/admin/assets" label="知识资产管理" icon={ICONS.skillsAdmin} {...navItemProps} />
               <NavItem href="/admin/workspaces" label="工作台管理" icon={ICONS.workspaceAdmin} {...navItemProps} />
               <NavItem href="/admin/contributions" label="贡献排行" icon={ICONS.contrib} {...navItemProps} />
               <NavItem href="/admin/token-dashboard" label="Token 看板" icon={ICONS.contrib} {...navItemProps} />
