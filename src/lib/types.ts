@@ -854,7 +854,10 @@ export interface SkillMemoTestRecord {
   version: number;
   status: "passed" | "failed";
   summary: string;
-  details: Record<string, unknown>;
+  details: Record<string, unknown> & {
+    approval_eligible?: boolean;
+    blocking_reasons?: string[];
+  };
   created_at: string;
   followup_task_ids: string[];
   source_report_id?: number;
@@ -1029,6 +1032,7 @@ export interface SandboxSession {
   report_id: number | null;
   step_statuses?: Record<string, SandboxStepStatus>;
   parent_session_id?: number;
+  final_status?: "passed" | "failed" | null;
   created_at: string | null;
   completed_at: string | null;
 }

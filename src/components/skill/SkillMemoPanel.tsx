@@ -30,7 +30,13 @@ export function SkillMemoPanel({ memo, onStartTask, onDirectTest, onStartFixTask
     return (priorityOrder[a.priority] ?? 2) - (priorityOrder[b.priority] ?? 2);
   });
 
-  const isFixing = memo.lifecycle_stage === "fixing" && memo.latest_test?.status === "failed";
+  // 统一裁决源：优先用 details.approval_eligible（结构化真相源），fallback 到 status
+  const testPassed = memo.latest_test
+    ? (memo.latest_test.details?.approval_eligible != null
+        ? memo.latest_test.details.approval_eligible
+        : memo.latest_test.status === "passed")
+    : null;
+  const isFixing = memo.lifecycle_stage === "fixing" && testPassed === false;
 
   return (
     <div className="flex-shrink-0">
@@ -62,6 +68,11 @@ export function SkillMemoPanel({ memo, onStartTask, onDirectTest, onStartFixTask
           {/* 测试结论摘要 */}
           {memo.latest_test && (
             <div className="px-3 py-1.5 border-b border-amber-200 text-[8px] text-amber-700 flex items-center gap-2">
+              <span className={`text-[7px] font-bold px-1 py-0.5 rounded flex-shrink-0 ${
+                testPassed ? "bg-green-500 text-white" : "bg-red-500 text-white"
+              }`}>
+                {testPassed ? "通过" : "失败"}
+              </span>
               <span className="flex-1">{memo.latest_test.summary}</span>
               {sandboxReportId && (
                 <span className="text-[7px] text-gray-400 flex-shrink-0">报告 #{sandboxReportId}</span>
@@ -137,22 +148,22 @@ export function SkillMemoPanel({ memo, onStartTask, onDirectTest, onStartFixTask
       {/* 最近测试结果卡 */}
       {memo.latest_test && (
         <div className={`mx-3 my-2 border-2 flex-shrink-0 ${
-          memo.latest_test.status === "passed"
+          testPassed
             ? "border-[#68D391] bg-[#F0FFF4]"
             : "border-[#FC8181] bg-[#FFF5F5]"
         }`}>
           <div className={`px-3 py-2 border-b flex items-center gap-2 ${
-            memo.latest_test.status === "passed" ? "border-[#C6F6D5]" : "border-[#FED7D7]"
+            testPassed ? "border-[#C6F6D5]" : "border-[#FED7D7]"
           }`}>
-            {memo.latest_test.status === "passed" ? (
+            {testPassed ? (
               <CheckCircle size={12} className="text-[#38A169]" />
             ) : (
               <XCircle size={12} className="text-[#E53E3E]" />
             )}
             <span className={`text-[9px] font-bold uppercase tracking-widest flex-1 ${
-              memo.latest_test.status === "passed" ? "text-[#38A169]" : "text-[#E53E3E]"
+              testPassed ? "text-[#38A169]" : "text-[#E53E3E]"
             }`}>
-              最近测试 — {memo.latest_test.status === "passed" ? "通过" : "失败"}
+              最近测试 — {testPassed ? "通过" : "失败"}
             </span>
             <span className="text-[8px] text-gray-400">
               {memo.latest_test.source} v{memo.latest_test.version}
@@ -160,6 +171,11 @@ export function SkillMemoPanel({ memo, onStartTask, onDirectTest, onStartFixTask
           </div>
           <div className="px-3 py-2 text-[9px] text-gray-600 leading-relaxed">
             {memo.latest_test.summary}
+            {memo.latest_test.details?.blocking_reasons && memo.latest_test.details.blocking_reasons.length > 0 && (
+              <div className="mt-1 text-[8px] text-red-500">
+                未通过维度: {memo.latest_test.details.blocking_reasons.join("、")}
+              </div>
+            )}
           </div>
           {onViewReport && (
             <div className="px-3 py-1.5 border-t border-gray-200">

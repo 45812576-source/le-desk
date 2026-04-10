@@ -6,7 +6,7 @@ import { ChevronDown, ChevronRight, File, FileCode, Upload, Trash2, Zap, BookOpe
 import { PixelButton } from "@/components/pixel/PixelButton";
 import { PixelBadge } from "@/components/pixel/PixelBadge";
 import { apiFetch, getToken, dispatchAuthExpired } from "@/lib/api";
-import type { SkillDetail, SkillVersion, BoundTool, SkillMemo } from "@/lib/types";
+import type { SkillDetail, SkillVersion, BoundTool, SkillMemo, SandboxReport } from "@/lib/types";
 import { useTheme } from "@/lib/theme";
 import { ICONS, PixelIcon } from "@/components/pixel";
 import { ImportSkillModal } from "@/components/skill/ImportSkillModal";
@@ -3023,6 +3023,7 @@ export function SkillStudio({
   const [sandboxEntryHandled, setSandboxEntryHandled] = useState(false);
   const [memoSyncError, setMemoSyncError] = useState<string | null>(null);
   const [retryingMemoSync, setRetryingMemoSync] = useState(false);
+  const [activeSandboxReport, setActiveSandboxReport] = useState<SandboxReport | null>(null);
 
   const [prompt, setPrompt] = useState("");
   const [savedPrompt, setSavedPrompt] = useState("");  // last persisted version for dirty tracking
@@ -3096,18 +3097,28 @@ export function SkillStudio({
     return () => { setMemo(null); };
   }, [selectedFile?.skillId, fetchMemo]);
 
-  // ── Sandbox report 入口：首次进入时刷新 memo，检测 fixing 状态 ──
+  // ── Sandbox report 入口：首次进入时刷新 memo + 拉取报告，绑定整改上下文 ──
   useEffect(() => {
     if (!fromSandbox || sandboxEntryHandled || !initialSkillId) return;
     setSandboxEntryHandled(true);
     setMemoSyncError(null);
 
-    // 刷新 memo 并检测是否有 fixing 任务
-    apiFetch<SkillMemo>(`/skills/${initialSkillId}/memo`)
-      .then((data) => {
-        if (data && data.lifecycle_stage) {
-          setMemo(data);
-          if (data.lifecycle_stage !== "fixing" && (!data.latest_test || data.latest_test.status !== "failed")) {
+    // 并行：刷新 memo + 拉取沙盒报告
+    const memoPromise = apiFetch<SkillMemo>(`/skills/${initialSkillId}/memo`);
+    const reportPromise = sandboxSessionId
+      ? apiFetch<SandboxReport>(`/sandbox/interactive/${sandboxSessionId}/report`).catch(() => null)
+      : Promise.resolve(null);
+
+    Promise.all([memoPromise, reportPromise])
+      .then(([memoData, reportData]) => {
+        // 绑定报告上下文
+        if (reportData) {
+          setActiveSandboxReport(reportData);
+        }
+
+        if (memoData && memoData.lifecycle_stage) {
+          setMemo(memoData);
+          if (memoData.lifecycle_stage !== "fixing" && (!memoData.latest_test || memoData.latest_test.status !== "failed")) {
             setMemoSyncError("整改计划未导入 — Memo 中未检测到 fixing 状态");
           }
         } else {
@@ -3360,10 +3371,23 @@ export function SkillStudio({
 
       {/* 沙盒报告入口提示 */}
       {fromSandbox && sandboxReportId && (
-        <div className="flex-shrink-0 px-4 py-1.5 bg-amber-50 border-b-2 border-amber-300 text-[9px] flex items-center gap-2">
+        <div className="flex-shrink-0 px-4 py-1.5 bg-amber-50 border-b-2 border-amber-300 text-[9px] flex items-center gap-2 flex-wrap">
           <span className="text-amber-700 font-bold">
             来源：沙盒报告 #{sandboxReportId}
           </span>
+          {activeSandboxReport && (
+            <span className="text-gray-500">
+              {activeSandboxReport.approval_eligible ? "通过" : "失败"}
+              {(() => {
+                const issues = (activeSandboxReport.part3_evaluation as Record<string, unknown>)?.issues as unknown[] | undefined;
+                const fixPlan = (activeSandboxReport.part3_evaluation as Record<string, unknown>)?.fix_plan_structured as unknown[] | undefined;
+                const parts: string[] = [];
+                if (issues?.length) parts.push(`${issues.length} 个问题`);
+                if (fixPlan?.length) parts.push(`${fixPlan.length} 项整改`);
+                return parts.length ? ` · ${parts.join(" / ")}` : "";
+              })()}
+            </span>
+          )}
           {memoSyncError && (
             <>
               <span className="text-red-500 font-bold ml-2">{memoSyncError}</span>
@@ -3466,6 +3490,11 @@ export function SkillStudio({
               setSelectedFile({ skillId: sandboxSkillId, fileType: "prompt" });
             }
           }}
+          initialSessionId={
+            fromSandbox && sandboxSessionId && showSandbox === initialSkillId
+              ? Number(sandboxSessionId)
+              : undefined
+          }
         />
       )}
 

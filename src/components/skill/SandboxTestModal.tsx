@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { apiFetch } from "@/lib/api";
 import { PixelButton } from "@/components/pixel/PixelButton";
@@ -24,6 +24,8 @@ interface SandboxTestModalProps {
   onCancel: () => void;
   onImportToStudio?: () => void;
   passedLabel?: string;
+  /** 传入已有 session ID 时，直接加载该会话和报告（查看模式） */
+  initialSessionId?: number;
 }
 
 type WizardStep = 0 | 1 | 2 | 3 | 4 | 5 | 6;
@@ -38,6 +40,7 @@ export function SandboxTestModal({
   onCancel,
   onImportToStudio: onImportToStudioProp,
   passedLabel = "OK 通过，继续发布",
+  initialSessionId,
 }: SandboxTestModalProps) {
   const router = useRouter();
   const [session, setSession] = useState<SandboxSession | null>(null);
@@ -46,6 +49,35 @@ export function SandboxTestModal({
   const [loading, setLoading] = useState(false);
   const [wizardStep, setWizardStep] = useState<WizardStep>(0);
   const [precheck, setPrecheck] = useState<SkillPublishPrecheck | null>(null);
+  const [approvalInfo, setApprovalInfo] = useState<string | null>(null);
+
+  // ── Resume 已有会话（从沙盒报告跳转进来） ──
+  useEffect(() => {
+    if (!initialSessionId) return;
+    let cancelled = false;
+    setLoading(true);
+    (async () => {
+      try {
+        const sess = await apiFetch<SandboxSession>(`/sandbox/interactive/${initialSessionId}`);
+        if (cancelled) return;
+        setSession(sess);
+        if (sess.report_id) {
+          const rpt = await apiFetch<SandboxReport>(`/sandbox/interactive/${initialSessionId}/report`);
+          if (cancelled) return;
+          setReport(rpt);
+          setWizardStep(5);
+        } else {
+          // 会话尚未完成，跳到最后已知步骤
+          setWizardStep(sess.current_step === "start" ? 0 : 4);
+        }
+      } catch (err) {
+        if (!cancelled) setError(err instanceof Error ? err.message : "加载会话失败");
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [initialSessionId]);
 
   // ── Step 0: 开始测试 ──
 
@@ -112,6 +144,11 @@ export function SandboxTestModal({
           {error && (
             <div className="border-2 border-red-400 bg-red-50 px-3 py-2 text-[9px] font-bold text-red-500">
               X {error}
+            </div>
+          )}
+          {approvalInfo && (
+            <div className="border-2 border-green-400 bg-green-50 px-3 py-2 text-[9px] font-bold text-green-600">
+              {approvalInfo}
             </div>
           )}
 
@@ -266,10 +303,19 @@ export function SandboxTestModal({
                 setLoading(true);
                 setError(null);
                 try {
-                  await apiFetch(
+                  const result = await apiFetch<{
+                    approval_request_id: number;
+                    assigned_approver_name?: string;
+                    routing_reason?: string;
+                  }>(
                     `/sandbox/interactive/${session.session_id}/submit-approval`,
                     { method: "POST" }
                   );
+                  if (result.assigned_approver_name) {
+                    setError(null);
+                    // 使用临时 info 提示审批人，复用 error 位置但语义不同
+                    setApprovalInfo(`已提交给 ${result.assigned_approver_name} 审批`);
+                  }
                   // 沙箱审批通过后，进入知识引用安全检查
                   if (type === "skill") {
                     try {
