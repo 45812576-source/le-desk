@@ -86,6 +86,11 @@ export async function GET(
       /(src|href)="(\.\/(assets\/[^"]+))"/g,
       (_, attr, _full, assetPath) => `${attr}="/api/opencode/${assetPath}"`
     );
+    // 重写 form/action 与 button/input formaction，避免表单提交绕过代理
+    html = html.replace(
+      /(action|formaction)="(\/(?!api\/)[^"]+)"/g,
+      (_, attr, p) => `${attr}="/api/opencode-rpc${p}"`
+    );
     // 从请求中取端口，注入到脚本里，让 iframe 内的 fetch/WebSocket 带上正确的端口参数
     const ocPort = req.nextUrl.searchParams.get("_oc_port") || req.cookies.get("oc_port")?.value || "";
     // 注入脚本：清除 localStorage 里硬编码的 defaultServerUrl，避免覆盖代理替换
@@ -101,6 +106,16 @@ export async function GET(
       var sep = url.includes("?") ? "&" : "?";
       return url + sep + "_oc_port=" + _ocPort;
     } catch(e) { return url; }
+  }
+
+  function _rewriteRpcPath(url) {
+    if (!url || typeof url !== "string") return url;
+    if (url.startsWith("/api/")) return _addPort(url);
+    if (url.startsWith("/")) return _addPort("/api/opencode-rpc" + url);
+    if (url.startsWith(location.origin + "/") && !url.startsWith(location.origin + "/api/")) {
+      return _addPort("/api/opencode-rpc" + url.slice(location.origin.length));
+    }
+    return url;
   }
 
   try {
@@ -131,6 +146,24 @@ export async function GET(
   // 用 no-op 替换，避免周期性白屏闪退
   try {
     Location.prototype.reload = function() {};
+  } catch(e) {}
+
+  // patch 表单提交：OpenCode 某些问答/确认交互会通过 form action 提交
+  function _rewriteForm(el) {
+    if (!el || !el.getAttribute) return;
+    var action = el.getAttribute("action");
+    if (action) el.setAttribute("action", _rewriteRpcPath(action));
+  }
+  document.addEventListener("submit", function(e) {
+    var form = e.target;
+    if (form && form.tagName === "FORM") _rewriteForm(form);
+  }, true);
+  try {
+    var _origSubmit = HTMLFormElement.prototype.submit;
+    HTMLFormElement.prototype.submit = function() {
+      _rewriteForm(this);
+      return _origSubmit.call(this);
+    };
   } catch(e) {}
 
   // 辅助：判断 URL 是否指向文件下载（opencode 的文件/artifact 路径）
@@ -186,6 +219,10 @@ export async function GET(
     while (el && el !== document) {
       if (el.tagName === "A") {
         var href = el.getAttribute("href");
+        var formaction = el.getAttribute("formaction");
+        if (formaction) {
+          el.setAttribute("formaction", _rewriteRpcPath(formaction));
+        }
         // 带 download 属性的 <a> 标签：放行，让浏览器原生处理下载
         if (el.hasAttribute("download")) {
           // 仅重写路径让它走代理
@@ -239,6 +276,11 @@ export async function GET(
           var tag = n.tagName;
           if (tag === "LINK") _rewriteAttr(n, "href");
           else if (tag === "SCRIPT" || tag === "IMG") _rewriteAttr(n, "src");
+          else if (tag === "FORM") _rewriteForm(n);
+          else if (tag === "BUTTON" || tag === "INPUT") {
+            var formAction = n.getAttribute("formaction");
+            if (formAction) n.setAttribute("formaction", _rewriteRpcPath(formAction));
+          }
         }
       }
     }).observe(document.documentElement, { childList: true, subtree: true });
