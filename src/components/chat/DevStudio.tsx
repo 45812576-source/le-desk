@@ -1935,10 +1935,10 @@ export function DevStudio({ workspaceId, fromSkillId, initialViewId }: { convId:
                   onClick={async () => {
                     setResumeError(null);
                     try {
-                      const result = await apiFetch<{ ok: boolean; error_message?: string | null }>(`/dev-studio/sessions/${session.id}/resume`, { method: "POST" });
-                      if (result.ok) {
+                      const result = await apiFetch<{ ok: boolean; slug?: string | null; error_message?: string | null }>(`/dev-studio/sessions/${session.id}/resume`, { method: "POST" });
+                      if (result.ok && result.slug) {
                         setShowSessionList(false);
-                        setOpencodeUrl(`/api/opencode?_oc_port=${opencodePort}`);
+                        setOpencodeUrl(`/api/opencode?_oc_port=${opencodePort}#/~/${result.slug}`);
                         setInstanceKey(Date.now());
                       } else {
                         setResumeError(result.error_message || "恢复失败");
