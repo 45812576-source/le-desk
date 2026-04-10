@@ -21,6 +21,11 @@ const StableIframe = memo(function StableIframe({ src, colorScheme }: { src: str
   );
 });
 
+function withCacheBust(url: string, cacheKey: number): string {
+  const sep = url.includes("?") ? "&" : "?";
+  return `${url}${sep}t=${cacheKey}`;
+}
+
 // ─── Transfer Table Modal ─────────────────────────────────────────────────────
 
 interface BusinessTableItem {
@@ -1935,10 +1940,17 @@ export function DevStudio({ workspaceId, fromSkillId, initialViewId }: { convId:
                   onClick={async () => {
                     setResumeError(null);
                     try {
-                      const result = await apiFetch<{ ok: boolean; slug?: string | null; error_message?: string | null }>(`/dev-studio/sessions/${session.id}/resume`, { method: "POST" });
+                      const result = await apiFetch<{ ok: boolean; slug?: string | null; port?: number | null; error_message?: string | null }>(`/dev-studio/sessions/${session.id}/resume`, { method: "POST" });
                       if (result.ok && result.slug) {
+                        const nextPort = result.port ?? opencodePort;
+                        if (nextPort) {
+                          document.cookie = `oc_port=${nextPort}; path=/; SameSite=Lax`;
+                          setOpencodePort(nextPort);
+                          setOpencodeUrl(`/api/opencode/~/${result.slug}?_oc_port=${nextPort}`);
+                        } else {
+                          setOpencodeUrl(`/api/opencode/~/${result.slug}`);
+                        }
                         setShowSessionList(false);
-                        setOpencodeUrl(`/api/opencode/~/${result.slug}?_oc_port=${opencodePort}`);
                         setInstanceKey(Date.now());
                       } else {
                         setResumeError(result.error_message || "恢复失败");
@@ -2062,7 +2074,8 @@ export function DevStudio({ workspaceId, fromSkillId, initialViewId }: { convId:
           {status === "ready" && opencodeUrl && (
             <>
               <StableIframe
-                src={`${opencodeUrl}?t=${instanceKey}`}
+                key={instanceKey}
+                src={withCacheBust(opencodeUrl, instanceKey)}
                 colorScheme={theme === "dark" ? "dark" : "light"}
               />
             </>
