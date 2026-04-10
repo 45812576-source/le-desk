@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { apiFetch } from "@/lib/api";
 import type { StudioEntryResolution } from "@/lib/types";
@@ -22,13 +22,19 @@ export default function DevStudioEntryPage() {
   const [error, setError] = useState<string | null>(null);
   const [step, setStep] = useState<EntryStep>("workspace");
   const [entry, setEntry] = useState<StudioEntryResolution | null>(null);
+  const hasEnteredRef = useRef(false);
 
   useEffect(() => {
+    if (hasEnteredRef.current) return;
+    hasEnteredRef.current = true;
+    let cancelled = false;
+
     async function enter() {
       try {
         // Step 1: 加载工作区 + 恢复会话（GET /entry）
         setStep("workspace");
         const entryData = await apiFetch<StudioEntryResolution>("/dev-studio/entry");
+        if (cancelled) return;
         setEntry(entryData);
         setStep("session");
 
@@ -37,6 +43,7 @@ export default function DevStudioEntryPage() {
         const startData = await apiFetch<StudioEntryResolution>("/dev-studio/entry", {
           method: "POST",
         });
+        if (cancelled) return;
 
         if (startData.runtime_error) {
           // 运行时启动失败但工作区信息可用 — 仍跳转，DevStudio 组件会显示降级状态
@@ -51,10 +58,15 @@ export default function DevStudioEntryPage() {
         const qs = qsParts.length > 0 ? `?${qsParts.join("&")}` : "";
         router.replace(`/chat/${entryData.conversation_id}${qs}`);
       } catch (e) {
-        setError(e instanceof Error ? e.message : "启动失败");
+        if (!cancelled) {
+          setError(e instanceof Error ? e.message : "启动失败");
+        }
       }
     }
     enter();
+    return () => {
+      cancelled = true;
+    };
   }, [router, fromSkill, viewId]);
 
   if (error) {

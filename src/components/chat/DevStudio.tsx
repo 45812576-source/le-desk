@@ -751,8 +751,7 @@ function WorkdirPanel({ onClose, onWorkdirChange }: { onClose: () => void; onWor
   }, []);
   useEffect(() => { loadTree(); }, [loadTree]);
 
-  // 加载产物文件：优先 output-files（唯一正式产物目录），fallback 到 latest-output
-  useEffect(() => {
+  const loadLatestFiles = useCallback(() => {
     setLatestLoading(true);
     apiFetch<{ items: { path: string; name: string; size: number; updated_at: string; category: string }[] }>("/dev-studio/output-files")
       .then((res) => {
@@ -775,6 +774,12 @@ function WorkdirPanel({ onClose, onWorkdirChange }: { onClose: () => void; onWor
       .catch(() => {})
       .finally(() => setLatestLoading(false));
   }, []);
+  useEffect(() => { loadLatestFiles(); }, [loadLatestFiles]);
+
+  function reloadWorkdirPanel() {
+    loadTree();
+    loadLatestFiles();
+  }
 
   async function handleMkdir() {
     if (!mkdirPath.trim()) return;
@@ -782,7 +787,7 @@ function WorkdirPanel({ onClose, onWorkdirChange }: { onClose: () => void; onWor
     try {
       await apiFetch("/dev-studio/workdir/mkdir", { method: "POST", body: JSON.stringify({ path: mkdirPath.trim() }) });
       setMkdirPath("");
-      loadTree();
+      reloadWorkdirPanel();
       onWorkdirChange?.();
     } catch (err) { setError(err instanceof Error ? err.message : "创建失败"); }
     finally { setMkdirBusy(false); }
@@ -794,7 +799,7 @@ function WorkdirPanel({ onClose, onWorkdirChange }: { onClose: () => void; onWor
     try {
       await apiFetch("/dev-studio/workdir/rename", { method: "POST", body: JSON.stringify({ src: renameTarget.path, dst: renameDst.trim() }) });
       setRenameTarget(null);
-      loadTree();
+      reloadWorkdirPanel();
       onWorkdirChange?.();
     } catch (err) { setError(err instanceof Error ? err.message : "重命名失败"); }
     finally { setRenameBusy(false); }
@@ -806,7 +811,7 @@ function WorkdirPanel({ onClose, onWorkdirChange }: { onClose: () => void; onWor
     try {
       await apiFetch("/dev-studio/workdir/delete", { method: "POST", body: JSON.stringify({ path: deleteTarget.path }) });
       setDeleteTarget(null);
-      loadTree();
+      reloadWorkdirPanel();
       onWorkdirChange?.();
     } catch (err) { setError(err instanceof Error ? err.message : "删除失败"); }
     finally { setDeleteBusy(false); }
@@ -835,6 +840,18 @@ function WorkdirPanel({ onClose, onWorkdirChange }: { onClose: () => void; onWor
       .catch(() => setError(`下载失败：${node.name}`));
   }
 
+  function handleLatestFileDownload(file: LatestFile) {
+    if (!file.path || file.exists_on_disk === false) {
+      setError(`文件不可下载：${file.filename}`);
+      return;
+    }
+    handleDownload({
+      name: file.filename,
+      path: file.path,
+      type: "file",
+    });
+  }
+
   async function handleDropToFolder(targetFolderPath: string) {
     if (!dragSrc) return;
     const filename = dragSrc.split("/").pop()!;
@@ -842,7 +859,7 @@ function WorkdirPanel({ onClose, onWorkdirChange }: { onClose: () => void; onWor
     setDragSrc(null);
     try {
       await apiFetch("/dev-studio/workdir/rename", { method: "POST", body: JSON.stringify({ src: dragSrc, dst }) });
-      loadTree();
+      reloadWorkdirPanel();
       onWorkdirChange?.();
     } catch (err) { setError(err instanceof Error ? err.message : "移动失败"); }
   }
@@ -900,6 +917,14 @@ function WorkdirPanel({ onClose, onWorkdirChange }: { onClose: () => void; onWor
                       {f.exists_on_disk === false && (
                         <span className="text-[8px] font-bold text-red-400 border border-red-200 px-1">已删除</span>
                       )}
+                      {f.exists_on_disk !== false && f.path && (
+                        <button
+                          onClick={() => handleLatestFileDownload(f)}
+                          className="text-[8px] font-bold px-1.5 py-0.5 border border-[#6B46C1] text-[#6B46C1] hover:bg-[#E9D8FD]"
+                        >
+                          下载
+                        </button>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -920,7 +945,7 @@ function WorkdirPanel({ onClose, onWorkdirChange }: { onClose: () => void; onWor
             className="px-3 py-1 text-[9px] font-bold border-2 border-[#6B46C1] text-[#6B46C1] hover:bg-[#E9D8FD] disabled:opacity-40">
             {mkdirBusy ? "..." : "新建"}
           </button>
-          <button onClick={loadTree} className="px-2 py-1 text-[9px] text-gray-400 hover:text-gray-700 border border-gray-200" title="刷新">↺</button>
+          <button onClick={reloadWorkdirPanel} className="px-2 py-1 text-[9px] text-gray-400 hover:text-gray-700 border border-gray-200" title="刷新">↺</button>
         </div>
 
         {error && <div className="flex-shrink-0 px-3 pb-2 text-[9px] text-red-500 font-bold">{error}</div>}
@@ -1568,8 +1593,8 @@ export function DevStudio({ workspaceId, fromSkillId, initialViewId }: { convId:
   const [runtimeStatus, setRuntimeStatus] = useState<string>("unknown");
   const [runtimeGeneration, setRuntimeGeneration] = useState<number>(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const retryRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const uploadMsgTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const saveSuccessTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const pushUploadMessage = useCallback((message: string, timeout = 8000) => {
     setUploadMsg(message);
@@ -1705,16 +1730,15 @@ export function DevStudio({ workspaceId, fromSkillId, initialViewId }: { convId:
     }
 
     connect();
-    const retryTimer = retryRef.current;
     return () => {
       cancelled = true;
-      if (retryTimer) clearTimeout(retryTimer);
     };
   }, []);
 
   useEffect(() => {
     return () => {
       if (uploadMsgTimerRef.current) clearTimeout(uploadMsgTimerRef.current);
+      if (saveSuccessTimerRef.current) clearTimeout(saveSuccessTimerRef.current);
     };
   }, []);
 
@@ -1780,7 +1804,8 @@ export function DevStudio({ workspaceId, fromSkillId, initialViewId }: { convId:
     }
 
     if (!fromSkillId && !data.boundSkillId) {
-      setTimeout(() => { setSaveSuccess(null); }, 5000);
+      if (saveSuccessTimerRef.current) clearTimeout(saveSuccessTimerRef.current);
+      saveSuccessTimerRef.current = setTimeout(() => { setSaveSuccess(null); }, 5000);
     }
   }
 
@@ -1839,7 +1864,7 @@ export function DevStudio({ workspaceId, fromSkillId, initialViewId }: { convId:
           )}
         </div>
         <div className="flex items-center gap-2">
-          {(entryInfo?.session_total ?? 0) > 0 && (
+          {entryInfo && (
             <button
               onClick={() => setShowSessionList((v) => !v)}
               title="查看历史 OpenCode 会话"
@@ -1849,7 +1874,7 @@ export function DevStudio({ workspaceId, fromSkillId, initialViewId }: { convId:
                   : "border-[#1A202C] bg-white text-[#1A202C] hover:bg-[#F0F4F8]"
               }`}
             >
-              ☰ 会话 ({entryInfo?.session_total})
+              ☰ 会话 ({entryInfo?.session_total ?? 0})
             </button>
           )}
           {status === "ready" && opencodeUrl && (
