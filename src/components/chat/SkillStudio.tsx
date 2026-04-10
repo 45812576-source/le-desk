@@ -2066,6 +2066,7 @@ function StudioChat({
   setInputRef,
   onViewReport,
   sandboxReportId,
+  fromSandbox,
 }: {
   convId: number;
   skillId: number | null;
@@ -2086,6 +2087,7 @@ function StudioChat({
   setInputRef?: { current: ((text: string) => void) | null };
   onViewReport?: () => void;
   sandboxReportId?: string;
+  fromSandbox?: boolean;
 }) {
   // 消息主存在后端 DB，localStorage 只做草稿和 UI 状态缓存
   const _storageKey = `studio_msgs_${convId}`;
@@ -2100,6 +2102,76 @@ function StudioChat({
   const [pendingToolSuggestion, setPendingToolSuggestion] = useState<StudioToolSuggestion | null>(null);
   const [pendingFileSplit, setPendingFileSplit] = useState<StudioFileSplit | null>(null);
   const [splitting, setSplitting] = useState(false);
+
+  // ── 治理抽屉状态 ──
+  const drawerStorageKey = skillId ? `studio_drawer_${skillId}` : null;
+  const [drawerOpen, setDrawerOpen] = useState(() => {
+    // 从沙盒整改进入时默认展开
+    if (fromSandbox) return true;
+    // 按 skillId 持久化
+    if (drawerStorageKey) {
+      try { return localStorage.getItem(drawerStorageKey) !== "closed"; } catch { return false; }
+    }
+    return false;
+  });
+  const [drawerWidth, setDrawerWidth] = useState<"narrow" | "medium" | "wide">("medium");
+
+  // 持久化抽屉状态
+  useEffect(() => {
+    if (!drawerStorageKey) return;
+    try { localStorage.setItem(drawerStorageKey, drawerOpen ? "open" : "closed"); } catch { /* ignore */ }
+  }, [drawerOpen, drawerStorageKey]);
+
+  // memo 存在时自动展开抽屉（仅首次）
+  const drawerAutoOpened = useRef(false);
+  useEffect(() => {
+    if (memo && !drawerAutoOpened.current && (memo.lifecycle_stage === "fixing" || memo.persistent_notices?.some(n => n.status === "active"))) {
+      drawerAutoOpened.current = true;
+      setDrawerOpen(true);
+    }
+  }, [memo]);
+
+  // 聚焦整改模式：从沙盒进入 + memo 加载后，自动发送首条整改上下文消息
+  const fixContextSent = useRef(false);
+  useEffect(() => {
+    if (!fromSandbox || fixContextSent.current || !memo || !skillId) return;
+    if (memo.lifecycle_stage !== "fixing" || !memo.latest_test) return;
+    fixContextSent.current = true;
+
+    // 自动选中当前任务对应文件
+    if (memo.current_task) {
+      const targetFile = memo.current_task.target_files[0];
+      if (targetFile) {
+        if (targetFile === "SKILL.md" || memo.current_task.target_kind === "skill_prompt") {
+          onEditorTarget("prompt", "SKILL.md");
+        } else {
+          onEditorTarget("asset", targetFile);
+        }
+      }
+    }
+
+    // 构建整改上下文首条消息
+    const parts: string[] = [];
+    parts.push(`当前整改目标：${memo.latest_test.summary}`);
+    if (memo.latest_test.details?.blocking_reasons?.length) {
+      parts.push(`未通过维度：${memo.latest_test.details.blocking_reasons.join("、")}`);
+    }
+    if (memo.current_task) {
+      parts.push(`当前任务：${memo.current_task.title}`);
+    }
+    if (sandboxReportId) {
+      parts.push(`来源报告 #${sandboxReportId}`);
+    }
+    parts.push("请帮我逐项修复上述问题。");
+
+    // 预填到输入框，让用户确认后发送
+    setInput(parts.join("\n"));
+    setTimeout(() => inputRef.current?.focus(), 100);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fromSandbox, memo, skillId]);
+
+  const hasDrawerContent = !!(memo || pendingSummary || pendingDraft || pendingToolSuggestion || pendingFileSplit);
+  const drawerWidthClass = drawerWidth === "narrow" ? "w-[240px]" : drawerWidth === "wide" ? "w-[400px]" : "w-[320px]";
 
   // V2 会话状态
   const [sessionState, setSessionState] = useState<{
@@ -2656,109 +2728,55 @@ function StudioChat({
     }
   }
 
+  // 是否处于整改模式
+  const isFixingMode = !!(memo && memo.lifecycle_stage === "fixing" && memo.latest_test?.status === "failed");
+
   return (
-    <div className="flex flex-col flex-[1] min-w-0 border-l-2 border-[#1A202C] bg-white">
-      {/* Header */}
-      <div className="px-3 py-2.5 border-b-2 border-[#1A202C] flex items-center gap-2 flex-shrink-0 bg-[#EBF4F7]">
-        <span className="text-[9px] font-bold uppercase tracking-widest text-[#00A3C4]">Studio Chat</span>
-        <span className="flex-1" />
-        {messages.length > 0 && (
+    <div className="flex flex-[1] min-w-0 border-l-2 border-[#1A202C] bg-white">
+      {/* ═══ 左侧：聊天主区（始终占满剩余空间） ═══ */}
+      <div className="flex-1 flex flex-col min-w-0">
+        {/* Header */}
+        <div className="px-3 py-2.5 border-b-2 border-[#1A202C] flex items-center gap-2 flex-shrink-0 bg-[#EBF4F7]">
+          <span className="text-[9px] font-bold uppercase tracking-widest text-[#00A3C4]">Studio Chat</span>
+          <span className="flex-1" />
+          {messages.length > 0 && (
+            <button
+              onClick={() => {
+                abortRef.current?.abort();
+                setMessages([]);
+                setStreaming(false);
+                setPendingDraft(null);
+                setPendingFileSplit(null);
+              }}
+              className="text-[8px] font-bold uppercase text-gray-400 hover:text-red-400 transition-colors"
+            >
+              清除
+            </button>
+          )}
           <button
-            onClick={() => {
-              abortRef.current?.abort();
-              setMessages([]);
-              setStreaming(false);
-              setPendingDraft(null);
-              setPendingFileSplit(null);
-            }}
-            className="text-[8px] font-bold uppercase text-gray-400 hover:text-red-400 transition-colors"
+            onClick={onNewSession}
+            className="text-[8px] font-bold uppercase text-gray-400 hover:text-[#00A3C4] transition-colors"
           >
-            清除
+            新建会话
           </button>
-        )}
-        <button
-          onClick={onNewSession}
-          className="text-[8px] font-bold uppercase text-gray-400 hover:text-[#00A3C4] transition-colors"
-        >
-          新建会话
-        </button>
-      </div>
-      {/* 状态提示条 */}
-      {backendFailed && (
-        <div className="px-3 py-1 bg-amber-50 border-b border-amber-200 text-[9px] text-amber-700 font-mono">
-          正在显示本地缓存，服务器历史加载失败
+          {/* 治理抽屉开关 */}
+          {hasDrawerContent && !drawerOpen && (
+            <button
+              onClick={() => setDrawerOpen(true)}
+              className="relative text-[8px] font-bold uppercase text-amber-600 hover:text-amber-800 transition-colors flex items-center gap-1"
+            >
+              <ChevronDown size={10} />
+              {isFixingMode ? "整改" : "面板"}
+              {isFixingMode && (
+                <span className="absolute -top-1 -right-1 w-2 h-2 bg-red-500 rounded-full" />
+              )}
+            </button>
+          )}
         </div>
-      )}
-      {/* Memo panel: persistent notices + current task + latest test + fix tasks */}
-      {memo && (
-        <SkillMemoPanel
-          memo={memo}
-          onStartTask={handleMemoStartTask}
-          onDirectTest={handleMemoDirectTest}
-          onStartFixTask={(task) => {
-            // 根据 target_ref 打开对应文件
-            if (task.target_kind === "skill_prompt" || task.target_ref === "SKILL.md") {
-              onEditorTarget("prompt", "SKILL.md");
-            }
-            // 自动将消息发送给 agent 开始修复
-            const fixMessage = `请帮我修复以下测试问题：\n${task.title}\n${task.description || ""}\n验收标准：${task.acceptance_rule_text || ""}`;
-            send(fixMessage);
-          }}
-          onTargetedRetest={async (taskId) => {
-            // 按 fix task 的 problem_refs 调 targeted-rerun
-            const allTasks = ((memo.memo as Record<string, unknown>)?.tasks as Array<{
-              id: string;
-              problem_refs?: string[];
-              source_report_id?: number;
-            }>) || [];
-            const task = allTasks.find(t => t.id === taskId);
-            if (!task?.problem_refs?.length || !task.source_report_id) {
-              handleMemoDirectTest();
-              return;
-            }
-            try {
-              await apiFetch(
-                `/sandbox/interactive/by-report/${task.source_report_id}/targeted-rerun`,
-                { method: "POST", body: JSON.stringify({ issue_ids: task.problem_refs }) }
-              );
-              onMemoRefresh();
-            } catch (err) {
-              // 不静默 fallback，先展示失败原因
-              const errMsg = err instanceof Error ? err.message : "未知错误";
-              const fallback = confirm(`局部重测失败：${errMsg}\n\n是否改为打开完整测试？`);
-              if (fallback) {
-                handleMemoDirectTest();
-              }
-            }
-          }}
-          onViewReport={onViewReport}
-          sandboxReportId={sandboxReportId}
-        />
-      )}
 
-      {/* Fixing mode banner */}
-      {memo && memo.lifecycle_stage === "fixing" && memo.latest_test?.status === "failed" && (
-        <div className="px-3 py-2 bg-amber-50 border-b-2 border-amber-400 flex-shrink-0">
-          <div className="flex items-center gap-2">
-            <span className="text-[9px] font-bold uppercase tracking-widest text-amber-700">
-              整改模式
-            </span>
-            <span className="text-[8px] text-amber-600 flex-1 truncate">
-              {memo.latest_test.summary}
-            </span>
-            {memo.current_task && (
-              <span className="text-[7px] font-bold text-amber-500 border border-amber-400 px-1.5 py-0.5 rounded">
-                当前: {memo.current_task.title.slice(0, 30)}
-              </span>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* V2 当前理解面板 */}
-      {sessionState && sessionState.total_rounds > 0 && (
-        <div className="px-3 py-2 bg-[#F0F4F8] border-b border-gray-200 flex-shrink-0 space-y-1">
-          <div className="flex items-center gap-2 text-[8px] font-mono text-gray-500">
+        {/* V2 理解面板 — 紧凑单行，不占大量空间 */}
+        {sessionState && sessionState.total_rounds > 0 && (
+          <div className="px-3 py-1 bg-[#F0F4F8] border-b border-gray-200 flex-shrink-0 flex items-center gap-2 text-[8px] font-mono text-gray-500">
             <span className="font-bold text-[#00A3C4] uppercase">{sessionState.scenario !== "unknown" ? sessionState.scenario.replace(/_/g, " ") : "识别中"}</span>
             <span className="text-gray-300">|</span>
             <span className="font-bold uppercase">{sessionState.mode}</span>
@@ -2769,217 +2787,306 @@ function StudioChat({
             )}
             <span className="text-gray-400">R{sessionState.total_rounds} S{sessionState.readiness}/5</span>
           </div>
-          {/* 已确认事实（折叠） */}
-          {sessionState.confirmed_facts.length > 0 && (
-            <div className="text-[7px] text-gray-400 truncate">
-              已知：{sessionState.confirmed_facts.slice(0, 3).map(f => f.slice(0, 30)).join("；")}
-              {sessionState.confirmed_facts.length > 3 && `…等${sessionState.confirmed_facts.length}项`}
-            </div>
-          )}
-          {/* 约束 */}
-          {sessionState.active_constraints.length > 0 && (
-            <div className="text-[7px] text-red-400 truncate">
-              约束：{sessionState.active_constraints.slice(0, 2).map(c => c.slice(0, 25)).join("；")}
-            </div>
-          )}
-          {/* 被否定 */}
-          {sessionState.rejected.length > 0 && (
-            <div className="text-[7px] text-gray-400 line-through truncate">
-              否定：{sessionState.rejected.slice(0, 2).map(r => r.slice(0, 25)).join("；")}
-            </div>
-          )}
-        </div>
-      )}
+        )}
 
-      {/* 本轮已采纳标签 */}
-      {reconciledFacts.length > 0 && (
-        <div className="px-3 py-1 bg-[#F0FFF9] border-b border-[#CCFFF0] flex gap-2 flex-wrap flex-shrink-0">
-          {reconciledFacts.map((f, i) => (
-            <span key={i} className={`text-[7px] px-1.5 py-0.5 font-mono ${
-              f.type === "correction" ? "bg-amber-100 text-amber-700" :
-              f.type === "scenario_shift" ? "bg-purple-100 text-purple-700" :
-              f.type === "file_rejection" ? "bg-red-100 text-red-600" :
-              f.type === "execution_request" ? "bg-blue-100 text-blue-700" :
-              f.type === "constraint" ? "bg-orange-100 text-orange-700" :
-              "bg-green-100 text-green-700"
-            }`}>
-              {f.type === "correction" ? "已纠偏" :
-               f.type === "scenario_shift" ? `切换→${f.text}` :
-               f.type === "file_rejection" ? "已禁文件" :
-               f.type === "execution_request" ? "直接出草稿" :
-               f.type === "constraint" ? `约束：${f.text.slice(0, 15)}` :
-               `已采纳：${f.text.slice(0, 15)}`}
-            </span>
-          ))}
-        </div>
-      )}
-
-      {/* Messages */}
-      <div ref={scrollRef} className="flex-1 overflow-y-auto p-3 space-y-3">
-        {messages.length === 0 && !streaming && !memo && (
-          <div className="flex items-center justify-center h-full">
-            <p className="text-[9px] text-gray-400 font-bold uppercase text-center">
-              描述你想创建的 Skill，我会快速给出第一版草稿<br />
-              <span className="text-gray-300 normal-case font-normal">如果你已有参考文件，可以在左侧选中后告诉我</span>
-            </p>
+        {/* 本轮已采纳标签 */}
+        {reconciledFacts.length > 0 && (
+          <div className="px-3 py-1 bg-[#F0FFF9] border-b border-[#CCFFF0] flex gap-2 flex-wrap flex-shrink-0">
+            {reconciledFacts.map((f, i) => (
+              <span key={i} className={`text-[7px] px-1.5 py-0.5 font-mono ${
+                f.type === "correction" ? "bg-amber-100 text-amber-700" :
+                f.type === "scenario_shift" ? "bg-purple-100 text-purple-700" :
+                f.type === "file_rejection" ? "bg-red-100 text-red-600" :
+                f.type === "execution_request" ? "bg-blue-100 text-blue-700" :
+                f.type === "constraint" ? "bg-orange-100 text-orange-700" :
+                "bg-green-100 text-green-700"
+              }`}>
+                {f.type === "correction" ? "已纠偏" :
+                 f.type === "scenario_shift" ? `切换→${f.text}` :
+                 f.type === "file_rejection" ? "已禁文件" :
+                 f.type === "execution_request" ? "直接出草稿" :
+                 f.type === "constraint" ? `约束：${f.text.slice(0, 15)}` :
+                 `已采纳：${f.text.slice(0, 15)}`}
+              </span>
+            ))}
           </div>
         )}
-        {messages.map((m, i) => (
-          <div key={i} className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
-            <div className={`max-w-[95%] px-2.5 py-2 text-[9px] font-mono leading-relaxed whitespace-pre-wrap border ${
-              m.role === "user" ? "bg-[#1A202C] text-white border-[#1A202C]" : "bg-[#F0F4F8] text-[#1A202C] border-gray-200"
-            }`}>
-              {m.loading && !m.text ? (
-                <StageIndicator stage={streaming ? streamStage : null} />
-              ) : (
-                <>
-                  {m.text}
-                  {m.loading && <span className="animate-pulse text-[#00A3C4]"> ▋</span>}
-                </>
+
+        {/* 状态提示条 */}
+        {backendFailed && (
+          <div className="px-3 py-1 bg-amber-50 border-b border-amber-200 text-[9px] text-amber-700 font-mono flex-shrink-0">
+            正在显示本地缓存，服务器历史加载失败
+          </div>
+        )}
+
+        {/* Messages — 主视图，始终占满 */}
+        <div ref={scrollRef} className="flex-1 overflow-y-auto p-3 space-y-3">
+          {messages.length === 0 && !streaming && !memo && (
+            <div className="flex items-center justify-center h-full">
+              <p className="text-[9px] text-gray-400 font-bold uppercase text-center">
+                描述你想创建的 Skill，我会快速给出第一版草稿<br />
+                <span className="text-gray-300 normal-case font-normal">如果你已有参考文件，可以在左侧选中后告诉我</span>
+              </p>
+            </div>
+          )}
+          {messages.map((m, i) => (
+            <div key={i} className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
+              <div className={`max-w-[95%] px-2.5 py-2 text-[9px] font-mono leading-relaxed whitespace-pre-wrap border ${
+                m.role === "user" ? "bg-[#1A202C] text-white border-[#1A202C]" : "bg-[#F0F4F8] text-[#1A202C] border-gray-200"
+              }`}>
+                {m.loading && !m.text ? (
+                  <StageIndicator stage={streaming ? streamStage : null} />
+                ) : (
+                  <>
+                    {m.text}
+                    {m.loading && <span className="animate-pulse text-[#00A3C4]"> ▋</span>}
+                  </>
+                )}
+              </div>
+              {/* 纠偏快捷按钮 — 仅最后一条 assistant 消息、非 loading 时显示 */}
+              {m.role === "assistant" && !m.loading && i === messages.length - 1 && !streaming && (
+                <div className="flex gap-1 mt-1 flex-wrap">
+                  {[
+                    { label: "方向不对", msg: "你理解的方向不对，我重新说一下：" , focusInput: true },
+                    { label: "别重复问", msg: "这个问题你已经问过了，请基于已有信息继续推进" },
+                    { label: "先别管文件", msg: "不要文件，直接基于对话内容推进" },
+                    { label: "直接给草稿", msg: "信息够了，请直接输出 Skill 草稿" },
+                    { label: "按上句改", msg: "按我刚才那句修正来调整方向" },
+                  ].map((action) => (
+                    <button
+                      key={action.label}
+                      onClick={() => {
+                        if (action.focusInput) {
+                          setInput(action.msg);
+                          setTimeout(() => inputRef.current?.focus(), 50);
+                        } else {
+                          send(action.msg);
+                        }
+                      }}
+                      className="text-[7px] px-1.5 py-0.5 border border-gray-300 text-gray-500 hover:border-[#00A3C4] hover:text-[#00A3C4] transition-colors font-mono uppercase tracking-wider"
+                    >
+                      {action.label}
+                    </button>
+                  ))}
+                </div>
               )}
             </div>
-            {/* 纠偏快捷按钮 — 仅最后一条 assistant 消息、非 loading 时显示 */}
-            {m.role === "assistant" && !m.loading && i === messages.length - 1 && !streaming && (
-              <div className="flex gap-1 mt-1 flex-wrap">
-                {[
-                  { label: "方向不对", msg: "你理解的方向不对，我重新说一下：" , focusInput: true },
-                  { label: "别重复问", msg: "这个问题你已经问过了，请基于已有信息继续推进" },
-                  { label: "先别管文件", msg: "不要文件，直接基于对话内容推进" },
-                  { label: "直接给草稿", msg: "信息够了，请直接输出 Skill 草稿" },
-                  { label: "按上句改", msg: "按我刚才那句修正来调整方向" },
-                ].map((action) => (
-                  <button
-                    key={action.label}
-                    onClick={() => {
-                      if (action.focusInput) {
-                        setInput(action.msg);
-                        setTimeout(() => inputRef.current?.focus(), 50);
-                      } else {
-                        send(action.msg);
-                      }
-                    }}
-                    className="text-[7px] px-1.5 py-0.5 border border-gray-300 text-gray-500 hover:border-[#00A3C4] hover:text-[#00A3C4] transition-colors font-mono uppercase tracking-wider"
-                  >
-                    {action.label}
-                  </button>
-                ))}
+          ))}
+        </div>
+
+        {/* Compressing indicator */}
+        {compressing && (
+          <div className="px-3 py-1.5 bg-amber-50 border-t border-amber-200 flex-shrink-0">
+            <span className="text-[8px] font-bold uppercase tracking-widest text-amber-600 animate-pulse">
+              正在压缩历史消息...
+            </span>
+          </div>
+        )}
+
+        {/* Input — 保护区：始终可见可点击 */}
+        <div className="border-t-2 border-[#1A202C] p-3 flex-shrink-0 min-h-[60px] relative z-10">
+          <div className="flex gap-2 relative">
+            {hashQuery !== null && (
+              <div className="absolute bottom-full left-0 right-0 mb-1 bg-white border-2 border-[#1A202C] shadow-lg z-50 max-h-48 overflow-y-auto">
+                {filteredSkills.length === 0 ? (
+                  <div className="px-3 py-2 text-[9px] font-bold text-gray-400 uppercase tracking-widest">无匹配 Skill</div>
+                ) : (
+                  filteredSkills.map((s, i) => (
+                    <button
+                      key={s.id}
+                      type="button"
+                      onMouseDown={(e) => { e.preventDefault(); selectHashSkill(s); }}
+                      className={`w-full text-left px-3 py-2 border-b border-gray-100 last:border-0 flex flex-col gap-0.5 transition-colors ${
+                        i === hashActiveIdx ? "bg-[#1A202C] text-white" : "hover:bg-gray-50"
+                      }`}
+                    >
+                      <span className={`text-[10px] font-bold flex items-center gap-1 ${i === hashActiveIdx ? "text-white" : "text-[#1A202C]"}`}>
+                        <span className="text-[#00D1FF]">#</span>{s.name}
+                      </span>
+                      {s.description && (
+                        <span className={`text-[8px] line-clamp-1 ${i === hashActiveIdx ? "text-gray-300" : "text-gray-400"}`}>{s.description}</span>
+                      )}
+                    </button>
+                  ))
+                )}
+              </div>
+            )}
+            <textarea
+              ref={inputRef}
+              value={input}
+              onChange={(e) => handleInputChange(e.target.value, e.target.selectionStart ?? e.target.value.length)}
+              placeholder="描述需求、说「帮我测试」、# 引用 Skill，Ctrl+Enter 发送..."
+              disabled={streaming}
+              rows={2}
+              className="flex-1 border-2 border-[#1A202C] px-2 py-1.5 text-[9px] font-mono focus:outline-none focus:border-[#00D1FF] disabled:opacity-50 resize-none"
+              onKeyDown={(e) => {
+                if (hashQuery !== null && filteredSkills.length > 0) {
+                  if (e.key === "ArrowDown") { e.preventDefault(); setHashActiveIdx((i) => (i + 1) % filteredSkills.length); return; }
+                  if (e.key === "ArrowUp") { e.preventDefault(); setHashActiveIdx((i) => (i - 1 + filteredSkills.length) % filteredSkills.length); return; }
+                  if (e.key === "Enter" && !e.ctrlKey && !e.metaKey) { e.preventDefault(); selectHashSkill(filteredSkills[hashActiveIdx]); return; }
+                  if (e.key === "Escape") { setHashQuery(null); return; }
+                }
+                if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+                  e.preventDefault();
+                  send(input);
+                }
+              }}
+            />
+            <PixelButton
+              size="sm"
+              onClick={() => send(input)}
+              disabled={streaming || !input.trim()}
+            >
+              {streaming ? "..." : "发送"}
+            </PixelButton>
+          </div>
+        </div>
+      </div>
+
+      {/* ═══ 右侧：治理抽屉（可收起，不占聊天高度） ═══ */}
+      {drawerOpen && hasDrawerContent && (
+        <div className={`${drawerWidthClass} flex-shrink-0 border-l border-gray-200 bg-[#FAFBFC] flex flex-col overflow-hidden transition-all`}>
+          {/* 抽屉头部 */}
+          <div className="px-3 py-2 border-b border-gray-200 flex items-center gap-2 flex-shrink-0 bg-[#F0F4F8]">
+            <span className="text-[8px] font-bold uppercase tracking-widest text-gray-500">
+              {isFixingMode ? "整改任务" : "治理面板"}
+            </span>
+            <span className="flex-1" />
+            {/* 宽度切换 */}
+            <div className="flex gap-0.5">
+              {(["narrow", "medium", "wide"] as const).map((w) => (
+                <button
+                  key={w}
+                  onClick={() => setDrawerWidth(w)}
+                  className={`w-3 h-3 border transition-colors ${drawerWidth === w ? "bg-[#00A3C4] border-[#00A3C4]" : "bg-white border-gray-300 hover:border-gray-400"}`}
+                  title={w === "narrow" ? "窄" : w === "medium" ? "中" : "宽"}
+                />
+              ))}
+            </div>
+            <button
+              onClick={() => setDrawerOpen(false)}
+              className="text-gray-400 hover:text-gray-600 transition-colors"
+              title="收起面板"
+            >
+              <X size={12} />
+            </button>
+          </div>
+
+          {/* 抽屉内容：可滚动 */}
+          <div className="flex-1 overflow-y-auto">
+            {/* Memo 任务面板 */}
+            {memo && (
+              <SkillMemoPanel
+                memo={memo}
+                onStartTask={handleMemoStartTask}
+                onDirectTest={handleMemoDirectTest}
+                onStartFixTask={(task) => {
+                  if (task.target_kind === "skill_prompt" || task.target_ref === "SKILL.md") {
+                    onEditorTarget("prompt", "SKILL.md");
+                  }
+                  const fixMessage = `请帮我修复以下测试问题：\n${task.title}\n${task.description || ""}\n验收标准：${task.acceptance_rule_text || ""}`;
+                  send(fixMessage);
+                }}
+                onTargetedRetest={async (taskId) => {
+                  const allTasks = ((memo.memo as Record<string, unknown>)?.tasks as Array<{
+                    id: string;
+                    problem_refs?: string[];
+                    source_report_id?: number;
+                  }>) || [];
+                  const task = allTasks.find(t => t.id === taskId);
+                  if (!task?.problem_refs?.length || !task.source_report_id) {
+                    handleMemoDirectTest();
+                    return;
+                  }
+                  try {
+                    await apiFetch(
+                      `/sandbox/interactive/by-report/${task.source_report_id}/targeted-rerun`,
+                      { method: "POST", body: JSON.stringify({ issue_ids: task.problem_refs }) }
+                    );
+                    onMemoRefresh();
+                  } catch (err) {
+                    const errMsg = err instanceof Error ? err.message : "未知错误";
+                    const fallback = confirm(`局部重测失败：${errMsg}\n\n是否改为打开完整测试？`);
+                    if (fallback) {
+                      handleMemoDirectTest();
+                    }
+                  }
+                }}
+                onViewReport={onViewReport}
+                sandboxReportId={sandboxReportId}
+              />
+            )}
+
+            {/* Fixing mode banner */}
+            {isFixingMode && memo?.latest_test && (
+              <div className="mx-3 my-2 px-3 py-2 bg-amber-50 border-2 border-amber-400">
+                <div className="flex items-center gap-2">
+                  <span className="text-[9px] font-bold uppercase tracking-widest text-amber-700">
+                    整改模式
+                  </span>
+                  <span className="text-[8px] text-amber-600 flex-1 truncate">
+                    {memo.latest_test.summary}
+                  </span>
+                </div>
+                {memo.current_task && (
+                  <div className="mt-1 flex items-center gap-2">
+                    <span className="text-[7px] font-bold text-amber-500 border border-amber-400 px-1.5 py-0.5 rounded">
+                      当前: {memo.current_task.title.slice(0, 40)}
+                    </span>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Pending cards — 在抽屉中显示，不再挤压聊天区 */}
+            {pendingSummary && (
+              <div className="mx-3 my-2">
+                <SummaryCard
+                  summary={pendingSummary}
+                  onConfirm={handleConfirmSummary}
+                  onConfirmEdited={handleConfirmEditedSummary}
+                  onDiscard={() => setPendingSummary(null)}
+                />
+              </div>
+            )}
+
+            {pendingDraft && (
+              <div className="mx-3 my-2">
+                <DraftCard
+                  draft={pendingDraft}
+                  currentPrompt={currentPrompt}
+                  onApply={handleApplyDraft}
+                  onDiscard={() => setPendingDraft(null)}
+                />
+              </div>
+            )}
+
+            {pendingToolSuggestion && pendingToolSuggestion.suggestions.length > 0 && (
+              <div className="mx-3 my-2">
+                <ToolSuggestionCard
+                  suggestion={pendingToolSuggestion}
+                  skillId={skillId}
+                  onBound={() => { setPendingToolSuggestion(null); onToolBound(); }}
+                  onDevStudio={(desc) => { setPendingToolSuggestion(null); onDevStudio(desc); }}
+                />
+              </div>
+            )}
+
+            {pendingFileSplit && pendingFileSplit.files.length > 0 && (
+              <div className="mx-3 my-2">
+                <FileSplitCard
+                  split={pendingFileSplit}
+                  currentPrompt={currentPrompt}
+                  skillId={skillId}
+                  splitting={splitting}
+                  onConfirm={handleConfirmSplit}
+                  onDiscard={() => setPendingFileSplit(null)}
+                />
               </div>
             )}
           </div>
-        ))}
-      </div>
-
-      {/* Pending summary card */}
-      {pendingSummary && (
-        <SummaryCard
-          summary={pendingSummary}
-          onConfirm={handleConfirmSummary}
-          onConfirmEdited={handleConfirmEditedSummary}
-          onDiscard={() => setPendingSummary(null)}
-        />
-      )}
-
-      {/* Pending draft card */}
-      {pendingDraft && (
-        <DraftCard
-          draft={pendingDraft}
-          currentPrompt={currentPrompt}
-          onApply={handleApplyDraft}
-          onDiscard={() => setPendingDraft(null)}
-        />
-      )}
-
-      {/* Tool suggestion card */}
-      {pendingToolSuggestion && pendingToolSuggestion.suggestions.length > 0 && (
-        <div className="px-3 py-2 flex-shrink-0">
-          <ToolSuggestionCard
-            suggestion={pendingToolSuggestion}
-            skillId={skillId}
-            onBound={() => { setPendingToolSuggestion(null); onToolBound(); }}
-            onDevStudio={(desc) => { setPendingToolSuggestion(null); onDevStudio(desc); }}
-          />
         </div>
       )}
-
-      {/* File split card */}
-      {pendingFileSplit && pendingFileSplit.files.length > 0 && (
-        <FileSplitCard
-          split={pendingFileSplit}
-          currentPrompt={currentPrompt}
-          skillId={skillId}
-          splitting={splitting}
-          onConfirm={handleConfirmSplit}
-          onDiscard={() => setPendingFileSplit(null)}
-        />
-      )}
-
-      {/* Compressing indicator */}
-      {compressing && (
-        <div className="px-3 py-1.5 bg-amber-50 border-t border-amber-200 flex-shrink-0">
-          <span className="text-[8px] font-bold uppercase tracking-widest text-amber-600 animate-pulse">
-            正在压缩历史消息...
-          </span>
-        </div>
-      )}
-
-      {/* Input */}
-      <div className="border-t-2 border-[#1A202C] p-3 flex-shrink-0">
-        <div className="flex gap-2 relative">
-          {hashQuery !== null && (
-            <div className="absolute bottom-full left-0 right-0 mb-1 bg-white border-2 border-[#1A202C] shadow-lg z-50 max-h-48 overflow-y-auto">
-              {filteredSkills.length === 0 ? (
-                <div className="px-3 py-2 text-[9px] font-bold text-gray-400 uppercase tracking-widest">无匹配 Skill</div>
-              ) : (
-                filteredSkills.map((s, i) => (
-                  <button
-                    key={s.id}
-                    type="button"
-                    onMouseDown={(e) => { e.preventDefault(); selectHashSkill(s); }}
-                    className={`w-full text-left px-3 py-2 border-b border-gray-100 last:border-0 flex flex-col gap-0.5 transition-colors ${
-                      i === hashActiveIdx ? "bg-[#1A202C] text-white" : "hover:bg-gray-50"
-                    }`}
-                  >
-                    <span className={`text-[10px] font-bold flex items-center gap-1 ${i === hashActiveIdx ? "text-white" : "text-[#1A202C]"}`}>
-                      <span className="text-[#00D1FF]">#</span>{s.name}
-                    </span>
-                    {s.description && (
-                      <span className={`text-[8px] line-clamp-1 ${i === hashActiveIdx ? "text-gray-300" : "text-gray-400"}`}>{s.description}</span>
-                    )}
-                  </button>
-                ))
-              )}
-            </div>
-          )}
-          <textarea
-            ref={inputRef}
-            value={input}
-            onChange={(e) => handleInputChange(e.target.value, e.target.selectionStart ?? e.target.value.length)}
-            placeholder="描述需求、说「帮我测试」、# 引用 Skill，Ctrl+Enter 发送..."
-            disabled={streaming}
-            rows={2}
-            className="flex-1 border-2 border-[#1A202C] px-2 py-1.5 text-[9px] font-mono focus:outline-none focus:border-[#00D1FF] disabled:opacity-50 resize-none"
-            onKeyDown={(e) => {
-              if (hashQuery !== null && filteredSkills.length > 0) {
-                if (e.key === "ArrowDown") { e.preventDefault(); setHashActiveIdx((i) => (i + 1) % filteredSkills.length); return; }
-                if (e.key === "ArrowUp") { e.preventDefault(); setHashActiveIdx((i) => (i - 1 + filteredSkills.length) % filteredSkills.length); return; }
-                if (e.key === "Enter" && !e.ctrlKey && !e.metaKey) { e.preventDefault(); selectHashSkill(filteredSkills[hashActiveIdx]); return; }
-                if (e.key === "Escape") { setHashQuery(null); return; }
-              }
-              if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
-                e.preventDefault();
-                send(input);
-              }
-            }}
-          />
-          <PixelButton
-            size="sm"
-            onClick={() => send(input)}
-            disabled={streaming || !input.trim()}
-          >
-            {streaming ? "..." : "发送"}
-          </PixelButton>
-        </div>
-      </div>
     </div>
   );
 }
@@ -3468,6 +3575,7 @@ export function SkillStudio({
           setInputRef={setInputRef}
           onViewReport={selectedFile?.skillId ? () => setShowSandbox(selectedFile.skillId) : undefined}
           sandboxReportId={fromSandbox ? sandboxReportId : undefined}
+          fromSandbox={fromSandbox}
         />
       </div>
 

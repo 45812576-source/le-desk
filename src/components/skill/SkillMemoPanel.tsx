@@ -1,8 +1,8 @@
 "use client";
 
-import { CheckCircle, XCircle, Wrench, PlayCircle, AlertTriangle, FileText } from "lucide-react";
+import { useState } from "react";
+import { CheckCircle, XCircle, Wrench, PlayCircle, AlertTriangle, FileText, ChevronDown, ChevronRight } from "lucide-react";
 import { PersistentNotices } from "./PersistentNotices";
-import { CurrentTaskCard } from "./CurrentTaskCard";
 import { PixelButton } from "@/components/pixel/PixelButton";
 import type { SkillMemo, SkillMemoTask } from "@/lib/types";
 
@@ -16,21 +16,40 @@ interface SkillMemoPanelProps {
   sandboxReportId?: string;
 }
 
-export function SkillMemoPanel({ memo, onStartTask, onDirectTest, onStartFixTask, onTargetedRetest, onViewReport, sandboxReportId }: SkillMemoPanelProps) {
-  const progressLog = (memo.memo as Record<string, unknown>)?.progress_log as { summary: string }[] | undefined;
-  const latestProgress = progressLog?.length ? progressLog[progressLog.length - 1].summary : null;
+const PRIORITY_COLORS: Record<string, string> = {
+  high: "bg-red-500 text-white",
+  medium: "bg-amber-500 text-white",
+  low: "bg-gray-400 text-white",
+};
 
-  // 提取 fix tasks
-  const allTasks = ((memo.memo as Record<string, unknown>)?.tasks as SkillMemoTask[] | undefined) || [];
-  const fixTasks = allTasks.filter(t =>
-    ["fix_prompt_logic", "fix_input_slot", "fix_tool_usage", "fix_knowledge_binding", "fix_permission_handling", "run_targeted_retest"].includes(t.type)
-    && t.status !== "done" && t.status !== "skipped"
+const TYPE_LABELS: Record<string, string> = {
+  fix_prompt_logic: "Prompt",
+  fix_input_slot: "输入槽",
+  fix_tool_usage: "工具",
+  fix_knowledge_binding: "知识",
+  fix_permission_handling: "权限",
+  run_targeted_retest: "重测",
+};
+
+export function SkillMemoPanel({ memo, onStartTask, onDirectTest, onStartFixTask, onTargetedRetest, onViewReport, sandboxReportId }: SkillMemoPanelProps) {
+  const [showCompleted, setShowCompleted] = useState(false);
+
+  // 提取所有 fix tasks
+  const allMemoTasks = ((memo.memo as Record<string, unknown>)?.tasks as SkillMemoTask[] | undefined) || [];
+  const fixTaskTypes = ["fix_prompt_logic", "fix_input_slot", "fix_tool_usage", "fix_knowledge_binding", "fix_permission_handling", "run_targeted_retest"];
+
+  const pendingTasks = allMemoTasks.filter(t =>
+    fixTaskTypes.includes(t.type) && t.status !== "done" && t.status !== "skipped"
   ).sort((a, b) => {
-    const priorityOrder: Record<string, number> = { high: 0, medium: 1, low: 2 };
-    return (priorityOrder[a.priority] ?? 2) - (priorityOrder[b.priority] ?? 2);
+    const p: Record<string, number> = { high: 0, medium: 1, low: 2 };
+    return (p[a.priority] ?? 2) - (p[b.priority] ?? 2);
   });
 
-  // 统一裁决源：优先用 details.approval_eligible（结构化真相源），fallback 到 status
+  const completedTasks = allMemoTasks.filter(t =>
+    fixTaskTypes.includes(t.type) && (t.status === "done" || t.status === "skipped")
+  );
+
+  // 测试结论
   const testPassed = memo.latest_test
     ? (memo.latest_test.details?.approval_eligible != null
         ? memo.latest_test.details.approval_eligible
@@ -39,156 +58,152 @@ export function SkillMemoPanel({ memo, onStartTask, onDirectTest, onStartFixTask
   const isFixing = memo.lifecycle_stage === "fixing" && testPassed === false;
 
   return (
-    <div className="flex-shrink-0">
-      {/* 持久提醒区 */}
+    <div className="flex flex-col">
+      {/* ── 顶部：测试结论 + 报告入口 ── */}
+      {memo.latest_test && (
+        <div className={`mx-3 mt-3 mb-1 border-2 ${
+          testPassed ? "border-[#68D391] bg-[#F0FFF4]" : "border-[#FC8181] bg-[#FFF5F5]"
+        }`}>
+          <div className={`px-3 py-1.5 flex items-center gap-2 ${testPassed ? "border-[#C6F6D5]" : "border-[#FED7D7]"}`}>
+            {testPassed
+              ? <CheckCircle size={10} className="text-[#38A169] flex-shrink-0" />
+              : <XCircle size={10} className="text-[#E53E3E] flex-shrink-0" />
+            }
+            <span className={`text-[8px] font-bold uppercase tracking-widest ${testPassed ? "text-[#38A169]" : "text-[#E53E3E]"}`}>
+              {testPassed ? "通过" : "失败"}
+            </span>
+            <span className="text-[7px] text-gray-400 flex-shrink-0">
+              {memo.latest_test.source} v{memo.latest_test.version}
+            </span>
+            {sandboxReportId && (
+              <span className="text-[7px] text-gray-400">#{sandboxReportId}</span>
+            )}
+            <span className="flex-1" />
+            {onViewReport && (
+              <button
+                onClick={onViewReport}
+                className="text-[7px] font-bold text-[#00A3C4] border border-[#00A3C4] px-1.5 py-0.5 hover:bg-[#00A3C4] hover:text-white flex items-center gap-0.5 flex-shrink-0"
+              >
+                <FileText size={7} /> 报告
+              </button>
+            )}
+          </div>
+          <div className="px-3 py-1.5 text-[8px] text-gray-600 leading-relaxed border-t border-gray-100">
+            {memo.latest_test.summary}
+            {memo.latest_test.details?.blocking_reasons && memo.latest_test.details.blocking_reasons.length > 0 && (
+              <div className="mt-0.5 text-[7px] text-red-500">
+                未通过: {memo.latest_test.details.blocking_reasons.join("、")}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ── 当前任务 ── */}
+      {memo.current_task && (
+        <div className="mx-3 my-1 px-3 py-2 border-2 border-[#00D1FF] bg-[#F0FAFF]">
+          <div className="flex items-center gap-2 mb-1">
+            <span className="relative flex h-2 w-2">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#00D1FF] opacity-75" />
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-[#00A3C4]" />
+            </span>
+            <span className="text-[8px] font-bold uppercase tracking-widest text-[#00A3C4]">当前任务</span>
+          </div>
+          <div className="text-[8px] text-[#1A202C] font-medium">{memo.current_task.title}</div>
+          {memo.current_task.target_files.length > 0 && (
+            <div className="mt-1 flex flex-wrap gap-1">
+              {memo.current_task.target_files.map(f => (
+                <span key={f} className="text-[7px] px-1 py-0.5 bg-[#E0F7FF] text-[#00A3C4] font-mono">{f}</span>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── 持久提醒 ── */}
       <PersistentNotices
         notices={memo.persistent_notices}
         onStartTask={onStartTask}
         onDirectTest={onDirectTest}
       />
 
-      {/* 当前任务卡 */}
-      {memo.current_task && (
-        <CurrentTaskCard
-          task={memo.current_task}
-          latestProgress={latestProgress}
-        />
-      )}
-
-      {/* 测试整改区 */}
-      {isFixing && fixTasks.length > 0 && (
-        <div className="mx-3 my-2 border-2 border-amber-400 bg-amber-50 flex-shrink-0">
-          <div className="px-3 py-2 border-b border-amber-300 flex items-center gap-2">
-            <AlertTriangle size={12} className="text-amber-600" />
-            <span className="text-[9px] font-bold uppercase tracking-widest text-amber-700 flex-1">
-              测试整改 ({fixTasks.length} 项待修复)
+      {/* ── 待修复任务列表 ── */}
+      {isFixing && pendingTasks.length > 0 && (
+        <div className="mx-3 my-1">
+          <div className="px-2 py-1.5 flex items-center gap-2 border-b border-amber-200">
+            <AlertTriangle size={10} className="text-amber-600" />
+            <span className="text-[8px] font-bold uppercase tracking-widest text-amber-700">
+              待修复 ({pendingTasks.length})
             </span>
           </div>
+          <div className="py-1 space-y-1">
+            {pendingTasks.map(task => (
+              <div key={task.id} className="px-2 py-1 flex items-center gap-1.5 hover:bg-gray-50 transition-colors">
+                <span className={`text-[6px] font-bold px-1 py-0.5 rounded flex-shrink-0 ${PRIORITY_COLORS[task.priority] || "bg-gray-400 text-white"}`}>
+                  {task.priority === "high" ? "P0" : task.priority === "medium" ? "P1" : "P2"}
+                </span>
+                <span className="text-[7px] font-bold text-gray-500 w-7 flex-shrink-0">
+                  {TYPE_LABELS[task.type] || "修复"}
+                </span>
+                <span className="text-[8px] text-gray-700 flex-1 truncate">
+                  {task.title.replace(/^修复:\s*/, "")}
+                </span>
+                {task.type !== "run_targeted_retest" && onStartFixTask && (
+                  <button
+                    className="text-[7px] font-bold text-[#00A3C4] border border-[#00A3C4] px-1 py-0.5 hover:bg-[#00A3C4] hover:text-white flex-shrink-0"
+                    onClick={() => onStartFixTask(task)}
+                  >
+                    <Wrench size={7} className="inline" /> 修复
+                  </button>
+                )}
+                {task.type === "run_targeted_retest" && onTargetedRetest && (
+                  <button
+                    className="text-[7px] font-bold text-[#00CC99] border border-[#00CC99] px-1 py-0.5 hover:bg-[#00CC99] hover:text-white flex-shrink-0"
+                    onClick={() => onTargetedRetest(task.id)}
+                  >
+                    <PlayCircle size={7} className="inline" /> 重测
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
-          {/* 测试结论摘要 */}
-          {memo.latest_test && (
-            <div className="px-3 py-1.5 border-b border-amber-200 text-[8px] text-amber-700 flex items-center gap-2">
-              <span className={`text-[7px] font-bold px-1 py-0.5 rounded flex-shrink-0 ${
-                testPassed ? "bg-green-500 text-white" : "bg-red-500 text-white"
-              }`}>
-                {testPassed ? "通过" : "失败"}
-              </span>
-              <span className="flex-1">{memo.latest_test.summary}</span>
-              {sandboxReportId && (
-                <span className="text-[7px] text-gray-400 flex-shrink-0">报告 #{sandboxReportId}</span>
-              )}
-              {onViewReport && (
-                <button
-                  onClick={onViewReport}
-                  className="flex-shrink-0 text-[7px] font-bold text-[#00A3C4] border border-[#00A3C4] px-1.5 py-0.5 hover:bg-[#00A3C4] hover:text-white flex items-center gap-0.5"
-                >
-                  <FileText size={7} /> 查看报告
-                </button>
-              )}
-            </div>
-          )}
-
-          {/* Fix tasks 列表 */}
-          <div className="px-3 py-2 space-y-1.5">
-            {fixTasks.slice(0, 5).map(task => {
-              const priorityColors: Record<string, string> = {
-                high: "bg-red-500 text-white",
-                medium: "bg-amber-500 text-white",
-                low: "bg-gray-400 text-white",
-              };
-              const typeLabels: Record<string, string> = {
-                fix_prompt_logic: "Prompt",
-                fix_input_slot: "输入槽",
-                fix_tool_usage: "工具",
-                fix_knowledge_binding: "知识",
-                fix_permission_handling: "权限",
-                run_targeted_retest: "重测",
-              };
-              return (
-                <div key={task.id} className="flex items-center gap-1.5">
-                  <span className={`text-[6px] font-bold px-1 py-0.5 rounded ${priorityColors[task.priority] || "bg-gray-400 text-white"}`}>
-                    {task.priority === "high" ? "P0" : task.priority === "medium" ? "P1" : "P2"}
-                  </span>
-                  <span className="text-[7px] font-bold text-gray-500 w-8">
-                    {typeLabels[task.type] || "修复"}
-                  </span>
-                  <span className="text-[8px] text-gray-700 flex-1 truncate">
-                    {task.title.replace(/^修复:\s*/, "")}
-                  </span>
-                  <div className="flex gap-1">
-                    {task.type !== "run_targeted_retest" && onStartFixTask && (
-                      <button
-                        className="text-[7px] font-bold text-[#00A3C4] border border-[#00A3C4] px-1 py-0.5 hover:bg-[#00A3C4] hover:text-white"
-                        onClick={() => onStartFixTask(task)}
-                      >
-                        <Wrench size={8} className="inline" /> 修复
-                      </button>
-                    )}
-                    {task.type === "run_targeted_retest" && onTargetedRetest && (
-                      <button
-                        className="text-[7px] font-bold text-[#00CC99] border border-[#00CC99] px-1 py-0.5 hover:bg-[#00CC99] hover:text-white"
-                        onClick={() => onTargetedRetest(task.id)}
-                      >
-                        <PlayCircle size={8} className="inline" /> 重测
-                      </button>
-                    )}
-                  </div>
+      {/* ── 已完成任务（折叠） ── */}
+      {completedTasks.length > 0 && (
+        <div className="mx-3 my-1">
+          <button
+            onClick={() => setShowCompleted(!showCompleted)}
+            className="w-full px-2 py-1 flex items-center gap-1.5 text-[7px] font-bold uppercase tracking-widest text-gray-400 hover:text-gray-600 transition-colors"
+          >
+            {showCompleted ? <ChevronDown size={8} /> : <ChevronRight size={8} />}
+            已完成 ({completedTasks.length})
+          </button>
+          {showCompleted && (
+            <div className="py-0.5 space-y-0.5">
+              {completedTasks.map(task => (
+                <div key={task.id} className="px-2 py-0.5 flex items-center gap-1.5 opacity-50">
+                  <CheckCircle size={8} className="text-green-400 flex-shrink-0" />
+                  <span className="text-[7px] text-gray-500 truncate">{task.title.replace(/^修复:\s*/, "")}</span>
                 </div>
-              );
-            })}
-            {fixTasks.length > 5 && (
-              <div className="text-[7px] text-gray-400 text-center">
-                还有 {fixTasks.length - 5} 项...
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* 最近测试结果卡 */}
-      {memo.latest_test && (
-        <div className={`mx-3 my-2 border-2 flex-shrink-0 ${
-          testPassed
-            ? "border-[#68D391] bg-[#F0FFF4]"
-            : "border-[#FC8181] bg-[#FFF5F5]"
-        }`}>
-          <div className={`px-3 py-2 border-b flex items-center gap-2 ${
-            testPassed ? "border-[#C6F6D5]" : "border-[#FED7D7]"
-          }`}>
-            {testPassed ? (
-              <CheckCircle size={12} className="text-[#38A169]" />
-            ) : (
-              <XCircle size={12} className="text-[#E53E3E]" />
-            )}
-            <span className={`text-[9px] font-bold uppercase tracking-widest flex-1 ${
-              testPassed ? "text-[#38A169]" : "text-[#E53E3E]"
-            }`}>
-              最近测试 — {testPassed ? "通过" : "失败"}
-            </span>
-            <span className="text-[8px] text-gray-400">
-              {memo.latest_test.source} v{memo.latest_test.version}
-            </span>
-          </div>
-          <div className="px-3 py-2 text-[9px] text-gray-600 leading-relaxed">
-            {memo.latest_test.summary}
-            {memo.latest_test.details?.blocking_reasons && memo.latest_test.details.blocking_reasons.length > 0 && (
-              <div className="mt-1 text-[8px] text-red-500">
-                未通过维度: {memo.latest_test.details.blocking_reasons.join("、")}
-              </div>
-            )}
-          </div>
-          {onViewReport && (
-            <div className="px-3 py-1.5 border-t border-gray-200">
-              <button
-                onClick={onViewReport}
-                className="text-[8px] font-bold text-[#00A3C4] hover:underline flex items-center gap-1"
-              >
-                <FileText size={8} /> 查看完整测试报告
-              </button>
+              ))}
             </div>
           )}
         </div>
       )}
+
+      {/* ── 底部操作栏 ── */}
+      <div className="mx-3 my-2 flex gap-2 flex-wrap">
+        {onViewReport && (
+          <PixelButton size="sm" variant="secondary" onClick={onViewReport}>
+            查看报告
+          </PixelButton>
+        )}
+        <PixelButton size="sm" variant="secondary" onClick={onDirectTest}>
+          运行测试
+        </PixelButton>
+      </div>
     </div>
   );
 }

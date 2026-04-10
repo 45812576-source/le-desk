@@ -1,6 +1,7 @@
 "use client";
 
-import { AlertTriangle, Info } from "lucide-react";
+import { useState } from "react";
+import { AlertTriangle, Info, ChevronDown, ChevronUp, X } from "lucide-react";
 import { PixelButton } from "@/components/pixel/PixelButton";
 import type { SkillPersistentNotice } from "@/lib/types";
 
@@ -23,12 +24,18 @@ const NOTICE_TYPE_COLOR: Record<string, { border: string; bg: string; text: stri
 };
 
 export function PersistentNotices({ notices, onStartTask, onDirectTest }: PersistentNoticesProps) {
-  const activeNotices = notices.filter((n) => n.status === "active");
+  const [dismissed, setDismissed] = useState<Set<string>>(new Set());
+  const [expanded, setExpanded] = useState(false);
+
+  const activeNotices = notices.filter((n) => n.status === "active" && !dismissed.has(n.id));
   if (activeNotices.length === 0) return null;
 
+  const visibleNotices = expanded ? activeNotices : activeNotices.slice(0, 1);
+  const hiddenCount = activeNotices.length - visibleNotices.length;
+
   return (
-    <div className="mx-3 my-2 space-y-2 flex-shrink-0">
-      {activeNotices.map((notice) => {
+    <div className="mx-3 my-2 space-y-2">
+      {visibleNotices.map((notice) => {
         const colors = NOTICE_TYPE_COLOR[notice.type] || NOTICE_TYPE_COLOR.missing_structure;
         const Icon = NOTICE_TYPE_ICON[notice.type] || AlertTriangle;
         const firstTaskId = notice.related_task_ids[0];
@@ -45,6 +52,13 @@ export function PersistentNotices({ notices, onStartTask, onDirectTest }: Persis
                   {notice.message}
                 </div>
               </div>
+              <button
+                onClick={() => setDismissed(prev => new Set(prev).add(notice.id))}
+                className="text-gray-300 hover:text-gray-500 flex-shrink-0"
+                title="本次会话隐藏"
+              >
+                <X size={10} />
+              </button>
             </div>
             <div className={`px-3 py-1.5 border-t ${colors.borderInner} flex gap-2`}>
               {firstTaskId && (
@@ -59,6 +73,20 @@ export function PersistentNotices({ notices, onStartTask, onDirectTest }: Persis
           </div>
         );
       })}
+
+      {/* 多条时显示展开/收起 */}
+      {activeNotices.length > 1 && (
+        <button
+          onClick={() => setExpanded(!expanded)}
+          className="w-full text-center text-[7px] font-bold uppercase tracking-widest text-gray-400 hover:text-gray-600 flex items-center justify-center gap-0.5 py-0.5 transition-colors"
+        >
+          {expanded ? (
+            <><ChevronUp size={10} /> 收起</>
+          ) : (
+            <><ChevronDown size={10} /> 还有 {hiddenCount} 条提醒</>
+          )}
+        </button>
+      )}
     </div>
   );
 }
