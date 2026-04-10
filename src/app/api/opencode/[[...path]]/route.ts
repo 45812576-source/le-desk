@@ -1,16 +1,48 @@
 import { NextRequest, NextResponse } from "next/server";
 
 const OPENCODE_BASE_PORT = 17171;
+const BACKEND_URL = process.env.BACKEND_URL || "http://localhost:8000";
+
+function resolvePort(raw: string | null | undefined): number | null {
+  const portNum = raw ? parseInt(raw, 10) : NaN;
+  return Number.isFinite(portNum) && portNum > 1024 && portNum < 65536
+    ? portNum
+    : null;
+}
+
+async function resolveOpencodePort(req: NextRequest): Promise<number> {
+  const fromQuery = resolvePort(req.nextUrl.searchParams.get("_oc_port"));
+  if (fromQuery) return fromQuery;
+
+  const fromCookie = resolvePort(req.cookies.get("oc_port")?.value);
+  if (fromCookie) return fromCookie;
+
+  const headers = new Headers();
+  const cookie = req.headers.get("cookie");
+  const authorization = req.headers.get("authorization");
+  if (cookie) headers.set("cookie", cookie);
+  if (authorization) headers.set("authorization", authorization);
+
+  try {
+    const response = await fetch(`${BACKEND_URL}/api/dev-studio/instance`, {
+      headers,
+      cache: "no-store",
+    });
+    if (response.ok) {
+      const data = await response.json() as { port?: number | string };
+      const port = resolvePort(String(data?.port ?? ""));
+      if (port) return port;
+    }
+  } catch {
+    // ignore and fall through to the safe default
+  }
+
+  return OPENCODE_BASE_PORT;
+}
 
 /** 解析用户专属 opencode 端口：优先 URL query _oc_port，其次 cookie oc_port，最后 fallback。*/
-function resolveOpencodeUrl(req: NextRequest): string {
-  const fromQuery = req.nextUrl.searchParams.get("_oc_port");
-  const fromCookie = req.cookies.get("oc_port")?.value;
-  const raw = fromQuery || fromCookie;
-  const portNum = raw ? parseInt(raw, 10) : NaN;
-  const safePort = Number.isFinite(portNum) && portNum > 1024 && portNum < 65536
-    ? portNum
-    : OPENCODE_BASE_PORT;
+async function resolveOpencodeUrl(req: NextRequest): Promise<string> {
+  const safePort = await resolveOpencodePort(req);
   return `http://127.0.0.1:${safePort}`;
 }
 
@@ -18,7 +50,7 @@ export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ path?: string[] }> }
 ) {
-  const opencodeUrl = resolveOpencodeUrl(req);
+  const opencodeUrl = await resolveOpencodeUrl(req);
   const { path } = await params;
   const subpath = path && path.length > 0 ? "/" + path.join("/") : "/";
   // 去掉内部路由参数 _oc_port，不透传给 opencode 上游
@@ -337,7 +369,7 @@ async function proxyMethod(
   params: Promise<{ path?: string[] }>,
   method: string
 ) {
-  const opencodeUrl = resolveOpencodeUrl(req);
+  const opencodeUrl = await resolveOpencodeUrl(req);
   const { path } = await params;
   const subpath = path && path.length > 0 ? "/" + path.join("/") : "/";
   const upstreamParams = new URLSearchParams(req.nextUrl.searchParams);

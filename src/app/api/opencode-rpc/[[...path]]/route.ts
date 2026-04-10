@@ -1,6 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 
 const OPENCODE_BASE_PORT = 17171;
+const BACKEND_URL = process.env.BACKEND_URL || "http://localhost:8000";
+
+function resolvePort(raw: string | null | undefined): number | null {
+  const portNum = raw ? parseInt(raw, 10) : NaN;
+  return Number.isFinite(portNum) && portNum > 1024 && portNum < 65536
+    ? portNum
+    : null;
+}
 
 // ─── SSE 错误改写 ─────────────────────────────────────────────────────────────
 // 百炼等上游 API 返回 400 context 超限时，opencode 会把原始错误文本塞进 SSE 事件流。
@@ -46,19 +54,38 @@ function _makeSseErrorTransformer(): TransformStream<Uint8Array, Uint8Array> {
   });
 }
 
-function resolveOpencodeUrl(req: NextRequest): string {
-  const fromQuery = req.nextUrl.searchParams.get("_oc_port");
-  const fromCookie = req.cookies.get("oc_port")?.value;
-  const raw = fromQuery || fromCookie;
-  const portNum = raw ? parseInt(raw, 10) : NaN;
-  const safePort = Number.isFinite(portNum) && portNum > 1024 && portNum < 65536
-    ? portNum
-    : OPENCODE_BASE_PORT;
-  return `http://127.0.0.1:${safePort}`;
+async function resolveOpencodeUrl(req: NextRequest): Promise<string> {
+  const fromQuery = resolvePort(req.nextUrl.searchParams.get("_oc_port"));
+  if (fromQuery) return `http://127.0.0.1:${fromQuery}`;
+
+  const fromCookie = resolvePort(req.cookies.get("oc_port")?.value);
+  if (fromCookie) return `http://127.0.0.1:${fromCookie}`;
+
+  const headers = new Headers();
+  const cookie = req.headers.get("cookie");
+  const authorization = req.headers.get("authorization");
+  if (cookie) headers.set("cookie", cookie);
+  if (authorization) headers.set("authorization", authorization);
+
+  try {
+    const response = await fetch(`${BACKEND_URL}/api/dev-studio/instance`, {
+      headers,
+      cache: "no-store",
+    });
+    if (response.ok) {
+      const data = await response.json() as { port?: number | string };
+      const port = resolvePort(String(data?.port ?? ""));
+      if (port) return `http://127.0.0.1:${port}`;
+    }
+  } catch {
+    // ignore and fall through to the safe default
+  }
+
+  return `http://127.0.0.1:${OPENCODE_BASE_PORT}`;
 }
 
 async function proxyToOpenCodeApi(req: NextRequest, params: Promise<{ path?: string[] }>, method: string) {
-  const opencodeUrl = resolveOpencodeUrl(req);
+  const opencodeUrl = await resolveOpencodeUrl(req);
   const { path } = await params;
   const subpath = path && path.length > 0 ? "/" + path.join("/") : "/";
   const upstreamParams = new URLSearchParams(req.nextUrl.searchParams);
