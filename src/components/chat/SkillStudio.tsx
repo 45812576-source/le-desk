@@ -13,6 +13,7 @@ import { ImportSkillModal } from "@/components/skill/ImportSkillModal";
 import { CommentsPanel, type Suggestion } from "@/components/skill/CommentsPanel";
 import { SkillMemoPanel } from "@/components/skill/SkillMemoPanel";
 import { SandboxTestModal } from "@/components/skill/SandboxTestModal";
+import { SKILL_STATUS_BADGE as STATUS_BADGE, isEditableSkillStatus, isPublishedSkillStatus, isVisibleInSkillStudio } from "@/lib/skill-status";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -178,13 +179,6 @@ function applyOps(text: string, ops: DiffOp[]): string {
 
 // ─── Status badge ──────────────────────────────────────────────────────────────
 
-const STATUS_BADGE: Record<string, { color: "cyan" | "green" | "yellow" | "gray" | "red"; label: string }> = {
-  draft: { color: "gray", label: "草稿" },
-  reviewing: { color: "yellow", label: "审核中" },
-  published: { color: "green", label: "已发布" },
-  archived: { color: "red", label: "已归档" },
-};
-
 function SkillIcon({ size }: { size: number }) {
   const { theme } = useTheme();
   if (theme === "lab") return <PixelIcon {...ICONS.skills} size={size} />;
@@ -300,8 +294,9 @@ function SkillList({
   const [uploadingFor, setUploadingFor] = useState<number | null>(null);
   const [suggestionPopupSkillId, setSuggestionPopupSkillId] = useState<number | null>(null);
 
-  const drafts = skills.filter((s) => s.status === "draft" || s.status === "reviewing");
-  const published = skills.filter((s) => s.status === "published" || s.status === "archived");
+  const visibleSkills = skills.filter((s) => isVisibleInSkillStudio(s.status));
+  const drafts = visibleSkills.filter((s) => isEditableSkillStatus(s.status));
+  const published = visibleSkills.filter((s) => isPublishedSkillStatus(s.status) || s.status === "archived");
 
   function toggleExpand(skillId: number) {
     setExpanded((prev) => {
@@ -1441,7 +1436,7 @@ function PromptEditor({
       />
 
       {/* Toolbar */}
-      {!isReadOnly && (
+      {!isReadOnly ? (
         <div className="px-4 py-3 border-t-2 border-[#1A202C] flex items-center gap-2 flex-wrap flex-shrink-0">
           {showSaveNote ? (
             <div className="flex items-center gap-2 flex-1 min-w-0">
@@ -1477,6 +1472,23 @@ function PromptEditor({
           {saveMsg && (
             <span className={`text-[9px] font-bold ${saveMsg.startsWith("✓") ? "text-[#00CC99]" : "text-red-500"}`}>{saveMsg}</span>
           )}
+        </div>
+      ) : skill && (
+        <div className="px-4 py-3 border-t-2 border-[#1A202C] flex items-center gap-3 flex-shrink-0">
+          <button
+            onClick={runPreflight}
+            disabled={preflightRunning}
+            className="flex items-center gap-1 text-[8px] font-bold uppercase tracking-widest text-[#6B46C1] hover:text-[#553C9A] transition-colors disabled:opacity-50"
+          >
+            {preflightRunning ? "检测中..." : "质量检测"}
+          </button>
+          <button
+            onClick={() => window.open(`/api/proxy/skills/${skill.id}/export-zip`, "_blank")}
+            className="flex items-center gap-1 text-[8px] font-bold uppercase tracking-widest text-gray-400 hover:text-[#00A3C4] transition-colors"
+          >
+            <Download size={9} />
+            导出 Zip
+          </button>
         </div>
       )}
 
@@ -2829,13 +2841,22 @@ function StudioChat({
               </p>
             </div>
           )}
-          {messages.map((m, i) => (
-            <div key={i} className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
+          {messages.map((m, i) => {
+            const isLongAssistant = m.role === "assistant" && !m.loading && m.text && m.text.length > 200;
+            return (
+            <div key={i} className={`flex flex-col ${m.role === "user" ? "items-end" : "items-start"}`}>
               <div className={`max-w-[95%] px-2.5 py-2 text-[9px] font-mono leading-relaxed whitespace-pre-wrap border ${
                 m.role === "user" ? "bg-[#1A202C] text-white border-[#1A202C]" : "bg-[#F0F4F8] text-[#1A202C] border-gray-200"
-              }`}>
+              } ${isLongAssistant ? "studio-collapsible" : ""}`}>
                 {m.loading && !m.text ? (
                   <StageIndicator stage={streaming ? streamStage : null} />
+                ) : isLongAssistant ? (
+                  <details>
+                    <summary className="cursor-pointer select-none text-[8px] text-gray-400 hover:text-[#00A3C4] font-bold uppercase tracking-widest mb-1">
+                      {m.text!.slice(0, 80)}… <span className="text-[7px] normal-case font-normal">[展开全文]</span>
+                    </summary>
+                    <div className="mt-1 pt-1 border-t border-gray-200">{m.text}</div>
+                  </details>
                 ) : (
                   <>
                     {m.text}
@@ -2843,9 +2864,9 @@ function StudioChat({
                   </>
                 )}
               </div>
-              {/* 纠偏快捷按钮 — 仅最后一条 assistant 消息、非 loading 时显示 */}
+              {/* 纠偏快捷按钮 — 仅最后一条 assistant 消息、非 loading 时显示，放在消息下方 */}
               {m.role === "assistant" && !m.loading && i === messages.length - 1 && !streaming && (
-                <div className="flex gap-1 mt-1 flex-wrap">
+                <div className="flex gap-1 mt-1.5 flex-wrap max-w-[95%]">
                   {[
                     { label: "方向不对", msg: "你理解的方向不对，我重新说一下：" , focusInput: true },
                     { label: "别重复问", msg: "这个问题你已经问过了，请基于已有信息继续推进" },
@@ -2871,7 +2892,8 @@ function StudioChat({
                 </div>
               )}
             </div>
-          ))}
+            );
+          })}
         </div>
 
         {/* Compressing indicator */}
@@ -3306,13 +3328,16 @@ export function SkillStudio({
   const [globalSkills, setGlobalSkills] = useState<SkillDetail[]>([]);
   useEffect(() => {
     apiFetch<SkillDetail[]>("/skills")
-      .then((data) => setGlobalSkills(Array.isArray(data) ? data : []))
+      .then((data) => setGlobalSkills(Array.isArray(data) ? data.filter((s) => isPublishedSkillStatus(s.status)) : []))
       .catch(() => {});
   }, []);
 
-  const allPublishedSkills = (() => {
+  const searchableSkills = (() => {
     const seen = new Set<number>();
-    return [...skills, ...globalSkills].filter((s) => { if (seen.has(s.id)) return false; seen.add(s.id); return true; });
+    return [
+      ...skills.filter((s) => isEditableSkillStatus(s.status) || isPublishedSkillStatus(s.status)),
+      ...globalSkills,
+    ].filter((s) => { if (seen.has(s.id)) return false; seen.add(s.id); return true; });
   })();
 
   // eslint-disable-next-line react-hooks/set-state-in-effect -- fetchSkills is a stable callback that fetches data
@@ -3561,7 +3586,7 @@ export function SkillStudio({
           currentPrompt={prompt}
           editorIsDirty={editorIsDirty}
           selectedSourceFile={selectedFile?.fileType === "asset" ? (selectedFile as { filename: string }).filename : null}
-          allSkills={allPublishedSkills}
+          allSkills={searchableSkills}
           memo={memo}
           onApplyDraft={handleApplyDraft}
           onNewSession={handleNewSession}
