@@ -1946,9 +1946,9 @@ export function DevStudio({ workspaceId, fromSkillId, initialViewId }: { convId:
                         if (nextPort) {
                           document.cookie = `oc_port=${nextPort}; path=/; SameSite=Lax`;
                           setOpencodePort(nextPort);
-                          setOpencodeUrl(`/api/opencode/~/${result.slug}?_oc_port=${nextPort}`);
+                          setOpencodeUrl(`/api/opencode/~${result.slug}?_oc_port=${nextPort}`);
                         } else {
-                          setOpencodeUrl(`/api/opencode/~/${result.slug}`);
+                          setOpencodeUrl(`/api/opencode/~${result.slug}`);
                         }
                         setShowSessionList(false);
                         setInstanceKey(Date.now());

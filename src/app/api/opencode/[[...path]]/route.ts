@@ -99,6 +99,14 @@ export async function GET(
 (function() {
   var _ocPort = ${JSON.stringify(ocPort)};
   var _portSuffix = _ocPort ? ("?_oc_port=" + _ocPort) : "";
+  var _proxyBase = "/api/opencode";
+
+  try {
+    if (location.pathname === _proxyBase || location.pathname.startsWith(_proxyBase + "/")) {
+      var _internalPath = location.pathname.slice(_proxyBase.length) || "/";
+      history.replaceState(history.state, "", _internalPath + location.search + location.hash);
+    }
+  } catch (e) {}
 
   function _addPort(url) {
     if (!_ocPort) return url;
