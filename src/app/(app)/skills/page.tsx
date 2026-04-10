@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Zap, Wrench } from "lucide-react";
 import { PageShell } from "@/components/layout/PageShell";
 import { ICONS, PixelIcon } from "@/components/pixel";
@@ -11,6 +11,7 @@ import { useAuth } from "@/lib/auth";
 import { apiFetch } from "@/lib/api";
 import type { SkillDetail, ToolEntry } from "@/lib/types";
 import { SandboxTestModal } from "@/components/skill/SandboxTestModal";
+import { SKILL_STATUS_BADGE, isWorkspaceMountableSkillStatus } from "@/lib/skill-status";
 
 function SkillIcon({ size }: { size: number }) {
   const { theme } = useTheme();
@@ -23,13 +24,6 @@ function ToolIcon({ size }: { size: number }) {
   if (theme === "lab") return <PixelIcon {...ICONS.tools} size={size} />;
   return <Wrench size={size} className="text-muted-foreground" />;
 }
-
-const SKILL_STATUS_BADGE: Record<string, { color: "cyan" | "green" | "yellow" | "gray" | "red"; label: string }> = {
-  draft: { color: "gray", label: "草稿" },
-  reviewing: { color: "yellow", label: "审核中" },
-  published: { color: "green", label: "已发布" },
-  archived: { color: "red", label: "已归档" },
-};
 
 const TOOL_STATUS_BADGE: Record<string, { color: "cyan" | "green" | "yellow" | "gray" | "red"; label: string }> = {
   draft: { color: "gray", label: "草稿" },
@@ -70,6 +64,26 @@ interface WorkspaceConfig {
   mounted_tools: WorkspaceConfigItem[];
   needs_prompt_refresh: boolean;
   updated_at: string | null;
+}
+
+function sanitizeMountedSkills(
+  mountedSkills: Map<number, WorkspaceConfigItem>,
+  mySkills: SkillDetail[],
+): Map<number, WorkspaceConfigItem> {
+  const ownSkillStatusMap = new Map(mySkills.map((skill) => [skill.id, skill.status]));
+  const next = new Map<number, WorkspaceConfigItem>();
+  for (const [id, item] of mountedSkills.entries()) {
+    if (item.source !== "own") {
+      next.set(id, item);
+      continue;
+    }
+    const latestStatus = ownSkillStatusMap.get(id);
+    if (!latestStatus || !isWorkspaceMountableSkillStatus(latestStatus)) {
+      continue;
+    }
+    next.set(id, { ...item, status: latestStatus });
+  }
+  return next;
 }
 
 // ─── Section Group ────────────────────────────────────────────────────────────
@@ -325,9 +339,11 @@ export default function SkillsPage() {
   useEffect(() => {
     if (configLoading || skillLoading) return;
     setMountedSkills((prev) => {
-      const next = new Map(prev);
+      const next = sanitizeMountedSkills(prev, mySkills);
       let changed = false;
+      if (next.size !== prev.size) changed = true;
       for (const s of mySkills) {
+        if (!isWorkspaceMountableSkillStatus(s.status)) continue;
         if (!next.has(s.id)) {
           next.set(s.id, {
             id: s.id,
@@ -398,7 +414,8 @@ export default function SkillsPage() {
     setSaving(true);
     setSaveMsg(null);
     try {
-      const skillItems = Array.from(mountedSkills.values()).map((s) => ({
+      const sanitizedMountedSkills = sanitizeMountedSkills(mountedSkills, mySkills);
+      const skillItems = Array.from(sanitizedMountedSkills.values()).map((s) => ({
         id: s.id, source: s.source, mounted: s.mounted,
       }));
       const toolItems = Array.from(mountedTools.values()).map((t) => ({
@@ -408,6 +425,7 @@ export default function SkillsPage() {
         method: "PUT",
         body: JSON.stringify({ mounted_skills: skillItems, mounted_tools: toolItems }),
       });
+      setMountedSkills(sanitizedMountedSkills);
       setSaveMsg("已保存");
       setConfigDirty(false);
       setTimeout(() => setSaveMsg(null), 2000);
@@ -422,7 +440,8 @@ export default function SkillsPage() {
     setPublishing(true);
     setSaveMsg(null);
     try {
-      const skillItems = Array.from(mountedSkills.values()).map((s) => ({
+      const sanitizedMountedSkills = sanitizeMountedSkills(mountedSkills, mySkills);
+      const skillItems = Array.from(sanitizedMountedSkills.values()).map((s) => ({
         id: s.id, source: s.source, mounted: s.mounted,
       }));
       const toolItems = Array.from(mountedTools.values()).map((t) => ({
@@ -436,6 +455,7 @@ export default function SkillsPage() {
         method: "POST",
         body: JSON.stringify({ scope }),
       });
+      setMountedSkills(sanitizedMountedSkills);
       setSaveMsg(`已发布为${scope === "department" ? "部门" : "公司"}标准工作台`);
       setConfigDirty(false);
       setTimeout(() => setSaveMsg(null), 3000);
@@ -448,7 +468,12 @@ export default function SkillsPage() {
 
   // ─── Derived data ─────────────────────────────────────────────────────
 
-  const ownSkills = Array.from(mountedSkills.values()).filter((s) => s.source === "own");
+  const visibleMountedSkills = useMemo(
+    () => sanitizeMountedSkills(mountedSkills, mySkills),
+    [mountedSkills, mySkills],
+  );
+
+  const ownSkills = Array.from(visibleMountedSkills.values()).filter((s) => s.source === "own");
   const deptSkills = Array.from(mountedSkills.values()).filter((s) => s.source === "dept");
   const marketSkills = Array.from(mountedSkills.values()).filter((s) => s.source === "market");
   const ownTools = Array.from(mountedTools.values()).filter((t) => t.source === "own");

@@ -264,6 +264,10 @@ interface SkillOption {
   description: string;
 }
 
+function buildFreshWorkdirTreePath() {
+  return `/dev-studio/workdir/tree?_=${Date.now()}`;
+}
+
 function SaveModal({
   mode,
   onSave,
@@ -294,7 +298,7 @@ function SaveModal({
   useEffect(() => {
     if (mode !== "skill") return;
     setLoadingTree(true);
-    apiFetch<{ workdir: string; tree: TreeNode[] }>("/dev-studio/workdir/tree")
+    apiFetch<{ workdir: string; tree: TreeNode[] }>(buildFreshWorkdirTreePath())
       .then((res) => {
         setFileTree(res.tree);
       })
@@ -749,7 +753,7 @@ function WorkdirPanel({ onClose, onWorkdirChange }: { onClose: () => void; onWor
   const loadTree = useCallback(() => {
     setLoading(true);
     setError("");
-    apiFetch<{ tree: TreeNode[] }>("/dev-studio/workdir/tree")
+    apiFetch<{ tree: TreeNode[] }>(buildFreshWorkdirTreePath())
       .then((res) => setTree(res.tree))
       .catch(() => setError("加载失败"))
       .finally(() => setLoading(false));
@@ -1014,7 +1018,7 @@ function UploadTargetModal({
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    apiFetch<{ tree: TreeNode[] }>("/dev-studio/workdir/tree")
+    apiFetch<{ tree: TreeNode[] }>(buildFreshWorkdirTreePath())
       .then((res) => {
         setDirs(res.tree.filter((n) => n.type === "dir"));
       })
@@ -2129,14 +2133,14 @@ export function DevStudio({ workspaceId, fromSkillId, initialViewId }: { convId:
           保存产出 →
         </span>
         <button
-          onClick={() => setSaveMode("tool")}
+          onClick={() => { refreshOpencodeWorkspace(); setSaveMode("tool"); }}
           disabled={status !== "ready"}
           className="px-3 py-1 text-[9px] font-bold uppercase tracking-widest border-2 border-[#00D1FF] text-[#00A3C4] hover:bg-[#CCF2FF] disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
         >
           保存为 Tool
         </button>
         <button
-          onClick={() => setSaveMode("skill")}
+          onClick={() => { refreshOpencodeWorkspace(); setSaveMode("skill"); }}
           disabled={status !== "ready"}
           className="px-3 py-1 text-[9px] font-bold uppercase tracking-widest border-2 border-[#00CC99] text-[#00A87A] hover:bg-[#C6F6D5] disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
         >
@@ -2144,7 +2148,7 @@ export function DevStudio({ workspaceId, fromSkillId, initialViewId }: { convId:
         </button>
         <div className="flex-1" />
         <button
-          onClick={() => setShowWorkdir(true)}
+          onClick={() => { refreshOpencodeWorkspace(); setShowWorkdir(true); }}
           disabled={status !== "ready"}
           className="px-3 py-1 text-[9px] font-bold uppercase tracking-widest border-2 border-[#6B46C1] text-[#6B46C1] hover:bg-[#E9D8FD] disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
         >

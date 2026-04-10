@@ -12,9 +12,10 @@ import { ChatInput } from "@/components/chat/ChatInput";
 import { DevStudio } from "@/components/chat/DevStudio";
 import { SkillStudio } from "@/components/chat/SkillStudio";
 import { useTheme } from "@/lib/theme";
+import { isEditableSkillStatus, isPublishedSkillStatus } from "@/lib/skill-status";
 
 // Module-level workspace cache — survives route navigation
-type WorkspaceData = { workspace_type?: string; welcome_message?: string; skills: { id: number; name: string; description?: string }[]; tools: { id: number; name: string; display_name: string; description?: string; tool_type?: string }[] };
+type WorkspaceData = { workspace_type?: string; welcome_message?: string; skills: { id: number; name: string; description?: string; status?: string }[]; tools: { id: number; name: string; display_name: string; description?: string; tool_type?: string }[] };
 const _wsCache = new Map<number, WorkspaceData>();
 
 const STAGE_LABELS: Record<string, string> = {
@@ -208,7 +209,7 @@ export default function ChatDetailPage() {
   const [isDragOver, setIsDragOver] = useState(false);
   const [quote, setQuote] = useState<string | null>(null);
   const [prefill, setPrefill] = useState<string | null>(null);
-  const [workspaceSkills, setWorkspaceSkills] = useState<{ id: number; name: string; description?: string }[]>([]);
+  const [workspaceSkills, setWorkspaceSkills] = useState<{ id: number; name: string; description?: string; status?: string }[]>([]);
   const [workspaceTools, setWorkspaceTools] = useState<{ id: number; name: string; display_name: string; description?: string; tool_type?: string }[]>([]);
   const [activeSkill, setActiveSkill] = useState<{ id: number; name: string } | null>(null);
   const [enabledSkillIds, setEnabledSkillIds] = useState<Set<number> | null>(null);
@@ -218,6 +219,10 @@ export default function ChatDetailPage() {
   const [sandboxSkills, setSandboxSkills] = useState<{ id: number; name: string; status: string }[]>([]);
   const [sandboxSkillId, setSandboxSkillId] = useState<number | null>(null);
   const [sandboxLoaded, setSandboxLoaded] = useState(false);
+  const visibleWorkspaceSkills = useMemo(
+    () => workspaceSkills.filter((skill) => !skill.status || isPublishedSkillStatus(skill.status)),
+    [workspaceSkills],
+  );
 
   // Connection state
   const [connState, setConnState] = useState<ConnectionState>(connectionManager.getState());
@@ -276,21 +281,41 @@ export default function ChatDetailPage() {
       setWelcomeMessage(ws.welcome_message ?? null);
       if (ws.workspace_type === "sandbox") {
         apiFetch<{ id: number; name: string; status: string }[]>("/skills?mine=true").then((skills) => {
-          const unpublished = skills.filter(s => s.status === "draft" || s.status === "reviewing");
+          const unpublished = skills.filter((s) => isEditableSkillStatus(s.status));
           setSandboxSkills(unpublished);
           if (unpublished.length > 0) setSandboxSkillId(unpublished[0].id);
         }).catch(() => {}).finally(() => setSandboxLoaded(true));
       } else {
-        setWorkspaceSkills(ws.skills ?? []);
+        setWorkspaceSkills((ws.skills ?? []).filter((skill) => !skill.status || isPublishedSkillStatus(skill.status)));
         setWorkspaceTools(ws.tools ?? []);
       }
       if ((conv as { skill_id?: number | null }).skill_id) {
-        const sk = ws.skills?.find((s) => s.id === (conv as { skill_id?: number | null }).skill_id);
+        const sk = (ws.skills ?? []).find((s) => s.id === (conv as { skill_id?: number | null }).skill_id && (!s.status || isPublishedSkillStatus(s.status)));
         if (sk) setActiveSkill({ id: sk.id, name: sk.name });
+        else setActiveSkill(null);
       }
     };
     loadWorkspace();
   }, [convId, wsHint]);
+
+  useEffect(() => {
+    if (enabledSkillIds === null) return;
+    const visibleIds = new Set(visibleWorkspaceSkills.map((skill) => skill.id));
+    const next = new Set(Array.from(enabledSkillIds).filter((id) => visibleIds.has(id)));
+    if (next.size === visibleWorkspaceSkills.length) {
+      setEnabledSkillIds(null);
+      return;
+    }
+    if (next.size !== enabledSkillIds.size) {
+      setEnabledSkillIds(next);
+    }
+  }, [enabledSkillIds, visibleWorkspaceSkills]);
+
+  useEffect(() => {
+    if (activeSkill && !visibleWorkspaceSkills.some((skill) => skill.id === activeSkill.id)) {
+      setActiveSkill(null);
+    }
+  }, [activeSkill, visibleWorkspaceSkills]);
 
   // Auto-scroll
   useEffect(() => {
@@ -570,7 +595,7 @@ export default function ChatDetailPage() {
       )}
 
       {/* Workspace Skill filter panel */}
-      {workspaceSkills.length > 1 && (
+      {visibleWorkspaceSkills.length > 1 && (
         <div className="border-t border-gray-200 bg-[#F8FCFE]">
           <button
             onClick={() => setSkillPanelOpen((v) => !v)}
@@ -581,7 +606,7 @@ export default function ChatDetailPage() {
               工作空间 Skill
               {enabledSkillIds !== null && (
                 <span className="ml-1 px-1 py-0.5 bg-[#1A202C] text-[#00D1FF] text-[8px] font-bold">
-                  {enabledSkillIds.size}/{workspaceSkills.length}
+                  {enabledSkillIds.size}/{visibleWorkspaceSkills.length}
                 </span>
               )}
             </span>
@@ -599,7 +624,7 @@ export default function ChatDetailPage() {
               >
                 全部
               </button>
-              {workspaceSkills.map((sk) => {
+              {visibleWorkspaceSkills.map((sk) => {
                 const enabled = enabledSkillIds === null || enabledSkillIds.has(sk.id);
                 return (
                   <button
@@ -607,10 +632,10 @@ export default function ChatDetailPage() {
                     title={sk.description || sk.name}
                     onClick={() => {
                       setEnabledSkillIds((prev) => {
-                        const base = prev ?? new Set(workspaceSkills.map((s) => s.id));
+                        const base = prev ?? new Set(visibleWorkspaceSkills.map((s) => s.id));
                         const next = new Set(base);
                         if (next.has(sk.id)) { next.delete(sk.id); } else { next.add(sk.id); }
-                        if (next.size === workspaceSkills.length) return null;
+                        if (next.size === visibleWorkspaceSkills.length) return null;
                         return next;
                       });
                     }}
@@ -635,7 +660,7 @@ export default function ChatDetailPage() {
         disabled={isSending}
         quote={quote}
         onClearQuote={() => setQuote(null)}
-        workspaceSkills={enabledSkillIds !== null ? workspaceSkills.filter((s) => enabledSkillIds.has(s.id)) : workspaceSkills}
+        workspaceSkills={enabledSkillIds !== null ? visibleWorkspaceSkills.filter((s) => enabledSkillIds.has(s.id)) : visibleWorkspaceSkills}
         activeSkill={activeSkill}
         onSelectSkill={handleSelectSkill}
         workspaceTools={workspaceTools}

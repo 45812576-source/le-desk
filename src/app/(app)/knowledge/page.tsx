@@ -9,6 +9,7 @@ import { useAuth } from "@/lib/auth";
 import { apiFetch } from "@/lib/api";
 import { useJobPoller, type JobStatus } from "@/lib/useJobPoller";
 import type { KnowledgeDetail } from "@/lib/types";
+import { isVisibleInMyOrganize } from "@/lib/knowledge-visibility";
 
 // Extracted components
 import FileRow from "@/components/knowledge/FileRow";
@@ -204,6 +205,7 @@ const FileManagerTab = forwardRef<{ createDoc: () => void; triggerUpload: () => 
   const [autoFilingResult, setAutoFilingResult] = useState<{ filed: number; skipped: number; low_confidence: number; batch_id: string; suggestions: Array<{ id: number; knowledge_id: number; title: string; suggested_folder_id: number; confidence: number; reason: string }> } | null>(null);
   const [pendingSuggestions, setPendingSuggestions] = useState<Array<{ id: number; knowledge_id: number; title: string; suggested_folder_id: number; suggested_folder_path: string; confidence: number; reason: string }>>([]);
   const [showPendingSuggestions, setShowPendingSuggestions] = useState(false);
+  const [sharedEditableMap, setSharedEditableMap] = useState<Record<number, boolean>>({});
 
 
   const handleSelectEntry = useCallback(async (e: KnowledgeDetail) => {
@@ -283,14 +285,14 @@ const FileManagerTab = forwardRef<{ createDoc: () => void; triggerUpload: () => 
       setFoldersError(null);
       setEntriesError(null);
       try {
-        const fds = await apiFetch<Folder[]>("/knowledge/folders");
+        const fds = await apiFetch<Folder[]>("/knowledge/folders?owner_only=true");
         setFolders(Array.isArray(fds) ? fds : []);
       } catch (err) {
         setFolders([]);
         setFoldersError(err instanceof Error ? err.message : "文件夹加载失败");
       }
       try {
-        const ens = await apiFetch<KnowledgeDetail[]>("/knowledge");
+        const ens = await apiFetch<KnowledgeDetail[]>("/knowledge?owner_only=true");
         setEntries(Array.isArray(ens) ? ens : []);
       } catch (err) {
         setEntries([]);
@@ -417,8 +419,40 @@ const FileManagerTab = forwardRef<{ createDoc: () => void; triggerUpload: () => 
     fetchAll();
   }
 
-  // 权限过滤由后端完成，前端不再二次过滤
-  const myEntries = entries; // was: currentUser
+  useEffect(() => {
+    if (!currentUser?.id || entries.length === 0) {
+      setSharedEditableMap({});
+      return;
+    }
+
+    const candidates = entries.filter((entry) => !isVisibleInMyOrganize(entry, currentUser.id));
+    if (candidates.length === 0) {
+      setSharedEditableMap({});
+      return;
+    }
+
+    let cancelled = false;
+    Promise.all(
+      candidates.map(async (entry) => {
+        try {
+          const permission = await apiFetch<{ can_edit: boolean }>(`/knowledge/${entry.id}/edit-permission`);
+          return [entry.id, permission.can_edit] as const;
+        } catch {
+          return [entry.id, false] as const;
+        }
+      }),
+    ).then((results) => {
+      if (cancelled) return;
+      setSharedEditableMap(Object.fromEntries(results));
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [entries, currentUser?.id]);
+
+  // “我的整理”只展示：自己上传/生产、已进入我的知识、或明确共享给我可编辑的文档
+  const myEntries = entries.filter((entry) => isVisibleInMyOrganize(entry, currentUser?.id, sharedEditableMap[entry.id] === true));
 
   // Apply sidebar filters
   const filteredEntries = myEntries.filter((e) => {
@@ -447,15 +481,13 @@ const FileManagerTab = forwardRef<{ createDoc: () => void; triggerUpload: () => 
     return true;
   });
 
-  // own: 自己创建的非系统文件夹 → "我的整理"树
+  // own: 自己创建或明确归属于“我的知识”的非系统文件夹 → "我的整理"树
   // system: 系统归档目录 → RAG 视图
-  // visible_doc: 他人文件夹（因文档可见）→ 其中文档平铺到根级
   const ownFolders = folders.filter((f) => !f.is_system && (f.visibility === "own" || (!f.visibility && f.created_by === currentUser?.id)));
-  const visibleDocFolderIds = new Set(folders.filter((f) => f.visibility === "visible_doc").map((f) => f.id));
   const systemFolders = folders.filter((f) => Boolean(f.is_system));
   const tree = buildTree(ownFolders);
-  // 根级文件：无文件夹的 + 在他人文件夹中的可见文档（平铺显示）
-  const rootFiles = filteredEntries.filter((e) => !e.folder_id || visibleDocFolderIds.has(e.folder_id!));
+  // 根级文件：仅无文件夹的“我的整理”文档
+  const rootFiles = filteredEntries.filter((e) => !e.folder_id);
   const visibleRootFiles = rootFiles.filter((e) => !systemFolders.some((f) => f.id === e.folder_id));
 
   function openNewFolder() {
