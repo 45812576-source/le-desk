@@ -1062,6 +1062,18 @@ export interface SandboxReport {
   report_hash: string | null;
   knowledge_entry_id: number | null;
   created_at: string | null;
+  supporting_findings?: SandboxSupportingFinding[];
+}
+
+export interface SandboxSupportingFinding {
+  id: string;
+  title: string;
+  conclusion: string;
+  detail?: string;
+  evidence_snippets?: string[];
+  source_case_indexes?: number[];
+  severity?: "info" | "minor" | "major" | "critical";
+  recommendation?: string;
 }
 
 // ─── 知识管理后台 V1.5 ────────────────────────────────────────────────────

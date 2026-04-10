@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { apiFetch } from "@/lib/api";
 import { PixelButton } from "@/components/pixel/PixelButton";
 import type {
@@ -9,6 +10,7 @@ import type {
   SandboxStepStatus,
   SandboxIssue,
   SandboxFixPlanItem,
+  SandboxSupportingFinding,
   SkillPublishPrecheck,
 } from "@/lib/types";
 
@@ -37,6 +39,7 @@ export function SandboxTestModal({
   onImportToStudio: onImportToStudioProp,
   passedLabel = "OK 通过，继续发布",
 }: SandboxTestModalProps) {
+  const router = useRouter();
   const [session, setSession] = useState<SandboxSession | null>(null);
   const [report, setReport] = useState<SandboxReport | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -289,12 +292,28 @@ export function SandboxTestModal({
                   setLoading(false);
                 }
               }}
-              onImportToStudio={() => {
-                // 触发外部处理：刷新 memo + 聚焦 fix task + 打开编辑器
-                if (onImportToStudioProp) {
-                  onImportToStudioProp();
-                } else {
-                  onCancel();
+              onImportToStudio={async () => {
+                // 内建跳转是主路径，外部回调只做附加动作（如关闭弹窗）
+                try {
+                  setLoading(true);
+                  const entry = await apiFetch<{ conversation_id: number }>(
+                    `/conversations/studio-entry?type=skill_studio&skill_id=${id}`
+                  );
+                  const params = new URLSearchParams({
+                    ws: "skill_studio",
+                    skill_id: String(id),
+                    from: "sandbox_report",
+                    report_id: String(report?.report_id ?? ""),
+                    session_id: String(session?.session_id ?? ""),
+                  });
+                  // 先执行路由跳转，再 fire-and-forget 外部回调
+                  // 避免外部回调导致组件卸载使 router.push 不执行
+                  router.push(`/chat/${entry.conversation_id}?${params.toString()}`);
+                  onImportToStudioProp?.();
+                } catch (err) {
+                  setError(err instanceof Error ? err.message : "跳转 Skill Studio 失败");
+                } finally {
+                  setLoading(false);
                 }
               }}
               onTargetedRerun={async (fixPlanItemIds) => {
@@ -1064,6 +1083,110 @@ function Step4Execute({
   );
 }
 
+// ─── Supporting 结论展示组件 ──────────────────────────────────────────────
+
+function SupportingFindingsSection({ findings }: { findings?: SandboxSupportingFinding[] }) {
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
+
+  if (!findings || findings.length === 0) {
+    return (
+      <div className="border border-gray-200 bg-[#F8FAFB] rounded">
+        <div className="px-3 py-1.5 border-b border-gray-100">
+          <span className="text-[8px] font-bold uppercase tracking-widest text-gray-500">Supporting 结论</span>
+        </div>
+        <div className="px-3 py-2 text-[8px] text-gray-400">无 supporting 结论</div>
+      </div>
+    );
+  }
+
+  const toggleExpand = (id: string) => {
+    setExpandedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  const severityColors: Record<string, string> = {
+    critical: "bg-red-500 text-white",
+    major: "bg-amber-500 text-white",
+    minor: "bg-gray-400 text-white",
+    info: "bg-blue-400 text-white",
+  };
+
+  return (
+    <div className="border border-gray-200 bg-[#F8FAFB] rounded">
+      <div className="px-3 py-1.5 border-b border-gray-100">
+        <span className="text-[8px] font-bold uppercase tracking-widest text-gray-500">
+          Supporting 结论 ({findings.length})
+        </span>
+      </div>
+      <div className="px-3 py-2 space-y-2">
+        {findings.map(f => {
+          const isExpanded = expandedIds.has(f.id);
+          return (
+            <div key={f.id} className="border border-gray-200 rounded p-2">
+              <div className="flex items-center gap-2 mb-1">
+                {f.severity && (
+                  <span className={`text-[7px] font-bold px-1 py-0.5 rounded ${severityColors[f.severity] || severityColors.info}`}>
+                    {f.severity.toUpperCase()}
+                  </span>
+                )}
+                <span className="text-[8px] font-bold text-gray-700 flex-1">{f.title}</span>
+                {f.source_case_indexes && f.source_case_indexes.length > 0 && (
+                  <span className="text-[7px] text-gray-400">
+                    关联 {f.source_case_indexes.length} 个用例
+                  </span>
+                )}
+              </div>
+              <div className="text-[8px] text-gray-600">
+                {isExpanded ? f.conclusion : (f.conclusion.length > 120 ? f.conclusion.slice(0, 120) + "..." : f.conclusion)}
+              </div>
+              {isExpanded && (
+                <div className="mt-1.5 space-y-1.5">
+                  {f.detail && (
+                    <div className="text-[8px] text-gray-500 bg-gray-50 p-1.5 rounded">
+                      {f.detail}
+                    </div>
+                  )}
+                  {f.evidence_snippets && f.evidence_snippets.length > 0 && (
+                    <div>
+                      <div className="text-[7px] font-bold text-gray-400 mb-0.5">证据片段:</div>
+                      {f.evidence_snippets.map((snippet, i) => (
+                        <div key={i} className="text-[7px] text-gray-500 bg-gray-100 p-1 rounded font-mono mb-0.5">
+                          {snippet}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {f.source_case_indexes && f.source_case_indexes.length > 0 && (
+                    <div className="text-[7px] text-gray-400">
+                      关联用例: {f.source_case_indexes.map(idx => `#${idx}`).join(", ")}
+                    </div>
+                  )}
+                  {f.recommendation && (
+                    <div className="text-[8px] text-amber-600">
+                      建议: {f.recommendation}
+                    </div>
+                  )}
+                </div>
+              )}
+              {(f.conclusion.length > 120 || f.detail || (f.evidence_snippets && f.evidence_snippets.length > 0)) && (
+                <button
+                  onClick={() => toggleExpand(f.id)}
+                  className="text-[7px] font-bold text-[#00A3C4] mt-1 hover:underline"
+                >
+                  {isExpanded ? "收起" : "展开详情"}
+                </button>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 // ─── Step 5: 报告（含扣分项、四维分数、行为验证） ──────────────────────────
 
 function Step5Report({
@@ -1514,6 +1637,9 @@ function Step5Report({
           </div>
         </div>
       )}
+
+      {/* Supporting 结论 */}
+      <SupportingFindingsSection findings={report.supporting_findings} />
 
       {/* 报告元信息 */}
       <div className="text-[8px] text-gray-400 font-mono">

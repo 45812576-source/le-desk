@@ -389,7 +389,18 @@ export default function ChatDetailPage() {
 
   if (isSkillStudio) {
     const skillIdParam = searchParams.get("skill_id");
-    return <SkillStudio convId={convId} initialSkillId={skillIdParam ? Number(skillIdParam) : undefined} />;
+    const fromParam = searchParams.get("from") ?? undefined;
+    const reportIdParam = searchParams.get("report_id") ?? undefined;
+    const sessionIdParam = searchParams.get("session_id") ?? undefined;
+    return (
+      <SkillStudio
+        convId={convId}
+        initialSkillId={skillIdParam ? Number(skillIdParam) : undefined}
+        fromSandbox={fromParam === "sandbox_report"}
+        sandboxReportId={reportIdParam}
+        sandboxSessionId={sessionIdParam}
+      />
+    );
   }
 
   return (

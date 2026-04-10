@@ -1,6 +1,6 @@
 "use client";
 
-import { CheckCircle, XCircle, Wrench, PlayCircle, AlertTriangle } from "lucide-react";
+import { CheckCircle, XCircle, Wrench, PlayCircle, AlertTriangle, FileText } from "lucide-react";
 import { PersistentNotices } from "./PersistentNotices";
 import { CurrentTaskCard } from "./CurrentTaskCard";
 import { PixelButton } from "@/components/pixel/PixelButton";
@@ -12,9 +12,11 @@ interface SkillMemoPanelProps {
   onDirectTest: () => void;
   onStartFixTask?: (task: SkillMemoTask) => void;
   onTargetedRetest?: (taskId: string) => void;
+  onViewReport?: () => void;
+  sandboxReportId?: string;
 }
 
-export function SkillMemoPanel({ memo, onStartTask, onDirectTest, onStartFixTask, onTargetedRetest }: SkillMemoPanelProps) {
+export function SkillMemoPanel({ memo, onStartTask, onDirectTest, onStartFixTask, onTargetedRetest, onViewReport, sandboxReportId }: SkillMemoPanelProps) {
   const progressLog = (memo.memo as Record<string, unknown>)?.progress_log as { summary: string }[] | undefined;
   const latestProgress = progressLog?.length ? progressLog[progressLog.length - 1].summary : null;
 
@@ -59,8 +61,19 @@ export function SkillMemoPanel({ memo, onStartTask, onDirectTest, onStartFixTask
 
           {/* 测试结论摘要 */}
           {memo.latest_test && (
-            <div className="px-3 py-1.5 border-b border-amber-200 text-[8px] text-amber-700">
-              {memo.latest_test.summary}
+            <div className="px-3 py-1.5 border-b border-amber-200 text-[8px] text-amber-700 flex items-center gap-2">
+              <span className="flex-1">{memo.latest_test.summary}</span>
+              {sandboxReportId && (
+                <span className="text-[7px] text-gray-400 flex-shrink-0">报告 #{sandboxReportId}</span>
+              )}
+              {onViewReport && (
+                <button
+                  onClick={onViewReport}
+                  className="flex-shrink-0 text-[7px] font-bold text-[#00A3C4] border border-[#00A3C4] px-1.5 py-0.5 hover:bg-[#00A3C4] hover:text-white flex items-center gap-0.5"
+                >
+                  <FileText size={7} /> 查看报告
+                </button>
+              )}
             </div>
           )}
 
@@ -148,6 +161,16 @@ export function SkillMemoPanel({ memo, onStartTask, onDirectTest, onStartFixTask
           <div className="px-3 py-2 text-[9px] text-gray-600 leading-relaxed">
             {memo.latest_test.summary}
           </div>
+          {onViewReport && (
+            <div className="px-3 py-1.5 border-t border-gray-200">
+              <button
+                onClick={onViewReport}
+                className="text-[8px] font-bold text-[#00A3C4] hover:underline flex items-center gap-1"
+              >
+                <FileText size={8} /> 查看完整测试报告
+              </button>
+            </div>
+          )}
         </div>
       )}
     </div>

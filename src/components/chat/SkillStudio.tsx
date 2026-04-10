@@ -2064,6 +2064,8 @@ function StudioChat({
   onEditorTarget,
   clearRef,
   setInputRef,
+  onViewReport,
+  sandboxReportId,
 }: {
   convId: number;
   skillId: number | null;
@@ -2082,6 +2084,8 @@ function StudioChat({
   onEditorTarget: (fileType: string, filename: string) => void;
   clearRef?: { current: (() => void) | null };
   setInputRef?: { current: ((text: string) => void) | null };
+  onViewReport?: () => void;
+  sandboxReportId?: string;
 }) {
   // 消息主存在后端 DB，localStorage 只做草稿和 UI 状态缓存
   const _storageKey = `studio_msgs_${convId}`;
@@ -2727,6 +2731,8 @@ function StudioChat({
               }
             }
           }}
+          onViewReport={onViewReport}
+          sandboxReportId={sandboxReportId}
         />
       )}
 
@@ -2980,7 +2986,19 @@ function StudioChat({
 
 // ─── Main page ────────────────────────────────────────────────────────────────
 
-export function SkillStudio({ convId, initialSkillId }: { convId: number; initialSkillId?: number }) {
+export function SkillStudio({
+  convId,
+  initialSkillId,
+  fromSandbox,
+  sandboxReportId,
+  sandboxSessionId,
+}: {
+  convId: number;
+  initialSkillId?: number;
+  fromSandbox?: boolean;
+  sandboxReportId?: string;
+  sandboxSessionId?: string;
+}) {
   const [skills, setSkills] = useState<SkillDetail[]>([]);
   const [skillsLoading, setSkillsLoading] = useState(true);
   const [selectedFile, _setSelectedFile] = useState<SelectedFile | null>(() => {
@@ -3002,6 +3020,9 @@ export function SkillStudio({ convId, initialSkillId }: { convId: number; initia
   const [showImportModal, setShowImportModal] = useState(false);
   const [showSandbox, setShowSandbox] = useState<number | null>(null);
   const [memo, setMemo] = useState<SkillMemo | null>(null);
+  const [sandboxEntryHandled, setSandboxEntryHandled] = useState(false);
+  const [memoSyncError, setMemoSyncError] = useState<string | null>(null);
+  const [retryingMemoSync, setRetryingMemoSync] = useState(false);
 
   const [prompt, setPrompt] = useState("");
   const [savedPrompt, setSavedPrompt] = useState("");  // last persisted version for dirty tracking
@@ -3074,6 +3095,47 @@ export function SkillStudio({ convId, initialSkillId }: { convId: number; initia
     }
     return () => { setMemo(null); };
   }, [selectedFile?.skillId, fetchMemo]);
+
+  // ── Sandbox report 入口：首次进入时刷新 memo，检测 fixing 状态 ──
+  useEffect(() => {
+    if (!fromSandbox || sandboxEntryHandled || !initialSkillId) return;
+    setSandboxEntryHandled(true);
+    setMemoSyncError(null);
+
+    // 刷新 memo 并检测是否有 fixing 任务
+    apiFetch<SkillMemo>(`/skills/${initialSkillId}/memo`)
+      .then((data) => {
+        if (data && data.lifecycle_stage) {
+          setMemo(data);
+          if (data.lifecycle_stage !== "fixing" && (!data.latest_test || data.latest_test.status !== "failed")) {
+            setMemoSyncError("整改计划未导入 — Memo 中未检测到 fixing 状态");
+          }
+        } else {
+          setMemoSyncError("整改计划未导入 — Memo 不存在");
+        }
+      })
+      .catch(() => {
+        setMemoSyncError("整改任务尚未同步到 Memo");
+      });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fromSandbox, initialSkillId]);
+
+  const handleRetryMemoSync = async () => {
+    if (!sandboxSessionId || retryingMemoSync) return;
+    setRetryingMemoSync(true);
+    try {
+      await apiFetch(`/sandbox/interactive/${sandboxSessionId}/retry-from-step`, {
+        method: "POST",
+        body: JSON.stringify({ step: "memo_sync" }),
+      });
+      setMemoSyncError(null);
+      if (initialSkillId) fetchMemo(initialSkillId);
+    } catch (err) {
+      setMemoSyncError(err instanceof Error ? err.message : "重试 Memo 同步失败");
+    } finally {
+      setRetryingMemoSync(false);
+    }
+  };
 
   const handleMemoRefresh = () => {
     if (selectedFile?.skillId) fetchMemo(selectedFile.skillId);
@@ -3296,6 +3358,30 @@ export function SkillStudio({ convId, initialSkillId }: { convId: number; initia
         当前与 OpenCode 共用个人工程文件区
       </div>
 
+      {/* 沙盒报告入口提示 */}
+      {fromSandbox && sandboxReportId && (
+        <div className="flex-shrink-0 px-4 py-1.5 bg-amber-50 border-b-2 border-amber-300 text-[9px] flex items-center gap-2">
+          <span className="text-amber-700 font-bold">
+            来源：沙盒报告 #{sandboxReportId}
+          </span>
+          {memoSyncError && (
+            <>
+              <span className="text-red-500 font-bold ml-2">{memoSyncError}</span>
+              <button
+                onClick={handleRetryMemoSync}
+                disabled={retryingMemoSync || !sandboxSessionId}
+                className="text-[8px] font-bold text-[#00A3C4] border border-[#00A3C4] px-2 py-0.5 hover:bg-[#00A3C4] hover:text-white disabled:opacity-50 ml-1"
+              >
+                {retryingMemoSync ? "同步中..." : "重试同步"}
+              </button>
+            </>
+          )}
+          {!memoSyncError && memo?.lifecycle_stage === "fixing" && (
+            <span className="text-[#00CC99] font-bold ml-2">已进入整改模式</span>
+          )}
+        </div>
+      )}
+
       {/* Three-column body */}
       <div className="flex-1 flex overflow-hidden">
         <SkillList
@@ -3356,6 +3442,8 @@ export function SkillStudio({ convId, initialSkillId }: { convId: number; initia
           onEditorTarget={handleEditorTarget}
           clearRef={clearChatRef}
           setInputRef={setInputRef}
+          onViewReport={selectedFile?.skillId ? () => setShowSandbox(selectedFile.skillId) : undefined}
+          sandboxReportId={fromSandbox ? sandboxReportId : undefined}
         />
       </div>
 
