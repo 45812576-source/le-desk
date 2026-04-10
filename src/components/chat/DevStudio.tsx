@@ -29,7 +29,13 @@ interface BusinessTableItem {
   display_name: string;
 }
 
-function TransferTableModal({ onClose }: { onClose: () => void }) {
+function TransferTableModal({
+  onClose,
+  onTransferred,
+}: {
+  onClose: () => void;
+  onTransferred?: (result: { filename: string; rows: number }) => void;
+}) {
   const [tables, setTables] = useState<BusinessTableItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedTable, setSelectedTable] = useState("");
@@ -70,6 +76,7 @@ function TransferTableModal({ onClose }: { onClose: () => void }) {
         }
       );
       setResult({ filename: res.filename, rows: res.rows });
+      onTransferred?.({ filename: res.filename, rows: res.rows });
     } catch (err) {
       setError(err instanceof Error ? err.message : "传输失败");
     } finally {
@@ -744,11 +751,27 @@ function WorkdirPanel({ onClose, onWorkdirChange }: { onClose: () => void; onWor
   }, []);
   useEffect(() => { loadTree(); }, [loadTree]);
 
-  // 加载最近会话改动
+  // 加载产物文件：优先 output-files（唯一正式产物目录），fallback 到 latest-output
   useEffect(() => {
     setLatestLoading(true);
-    apiFetch<LatestFile[]>("/dev-studio/latest-output?limit=10")
-      .then((files) => setLatestFiles(files))
+    apiFetch<{ items: { path: string; name: string; size: number; updated_at: string; category: string }[] }>("/dev-studio/output-files")
+      .then((res) => {
+        if (res.items && res.items.length > 0) {
+          setLatestFiles(res.items.map((f) => ({
+            path: f.path,
+            filename: f.name,
+            content: "",
+            tool: "output_file",
+            session_title: "",
+            exists_on_disk: true,
+            category: f.category,
+          })));
+        } else {
+          // fallback 到 latest-output（兼容迁移期）
+          return apiFetch<LatestFile[]>("/dev-studio/latest-output?limit=10")
+            .then((files) => setLatestFiles(files));
+        }
+      })
       .catch(() => {})
       .finally(() => setLatestLoading(false));
   }, []);
@@ -1245,8 +1268,11 @@ function DataViewPanel({ onClose, onSelectView }: { onClose: () => void; onSelec
                           onClick={() => {
                             // v4 §7.2: 不可用视图可点击查看详情（只读），可用视图选择使用
                             if (view.available) {
+                              setError("");
                               onSelectView(view.view_id);
+                              return;
                             }
+                            setError(view.unavailable_reason || stateLabel || "该数据视图当前不可用，无法发送到工作区");
                           }}
                           className={`w-full text-left px-3 py-1.5 pl-8 hover:bg-[#F0FBFF] transition-colors border-t border-gray-50 ${!view.available ? "opacity-50 cursor-default" : "cursor-pointer"}`}
                         >
@@ -1305,10 +1331,12 @@ function DataViewContextBar({
   viewId,
   onClear,
   onSwitch,
+  onDetailLoaded,
 }: {
   viewId: number;
   onClear: () => void;
   onSwitch: () => void;
+  onDetailLoaded?: (detail: DataViewDetail) => void;
 }) {
   const [detail, setDetail] = useState<DataViewDetail | null>(null);
   const [loading, setLoading] = useState(true);
@@ -1319,7 +1347,10 @@ function DataViewContextBar({
     const load = async () => {
       try {
         const data = await apiFetch<DataViewDetail>(`/dev-studio/data-views/${viewId}`);
-        if (!cancelled) setDetail(data);
+        if (!cancelled) {
+          setDetail(data);
+          onDetailLoaded?.(data);
+        }
       } catch {
         // ignore
       } finally {
@@ -1328,33 +1359,7 @@ function DataViewContextBar({
     };
     load();
     return () => { cancelled = true; };
-  }, [viewId]);
-
-  // 自动注入上下文
-  useEffect(() => {
-    if (!detail) return;
-    const fields = detail.fields.map((f) => {
-      let desc = `${f.display_name}(${f.field_name}): ${f.field_type}`;
-      if (f.is_sensitive) desc += " [敏感]";
-      if (f.is_enum && f.enum_values.length > 0) desc += ` 枚举=[${f.enum_values.join(",")}]`;
-      return desc;
-    });
-    const contextText = [
-      `## 可用数据视图`,
-      `- 视图名：${detail.view.name}`,
-      `- 所属表：${detail.table.display_name} (${detail.table.table_name})`,
-      `- 读取方式：使用 data_table_reader 工具，参数 view_id=${detail.view.id}`,
-      `- 披露级别：${detail.view.disclosure_ceiling || detail.permission.disclosure_level}`,
-      `- 可见字段：`,
-      ...fields.map((f) => `  - ${f}`),
-    ].join("\n");
-
-    const blob = new Blob([contextText], { type: "text/markdown" });
-    const formData = new FormData();
-    formData.append("file", blob, "_data_context.md");
-    formData.append("target_path", "inbox");
-    apiFetch("/dev-studio/upload-file", { method: "POST", body: formData }).catch(() => {});
-  }, [detail]);
+  }, [viewId, onDetailLoaded]);
 
   if (loading) {
     return (
@@ -1535,10 +1540,19 @@ export function DevStudio({ workspaceId, fromSkillId, initialViewId }: { convId:
     workspace_root?: string;
     last_active_at?: string | null;
     recent_conversation_ids?: number[];
-    opencode_sessions?: { id: string; title: string | null; directory: string | null; message_count: number; created_at: string | null; updated_at: string | null }[];
-    opencode_session_count?: number;
+    session_total?: number;
+    session_db_health?: string;
+    session_db_source?: string;
+    session_db_path?: string | null;
+    migration_state?: string;
   } | null>(null);
   const [showSessionList, setShowSessionList] = useState(false);
+  const [sessionItems, setSessionItems] = useState<{ id: string; title: string | null; directory: string | null; message_count: number; created_at: string | null; updated_at: string | null }[]>([]);
+  const [sessionPage, setSessionPage] = useState(1);
+  const [sessionTotal, setSessionTotal] = useState(0);
+  const [sessionDbHealth, setSessionDbHealth] = useState<string>("unknown");
+  const [sessionLoading, setSessionLoading] = useState(false);
+  const [resumeError, setResumeError] = useState<string | null>(null);
   const [saveMode, setSaveMode] = useState<SaveMode | null>(null);
   const [saveSuccess, setSaveSuccess] = useState<string | null>(null);
   const [grantedModels, setGrantedModels] = useState<string[]>([]);
@@ -1555,6 +1569,72 @@ export function DevStudio({ workspaceId, fromSkillId, initialViewId }: { convId:
   const [runtimeGeneration, setRuntimeGeneration] = useState<number>(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const retryRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const uploadMsgTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const pushUploadMessage = useCallback((message: string, timeout = 8000) => {
+    setUploadMsg(message);
+    if (uploadMsgTimerRef.current) clearTimeout(uploadMsgTimerRef.current);
+    uploadMsgTimerRef.current = setTimeout(() => setUploadMsg(null), timeout);
+  }, []);
+
+  const refreshOpencodeWorkspace = useCallback(() => {
+    setInstanceKey(Date.now());
+  }, []);
+
+  const uploadVirtualFile = useCallback(async ({
+    content,
+    filename,
+    targetPath = "",
+    contentType = "text/markdown",
+    successMessage,
+  }: {
+    content: string;
+    filename: string;
+    targetPath?: string;
+    contentType?: string;
+    successMessage?: string;
+  }) => {
+    const blob = new Blob([content], { type: contentType });
+    const formData = new FormData();
+    formData.append("file", blob, filename);
+    if (targetPath) formData.append("target_path", targetPath);
+
+    try {
+      await apiFetch("/dev-studio/upload-file", { method: "POST", body: formData });
+      refreshOpencodeWorkspace();
+      const finalPath = targetPath ? `${targetPath}/${filename}` : filename;
+      pushUploadMessage(successMessage || `✓ 已写入工作区：${finalPath}`);
+      return true;
+    } catch (err) {
+      const finalPath = targetPath ? `${targetPath}/${filename}` : filename;
+      pushUploadMessage(`✗ ${finalPath}：${err instanceof Error ? err.message : "写入失败"}`, 10000);
+      return false;
+    }
+  }, [pushUploadMessage, refreshOpencodeWorkspace]);
+
+  const handleDataViewDetailLoaded = useCallback((detail: DataViewDetail) => {
+    const fields = detail.fields.map((f) => {
+      let desc = `${f.display_name}(${f.field_name}): ${f.field_type}`;
+      if (f.is_sensitive) desc += " [敏感]";
+      if (f.is_enum && f.enum_values.length > 0) desc += ` 枚举=[${f.enum_values.join(",")}]`;
+      return desc;
+    });
+
+    void uploadVirtualFile({
+      content: [
+        `## 可用数据视图`,
+        `- 视图名：${detail.view.name}`,
+        `- 所属表：${detail.table.display_name} (${detail.table.table_name})`,
+        `- 读取方式：使用 data_table_reader 工具，参数 view_id=${detail.view.id}`,
+        `- 披露级别：${detail.view.disclosure_ceiling || detail.permission.disclosure_level}`,
+        `- 可见字段：`,
+        ...fields.map((f) => `  - ${f}`),
+      ].join("\n"),
+      filename: "_data_context.md",
+      targetPath: "inbox",
+      successMessage: `✓ 已发送数据视图：${detail.view.name}`,
+    });
+  }, [uploadVirtualFile]);
 
   // 定期轮询 runtime 健康状态
   useEffect(() => {
@@ -1574,7 +1654,6 @@ export function DevStudio({ workspaceId, fromSkillId, initialViewId }: { convId:
     poll();
     const iv = setInterval(poll, 30_000);
     return () => { cancelled = true; clearInterval(iv); };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [runtimeGeneration]);
 
   // 拉取当前用户的受限模型授权
@@ -1632,6 +1711,29 @@ export function DevStudio({ workspaceId, fromSkillId, initialViewId }: { convId:
       if (retryTimer) clearTimeout(retryTimer);
     };
   }, []);
+
+  useEffect(() => {
+    return () => {
+      if (uploadMsgTimerRef.current) clearTimeout(uploadMsgTimerRef.current);
+    };
+  }, []);
+
+  // 拉取 session 列表（展开侧栏时触发）
+  useEffect(() => {
+    if (!showSessionList) return;
+    let cancelled = false;
+    setSessionLoading(true);
+    apiFetch<{ items: typeof sessionItems; total: number; db_health: string }>(`/dev-studio/sessions?page=${sessionPage}&page_size=20`)
+      .then((data) => {
+        if (cancelled) return;
+        setSessionItems(data.items || []);
+        setSessionTotal(data.total || 0);
+        setSessionDbHealth(data.db_health || "unknown");
+      })
+      .catch(() => {})
+      .finally(() => { if (!cancelled) setSessionLoading(false); });
+    return () => { cancelled = true; };
+  }, [showSessionList, sessionPage]);
 
   function handleRetry() {
     setStatus("loading");
@@ -1703,8 +1805,9 @@ export function DevStudio({ workspaceId, fromSkillId, initialViewId }: { convId:
     if (fileInputRef.current) fileInputRef.current.value = "";
     setUploadTargetPath("");
     // 上传完成后刷新 opencode iframe，让文件树显示新文件
-    setInstanceKey(Date.now());
-    setTimeout(() => setUploadMsg(null), 8000);
+    refreshOpencodeWorkspace();
+    if (uploadMsgTimerRef.current) clearTimeout(uploadMsgTimerRef.current);
+    uploadMsgTimerRef.current = setTimeout(() => setUploadMsg(null), 8000);
   }
 
   const statusBadge = (() => {
@@ -1736,17 +1839,17 @@ export function DevStudio({ workspaceId, fromSkillId, initialViewId }: { convId:
           )}
         </div>
         <div className="flex items-center gap-2">
-          {(entryInfo?.opencode_session_count ?? 0) > 0 && (
+          {(entryInfo?.session_total ?? 0) > 0 && (
             <button
               onClick={() => setShowSessionList((v) => !v)}
-              title="查看所有历史 OpenCode 会话"
+              title="查看历史 OpenCode 会话"
               className={`px-3 py-1 text-[9px] font-bold uppercase tracking-widest border-2 transition-colors ${
                 showSessionList
                   ? "border-[#6B46C1] bg-[#6B46C1]/10 text-[#6B46C1]"
                   : "border-[#1A202C] bg-white text-[#1A202C] hover:bg-[#F0F4F8]"
               }`}
             >
-              ☰ 会话 ({entryInfo?.opencode_session_count})
+              ☰ 会话 ({entryInfo?.session_total})
             </button>
           )}
           {status === "ready" && opencodeUrl && (
@@ -1773,34 +1876,51 @@ export function DevStudio({ workspaceId, fromSkillId, initialViewId }: { convId:
       {/* Main area */}
       <div className="flex-1 overflow-hidden relative flex">
         {/* Session list sidebar */}
-        {showSessionList && entryInfo?.opencode_sessions && (
+        {showSessionList && (
           <div className="w-64 flex-shrink-0 border-r-2 border-[#1A202C] bg-white overflow-y-auto">
             <div className="px-3 py-2 border-b border-gray-200 sticky top-0 bg-white z-10">
               <div className="text-[9px] font-bold uppercase tracking-widest text-[#6B46C1]">
-                OpenCode 历史会话 ({entryInfo.opencode_session_count})
+                历史会话 ({sessionTotal})
               </div>
-              <div className="text-[8px] text-gray-400 mt-0.5">
-                所有会话数据永久保留
-              </div>
+              {sessionDbHealth === "healthy" && (
+                <div className="text-[8px] text-green-500 mt-0.5">DB 状态正常</div>
+              )}
+              {sessionDbHealth === "degraded" && (
+                <div className="text-[8px] text-yellow-500 mt-0.5">DB 需要修复（legacy/新路径不一致）</div>
+              )}
+              {sessionDbHealth === "error" && (
+                <div className="text-[8px] text-red-400 mt-0.5">DB 读取异常</div>
+              )}
+              {sessionDbHealth === "missing" && (
+                <div className="text-[8px] text-gray-400 mt-0.5">DB 尚未创建</div>
+              )}
             </div>
+            {resumeError && (
+              <div className="px-3 py-1.5 bg-red-50 border-b border-red-100 text-[8px] text-red-500">
+                {resumeError}
+              </div>
+            )}
             <div className="divide-y divide-gray-100">
-              {entryInfo.opencode_sessions.map((session) => (
+              {sessionLoading && sessionItems.length === 0 && (
+                <div className="px-3 py-4 text-[9px] text-gray-400 text-center">加载中...</div>
+              )}
+              {sessionItems.map((session) => (
                 <button
                   key={session.id}
                   onClick={async () => {
-                    if (!opencodePort) return;
-                    // 通过 OpenCode RPC API 切换到指定 session，然后刷新 iframe
+                    setResumeError(null);
                     try {
-                      await fetch(`/api/opencode-rpc/session/set?_oc_port=${opencodePort}`, {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({ id: session.id }),
-                      });
-                    } catch {
-                      // RPC 失败时 fallback: 在 URL 上带 session 参数让 OpenCode 尝试恢复
+                      const result = await apiFetch<{ ok: boolean; error_message?: string | null }>(`/dev-studio/sessions/${session.id}/resume`, { method: "POST" });
+                      if (result.ok) {
+                        setShowSessionList(false);
+                        setOpencodeUrl(`/api/opencode?_oc_port=${opencodePort}`);
+                        setInstanceKey(Date.now());
+                      } else {
+                        setResumeError(result.error_message || "恢复失败");
+                      }
+                    } catch (err) {
+                      setResumeError(err instanceof Error ? err.message : "恢复请求失败");
                     }
-                    setOpencodeUrl(`/api/opencode?_oc_port=${opencodePort}`);
-                    setInstanceKey(Date.now());
                   }}
                   className="w-full text-left px-3 py-2 hover:bg-[#F0F4F8] transition-colors group"
                 >
@@ -1819,9 +1939,29 @@ export function DevStudio({ workspaceId, fromSkillId, initialViewId }: { convId:
                   </div>
                 </button>
               ))}
-              {entryInfo.opencode_sessions.length === 0 && (
+              {!sessionLoading && sessionItems.length === 0 && (
                 <div className="px-3 py-4 text-[9px] text-gray-400 text-center">
                   暂无历史会话
+                </div>
+              )}
+              {/* 分页 */}
+              {sessionTotal > 20 && (
+                <div className="px-3 py-2 flex justify-between items-center">
+                  <button
+                    disabled={sessionPage <= 1}
+                    onClick={() => setSessionPage((p) => p - 1)}
+                    className="text-[8px] text-[#6B46C1] disabled:text-gray-300"
+                  >
+                    上一页
+                  </button>
+                  <span className="text-[8px] text-gray-400">{sessionPage}/{Math.ceil(sessionTotal / 20)}</span>
+                  <button
+                    disabled={sessionPage >= Math.ceil(sessionTotal / 20)}
+                    onClick={() => setSessionPage((p) => p + 1)}
+                    className="text-[8px] text-[#6B46C1] disabled:text-gray-300"
+                  >
+                    下一页
+                  </button>
                 </div>
               )}
             </div>
@@ -1859,8 +1999,23 @@ export function DevStudio({ workspaceId, fromSkillId, initialViewId }: { convId:
                   <div className="text-[9px] text-gray-400 font-mono bg-gray-50 border border-gray-200 px-3 py-2 mb-3 text-left space-y-1">
                     {entryInfo.workspace_root && <div>工作区: {entryInfo.workspace_root}</div>}
                     {entryInfo.last_active_at && <div>上次活跃: {new Date(entryInfo.last_active_at).toLocaleString("zh-CN")}</div>}
-                    {(entryInfo.opencode_session_count ?? 0) > 0 && (
-                      <div>OpenCode 历史会话: {entryInfo.opencode_session_count} 个（数据完好）</div>
+                    {(entryInfo.session_total ?? 0) > 0 && entryInfo.session_db_health === "healthy" && (
+                      <div className="text-green-500">历史会话: {entryInfo.session_total} 个（DB 正常）</div>
+                    )}
+                    {(entryInfo.session_total ?? 0) > 0 && entryInfo.session_db_health === "degraded" && (
+                      <div className="text-yellow-500">历史会话: {entryInfo.session_total} 个（DB 需修复）</div>
+                    )}
+                    {entryInfo.session_db_health === "error" && (
+                      <div className="text-red-400">Session DB 读取异常</div>
+                    )}
+                    {entryInfo.session_db_health === "missing" && (
+                      <div className="text-yellow-500">Session DB 尚未创建（首次使用）</div>
+                    )}
+                    {entryInfo.migration_state === "migrated" && (
+                      <div className="text-blue-400">Legacy DB 已迁移到新路径</div>
+                    )}
+                    {entryInfo.session_db_path && (
+                      <div>DB: {entryInfo.session_db_path}</div>
                     )}
                   </div>
                 )}
@@ -1996,7 +2151,13 @@ export function DevStudio({ workspaceId, fromSkillId, initialViewId }: { convId:
       )}
 
       {showTransfer && (
-        <TransferTableModal onClose={() => setShowTransfer(false)} />
+        <TransferTableModal
+          onClose={() => setShowTransfer(false)}
+          onTransferred={({ filename, rows }) => {
+            refreshOpencodeWorkspace();
+            pushUploadMessage(`✓ 已写入工作区：${filename}（${rows} 行）`);
+          }}
+        />
       )}
 
       {showWorkdir && (
@@ -2024,15 +2185,16 @@ export function DevStudio({ workspaceId, fromSkillId, initialViewId }: { convId:
             // v4 §6.3: 切换视图 → 清空旧上下文缓存
             if (selectedViewId && selectedViewId !== viewId) {
               // 写入失效标记到 inbox
-              const invalidateText = `## ⚠️ 数据上下文已切换\n\n旧视图 (view_id=${selectedViewId}) 的数据上下文已失效。后续回答将基于新视图。\n请勿继续引用旧视图的数据。`;
-              const blob = new Blob([invalidateText], { type: "text/markdown" });
-              const formData = new FormData();
-              formData.append("file", blob, "_data_context_switch.md");
-              formData.append("target_path", "inbox");
-              apiFetch("/dev-studio/upload-file", { method: "POST", body: formData }).catch(() => {});
+              void uploadVirtualFile({
+                content: `## ⚠️ 数据上下文已切换\n\n旧视图 (view_id=${selectedViewId}) 的数据上下文已失效。后续回答将基于新视图。\n请勿继续引用旧视图的数据。`,
+                filename: "_data_context_switch.md",
+                targetPath: "inbox",
+                successMessage: "✓ 已更新数据视图上下文，工作区已刷新",
+              });
             }
             setShowDataViewPanel(false);
             setSelectedViewId(viewId);
+            pushUploadMessage("正在写入数据视图上下文...");
           }}
         />
       )}
@@ -2053,15 +2215,16 @@ export function DevStudio({ workspaceId, fromSkillId, initialViewId }: { convId:
       {selectedViewId && (
         <DataViewContextBar
           viewId={selectedViewId}
+          onDetailLoaded={handleDataViewDetailLoaded}
           onClear={() => {
             setSelectedViewId(null);
             // v4 §6.3: 清除上下文 → 写入失效标记
-            const clearText = `## ⚠️ 数据上下文已清除\n\n数据视图上下文已被用户手动清除。后续不可进行数据读取。`;
-            const blob = new Blob([clearText], { type: "text/markdown" });
-            const formData = new FormData();
-            formData.append("file", blob, "_data_context.md");
-            formData.append("target_path", "inbox");
-            apiFetch("/dev-studio/upload-file", { method: "POST", body: formData }).catch(() => {});
+            void uploadVirtualFile({
+              content: `## ⚠️ 数据上下文已清除\n\n数据视图上下文已被用户手动清除。后续不可进行数据读取。`,
+              filename: "_data_context.md",
+              targetPath: "inbox",
+              successMessage: "✓ 已清除数据视图上下文",
+            });
           }}
           onSwitch={() => setShowDataViewPanel(true)}
         />

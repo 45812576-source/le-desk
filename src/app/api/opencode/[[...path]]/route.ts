@@ -49,6 +49,11 @@ export async function GET(
       /(src|href)="(\/(?!api\/opencode)[^"]+)"/g,
       (_, attr, p) => `${attr}="/api/opencode${p}"`
     );
+    // 匹配 ./assets/ 开头的相对路径（Vite 有时生成相对路径）
+    html = html.replace(
+      /(src|href)="(\.\/(assets\/[^"]+))"/g,
+      (_, attr, _full, assetPath) => `${attr}="/api/opencode/${assetPath}"`
+    );
     // 从请求中取端口，注入到脚本里，让 iframe 内的 fetch/WebSocket 带上正确的端口参数
     const ocPort = req.nextUrl.searchParams.get("_oc_port") || req.cookies.get("oc_port")?.value || "";
     // 注入脚本：清除 localStorage 里硬编码的 defaultServerUrl，避免覆盖代理替换
@@ -187,6 +192,8 @@ export async function GET(
       var val = el.getAttribute(attr);
       if (val && val.startsWith("/assets/")) {
         el.setAttribute(attr, "/api/opencode" + val);
+      } else if (val && val.startsWith("./assets/")) {
+        el.setAttribute(attr, "/api/opencode/assets/" + val.slice(9));
       } else if (val && val.startsWith("/") && !val.startsWith("/api/")) {
         el.setAttribute(attr, "/api/opencode" + val);
       }
@@ -218,6 +225,18 @@ export async function GET(
   window.WebSocket.OPEN = _origWS.OPEN;
   window.WebSocket.CLOSING = _origWS.CLOSING;
   window.WebSocket.CLOSED = _origWS.CLOSED;
+
+  // preload 失败容错：modulepreload 加载失败时降级为普通 script[type=module]
+  window.addEventListener("error", function(e) {
+    if (e.target && e.target.tagName === "LINK" && e.target.rel === "modulepreload") {
+      var failedHref = e.target.href;
+      e.target.remove();
+      var script = document.createElement("script");
+      script.type = "module";
+      script.src = failedHref;
+      document.head.appendChild(script);
+    }
+  }, true);
 })();
 </script>`;
     html = html.replace("</head>", `${injectScript}</head>`);
@@ -251,10 +270,14 @@ export async function GET(
     js = js.replace(new RegExp("baseUrl:" + '"http:' + "//localhost:4096" + '"', "g"), 'baseUrl:location.origin+"/api/opencode-rpc"');
     // Vite 打包的 JS 中硬编码了 "/assets/..." 路径用于 CSS preload 和动态 import
     // 这些不经过 fetch patch，必须在源码级别重写到代理路径
-    js = js.replace(/(["'])\/assets\//g, '$1/api/opencode/assets/');
+    js = js.replace(/(["'])(?:\.\/)?assets\//g, '$1/api/opencode/assets/');
     const respHeaders = new Headers();
     respHeaders.set("content-type", contentType || "application/javascript");
-    respHeaders.set("cache-control", "no-store, no-cache, must-revalidate");
+    // 包含 hash 的 JS 文件（如 /assets/index-AbCdEf.js）用 immutable 缓存
+    const isHashedJs = /\/assets\/[^/]+-[a-zA-Z0-9]{6,}\.(js|mjs)$/.test(subpath);
+    respHeaders.set("cache-control", isHashedJs
+      ? "public, max-age=31536000, immutable"
+      : "no-store, no-cache, must-revalidate");
     respHeaders.delete("content-security-policy");
     return new NextResponse(js, { status: upstream.status, headers: respHeaders });
   }

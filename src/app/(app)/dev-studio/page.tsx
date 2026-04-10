@@ -64,9 +64,9 @@ export default function DevStudioEntryPage() {
           <span className="text-[#6B46C1] font-bold text-sm">!</span>
         </div>
         <p className="text-[10px] font-bold uppercase tracking-widest text-red-500">{error}</p>
-        {entry && (entry.opencode_session_count ?? 0) > 0 && (
+        {entry && (entry.session_total ?? 0) > 0 && (
           <p className="text-[9px] text-gray-400 mt-2">
-            工作区存在，包含 {entry.opencode_session_count} 个 OpenCode 历史会话（数据完好）
+            工作区存在，包含 {entry.session_total} 个 OpenCode 历史会话
           </p>
         )}
         <button

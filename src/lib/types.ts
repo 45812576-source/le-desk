@@ -20,13 +20,52 @@ export interface StudioEntryResolution {
   needs_recover: boolean;
   recent_conversation_ids: number[];
   last_active_at: string | null;
-  /** opencode.db 中的全量 session 列表 */
-  opencode_sessions: OpenCodeSessionInfo[];
-  opencode_session_count: number;
+  /** session db 诊断（不承载 session 列表，详情走 GET /sessions） */
+  session_total: number;
+  session_db_health: "healthy" | "degraded" | "missing" | "error" | "unknown";
+  session_db_source: string;
+  session_db_path?: string | null;
+  migration_state: "none" | "migrated" | "needs_repair" | "error";
   /** POST /entry 返回时额外字段 */
   port?: number | null;
   url?: string | null;
   runtime_error?: string | null;
+}
+
+/** GET /sessions 返回 */
+export interface SessionListResponse {
+  items: OpenCodeSessionInfo[];
+  total: number;
+  page: number;
+  page_size: number;
+  db_path: string | null;
+  db_health: "healthy" | "degraded" | "missing" | "error";
+  db_source: string;
+  migration_state: string;
+}
+
+/** POST /sessions/{id}/resume 返回 */
+export interface SessionResumeResponse {
+  ok: boolean;
+  resumed_session_id: string | null;
+  runtime_status: string;
+  error_code: string | null;
+  error_message: string | null;
+}
+
+/** GET /runtime-health 返回 */
+export interface RuntimeHealthResponse {
+  runtime_reachable: boolean;
+  static_ok: boolean;
+  rpc_ok: boolean;
+  ws_ok: boolean | null;
+  session_db_health: string;
+  runtime_status: string;
+}
+
+/** GET /output-files 返回 */
+export interface OutputFilesResponse {
+  items: { path: string; name: string; size: number; updated_at: string; category: string }[];
 }
 
 export interface User {
