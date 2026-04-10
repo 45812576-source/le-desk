@@ -211,7 +211,7 @@
   .bg-\[\#1A202C\] { background-color: var(--primary); color: var(--primary-foreground); }
   .bg-\[\#CCF2FF\] { background-color: var(--accent); }
   .bg-\[\#00CC99\], .bg-\[\#00A87A\] { background-color: var(--muted); }
-  .bg-\[\#6B46C1\], .bg-\[\#805AD5\], .bg-\[\#E9D8FD\] { background-color: var(--secondary); }
+  .bg-\[\#6B46C1\], .bg-\[\#805AD5\], .bg-\[\#E9D8FD\], .bg-\[\#FAF5FF\] { background-color: var(--secondary); }
 
   .text-\[\#1A202C\] { color: var(--foreground); }
   .text-\[\#00A3C4\], .text-\[\#00D1FF\], .text-\[\#00CC99\] { color: var(--muted-foreground); }
@@ -250,7 +250,7 @@
   .bg-\[\#00D1FF\], .bg-\[\#00A3C4\] { background-color: var(--muted) !important; }
   .bg-\[\#CCF2FF\] { background-color: var(--accent) !important; color: var(--accent-foreground); }
   .bg-\[\#00CC99\], .bg-\[\#00A87A\] { background-color: var(--muted) !important; }
-  .bg-\[\#6B46C1\], .bg-\[\#805AD5\], .bg-\[\#E9D8FD\] { background-color: var(--secondary) !important; }
+  .bg-\[\#6B46C1\], .bg-\[\#805AD5\], .bg-\[\#E9D8FD\], .bg-\[\#FAF5FF\] { background-color: var(--secondary) !important; }
 
   .text-\[\#1A202C\] { color: var(--foreground); }
   .text-\[\#00A3C4\], .text-\[\#00D1FF\], .text-\[\#00CC99\] { color: var(--muted-foreground); }
