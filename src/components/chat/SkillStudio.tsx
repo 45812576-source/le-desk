@@ -1681,20 +1681,35 @@ function KnowledgeConfirmModal({
   const [saving, setSaving] = useState(false);
   const [step, setStep] = useState(0);
 
+  const [error, setError] = useState("");
+
   async function handleConfirmAll() {
     setSaving(true);
+    setError("");
     try {
       const result = await apiFetch<Record<string, unknown>>(`/sandbox/preflight/${skillId}/knowledge-confirm`, {
         method: "POST",
         body: JSON.stringify({ confirmations }),
       });
+      const failedFiles = (result.failed_files as string[] | undefined) ?? [];
+      const failedCount = (result.failed_count as number | undefined) ?? 0;
+      if (failedCount > 0 && failedFiles.length === confirmations.length) {
+        // 全部失败
+        setError(`归档失败：${failedFiles.join("、")} 文件内容为空或无法读取，请检查文件是否存在`);
+        return;
+      }
+      if (failedCount > 0) {
+        // 部分失败，仍然继续但提示
+        console.warn("部分文件归档失败:", failedFiles);
+      }
       const ids = [
         ...(((result.knowledge_entry_ids as unknown[] | undefined) ?? []).filter((item): item is number => typeof item === "number")),
         ...(((result.created_entry_ids as unknown[] | undefined) ?? []).filter((item): item is number => typeof item === "number")),
       ];
-      onDone({ confirmed: confirmations.length, knowledgeEntryCount: ids.length });
+      onDone({ confirmed: confirmations.length - failedCount, knowledgeEntryCount: ids.length });
     } catch (err) {
       console.error("Knowledge confirm failed", err);
+      setError(err instanceof Error ? err.message : "归档失败，请重试");
     } finally { setSaving(false); }
   }
 
@@ -1754,6 +1769,11 @@ function KnowledgeConfirmModal({
           </div>
         </div>
 
+        {error && (
+          <div className="mx-4 mb-2 text-[10px] text-red-600 border border-red-300 bg-red-50 px-3 py-2">
+            {error}
+          </div>
+        )}
         <div className="px-4 py-3 border-t-2 border-[#1A202C] flex items-center gap-2">
           {step > 0 && (
             <PixelButton size="sm" variant="secondary" onClick={() => setStep(step - 1)}>上一个</PixelButton>
@@ -3370,8 +3390,13 @@ export function SkillStudio({
     ].filter((s) => { if (seen.has(s.id)) return false; seen.add(s.id); return true; });
   })();
 
+  // 初始化时同步 workspace 中未注册的 skill 文件到 DB，再加载列表
   // eslint-disable-next-line react-hooks/set-state-in-effect -- fetchSkills is a stable callback that fetches data
-  useEffect(() => { fetchSkills(); }, [fetchSkills]);
+  useEffect(() => {
+    apiFetch("/dev-studio/sync-skills-from-workspace", { method: "POST" })
+      .catch(() => {})
+      .finally(() => fetchSkills());
+  }, [fetchSkills]);
 
   function handleNew() {
     setSelectedFile(null);

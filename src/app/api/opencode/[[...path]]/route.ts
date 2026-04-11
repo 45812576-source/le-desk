@@ -151,7 +151,8 @@ export async function GET(
 
   function _normalizeSessionApiPath(path) {
     if (!path || !path.startsWith("/")) return path;
-    return path.replace(/^\\/[^/]+(\\/session\\/[^/]+\\/(?:message|messages|diff|todo)(?:[/?#].*)?)$/, "$1");
+    // 匹配所有 /session/{id}[/{action}] 子路径，去掉 opencode SPA 可能注入的前缀
+    return path.replace(/^\\/[^/]+(\\/session\\/[^/]+(?:\\/[a-z][a-z0-9_-]*)?(?:[/?#].*)?)$/, "$1");
   }
 
 
