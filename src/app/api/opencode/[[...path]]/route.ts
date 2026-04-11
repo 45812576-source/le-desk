@@ -116,14 +116,46 @@ export async function GET(
     } catch(e) { return url; }
   }
 
+  function _resolveSameOriginPath(url) {
+    if (!url || typeof url !== "string") return null;
+    try {
+      var resolved = new URL(url, location.href);
+      if (resolved.origin !== location.origin) return null;
+      return resolved.pathname + resolved.search + resolved.hash;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function _isStaticPath(path) {
+    return !!path && (
+      path.startsWith("/assets/") ||
+      path === "/favicon.ico" ||
+      path.endsWith(".css") ||
+      path.endsWith(".js") ||
+      path.endsWith(".mjs") ||
+      path.endsWith(".png") ||
+      path.endsWith(".jpg") ||
+      path.endsWith(".jpeg") ||
+      path.endsWith(".gif") ||
+      path.endsWith(".svg") ||
+      path.endsWith(".webp") ||
+      path.endsWith(".ico") ||
+      path.endsWith(".woff") ||
+      path.endsWith(".woff2") ||
+      path.endsWith(".ttf") ||
+      path.endsWith(".map") ||
+      path.endsWith(".webmanifest")
+    );
+  }
+
   function _rewriteRpcPath(url) {
     if (!url || typeof url !== "string") return url;
-    if (url.startsWith("/api/")) return _addPort(url);
-    if (url.startsWith("/")) return _addPort("/api/opencode-rpc" + url);
-    if (url.startsWith(location.origin + "/") && !url.startsWith(location.origin + "/api/")) {
-      return _addPort("/api/opencode-rpc" + url.slice(location.origin.length));
-    }
-    return url;
+    var path = _resolveSameOriginPath(url) || url;
+    if (path.startsWith("/api/")) return _addPort(path);
+    if (!path.startsWith("/")) return url;
+    if (_isStaticPath(path)) return _addPort("/api/opencode" + path);
+    return _addPort("/api/opencode-rpc" + path);
   }
 
   try {
@@ -137,18 +169,37 @@ export async function GET(
     }
   } catch(e) {}
 
-  // patch fetch：把 /api 以外的同源请求重写到 /api/opencode-rpc，并带端口参数
+  // patch fetch：把同源 API/相对路径统一改写到代理，并带端口参数
   var _origFetch = window.fetch;
   window.fetch = function(input, init) {
     var url = typeof input === "string" ? input : (input instanceof Request ? input.url : String(input));
-    if (url.startsWith(location.origin + "/") && !url.startsWith(location.origin + "/api/")) {
-      var rewritten = _addPort("/api/opencode-rpc" + url.slice(location.origin.length));
+    var rewritten = _rewriteRpcPath(url);
+    if (rewritten !== url) {
       input = typeof input === "string" ? rewritten : new Request(rewritten, input instanceof Request ? input : undefined);
-    } else if (url.startsWith("/") && !url.startsWith("/api/") && !url.startsWith("/opencode")) {
-      input = _addPort("/api/opencode-rpc" + url);
     }
     return _origFetch.call(this, input, init);
   };
+
+  try {
+    var _origXHROpen = XMLHttpRequest.prototype.open;
+    XMLHttpRequest.prototype.open = function(method, url) {
+      if (typeof url === "string") {
+        arguments[1] = _rewriteRpcPath(url);
+      }
+      return _origXHROpen.apply(this, arguments);
+    };
+  } catch (e) {}
+
+  try {
+    var _origEventSource = window.EventSource;
+    if (_origEventSource) {
+      window.EventSource = function(url, config) {
+        var nextUrl = typeof url === "string" ? _rewriteRpcPath(url) : url;
+        return new _origEventSource(nextUrl, config);
+      };
+      window.EventSource.prototype = _origEventSource.prototype;
+    }
+  } catch (e) {}
 
   // patch location.reload()：opencode SPA 内部偶尔调用 reload，会导致 iframe 整体刷新
   // 用 no-op 替换，避免周期性白屏闪退
@@ -185,7 +236,7 @@ export async function GET(
   // 辅助：通过隐藏 <a download> 触发浏览器真实下载
   function _triggerDownload(url) {
     var a = document.createElement("a");
-    a.href = url.startsWith("/") ? _addPort("/api/opencode-rpc" + url) : url;
+    a.href = typeof url === "string" ? _rewriteRpcPath(url) : url;
     a.download = "";
     a.style.display = "none";
     document.body.appendChild(a);
