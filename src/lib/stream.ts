@@ -28,7 +28,15 @@ export type StreamEventType =
   | "pev_done"
   | "pev_error"
   | "pev_compensation_start"
-  | "pev_compensation_result";
+  | "pev_compensation_result"
+  // Studio 结构化事件
+  | "route_status"
+  | "assist_skills_status"
+  | "architect_phase_status"
+  | "audit_summary"
+  | "governance_card"
+  | "staged_edit_notice"
+  | "fallback_text";
 
 export interface StreamEvent {
   type: StreamEventType;

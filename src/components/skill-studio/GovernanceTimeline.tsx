@@ -1,0 +1,439 @@
+"use client";
+
+import { memo } from "react";
+import type { ChatMessage, GovernanceCardData, GovernanceAction, AuditResult, GovernanceActionCard, PhaseProgress, ArchitectPhaseStatus, ArchitectQuestion, ArchitectPhaseSummary, ArchitectStructure, ArchitectPriorityMatrix, ArchitectOodaDecision, ArchitectReadyForDraft } from "./types";
+import { GovernanceCard } from "./cards/GovernanceCard";
+import { ArchitectPhaseCard } from "./cards/ArchitectPhaseCard";
+import { ArchitectQuestionCard } from "./cards/ArchitectQuestionCard";
+import { ArchitectConfirmCard } from "./cards/ArchitectConfirmCard";
+import { ArchitectStructureCard, PriorityMatrixView } from "./cards/ArchitectStructureCard";
+import { OodaDecisionView, ReadyForDraftView } from "./cards/ArchitectDecisionCard";
+import { PHASE_THEME } from "./RouteStatusBar";
+import { FRAMEWORK_LABELS } from "./utils";
+
+// ─── AuditReportCard（六维度 + 分数条 + 阶段入口）──────────────────────────
+
+const SEVERITY_COLORS: Record<string, string> = {
+  low: "text-green-600 bg-green-50 border-green-200",
+  medium: "text-amber-600 bg-amber-50 border-amber-200",
+  high: "text-red-500 bg-red-50 border-red-200",
+  critical: "text-red-700 bg-red-100 border-red-300",
+};
+
+const SCORE_BAR_COLORS: Record<string, string> = {
+  high: "bg-green-500",
+  medium: "bg-amber-400",
+  low: "bg-red-400",
+};
+
+function scoreLevel(score: number): "high" | "medium" | "low" {
+  if (score >= 70) return "high";
+  if (score >= 40) return "medium";
+  return "low";
+}
+
+const AuditReportCard = memo(function AuditReportCard({ audit, onDismiss }: { audit: AuditResult; onDismiss: () => void }) {
+  const sevClass = SEVERITY_COLORS[audit.severity] || SEVERITY_COLORS.medium;
+  const entryTheme = audit.phase_entry ? PHASE_THEME[audit.phase_entry] : null;
+  return (
+    <div className={`mx-3 my-2 border-2 ${sevClass} text-[9px] font-mono`}>
+      {/* 标题栏 */}
+      <div className="px-3 py-2 border-b border-inherit flex items-center gap-2">
+        <span className="font-bold uppercase tracking-widest text-[8px] flex-1">
+          ◆ Skill 审计结论
+        </span>
+        <span className={`text-[11px] font-bold ${audit.quality_score >= 70 ? "text-green-600" : audit.quality_score >= 40 ? "text-amber-600" : "text-red-600"}`}>
+          {audit.quality_score}
+        </span>
+        <span className="text-[7px] text-gray-400">/100</span>
+        <button onClick={onDismiss} className="text-[8px] opacity-40 hover:opacity-100 ml-1">✕</button>
+      </div>
+
+      {/* 概要行 */}
+      <div className="px-3 py-1.5 flex items-center gap-3 border-b border-inherit flex-wrap">
+        <span>
+          <span className="font-bold">严重度</span>
+          <span className={`ml-1 px-1 py-0.5 text-[7px] font-bold uppercase ${sevClass}`}>{audit.severity}</span>
+        </span>
+        <span>
+          <span className="font-bold">建议</span>
+          <span className="ml-1">{audit.recommended_path === "restructure" ? "重构（回到问题定义）" : "优化（局部补强）"}</span>
+        </span>
+        {entryTheme && (
+          <span className={`ml-auto px-1.5 py-0.5 text-[7px] font-bold uppercase ${entryTheme.text} ${entryTheme.bg} ${entryTheme.border} border`}>
+            进入 {entryTheme.label}
+          </span>
+        )}
+      </div>
+
+      {/* 六维度评分列表 */}
+      {audit.issues.length > 0 && (
+        <div className="px-3 py-2 space-y-1.5">
+          {audit.issues.map((issue, i) => {
+            const level = scoreLevel(issue.score);
+            const barColor = SCORE_BAR_COLORS[level];
+            const fwLabel = issue.framework ? FRAMEWORK_LABELS[issue.framework] || issue.framework : null;
+            return (
+              <div key={i}>
+                <div className="flex items-center gap-1.5 mb-0.5">
+                  <span className="font-bold w-20 flex-shrink-0 truncate">{issue.dimension}</span>
+                  <div className="flex-1 h-1 bg-gray-200 relative">
+                    <div className={`h-full ${barColor}`} style={{ width: `${issue.score}%` }} />
+                  </div>
+                  <span className={`w-6 text-right font-bold ${level === "high" ? "text-green-600" : level === "medium" ? "text-amber-600" : "text-red-500"}`}>
+                    {issue.score}
+                  </span>
+                  {fwLabel && (
+                    <span className="text-[7px] text-gray-400 w-16 truncate text-right" title={fwLabel}>{fwLabel}</span>
+                  )}
+                </div>
+                <div className="text-gray-500 pl-[86px] text-[8px]">{issue.detail}</div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+});
+
+// ─── GovernanceActionCard（阶段色带 + 框架标签）──────────────────────────────
+
+const RISK_BADGE: Record<string, string> = {
+  low: "bg-green-100 text-green-700 border-green-300",
+  medium: "bg-amber-100 text-amber-700 border-amber-300",
+  high: "bg-red-100 text-red-700 border-red-300",
+};
+
+const GovernanceActionCardComponent = memo(function GovernanceActionCardComponent({
+  action,
+  onAdopt,
+}: {
+  action: GovernanceActionCard;
+  onAdopt: (a: GovernanceActionCard) => void;
+}) {
+  const riskClass = RISK_BADGE[action.risk_level] || RISK_BADGE.medium;
+  const phaseTheme = action.phase ? PHASE_THEME[action.phase] : null;
+  const fwLabel = action.framework ? FRAMEWORK_LABELS[action.framework] || action.framework : null;
+  return (
+    <div className={`mx-3 my-1.5 border-2 ${phaseTheme ? phaseTheme.border : "border-[#00A3C4]/30"} bg-white text-[9px] font-mono`}>
+      {/* 标题栏：阶段色带 + 标题 + 风险徽章 */}
+      <div className={`px-2.5 py-1.5 border-b ${phaseTheme ? phaseTheme.border : "border-gray-200"} flex items-center gap-2`}>
+        {phaseTheme && (
+          <span className={`${phaseTheme.accent} text-white px-1 py-0.5 text-[6px] font-bold uppercase tracking-widest`}>
+            {phaseTheme.label.split("·")[0].trim()}
+          </span>
+        )}
+        <span className="font-bold text-[#1A202C] flex-1">{action.title}</span>
+        <span className={`text-[7px] px-1 py-0.5 border font-bold uppercase ${riskClass}`}>
+          {action.risk_level}
+        </span>
+      </div>
+      {/* 正文 */}
+      <div className="px-2.5 py-2">
+        <p className="text-gray-600 mb-1">{action.summary}</p>
+        <div className="flex items-center gap-2 text-[8px] text-gray-400 mb-1.5 flex-wrap">
+          <span>原因：{action.reason}</span>
+          {fwLabel && (
+            <span className={`px-1 py-0.5 ${phaseTheme ? phaseTheme.bg : "bg-gray-100"} ${phaseTheme ? phaseTheme.text : "text-gray-500"} text-[7px]`}>
+              {fwLabel}
+            </span>
+          )}
+        </div>
+        {action.staged_edit && (
+          <button
+            onClick={() => onAdopt(action)}
+            className={`px-2 py-0.5 text-white text-[8px] font-bold uppercase tracking-widest transition-colors ${
+              phaseTheme ? `${phaseTheme.accent} hover:opacity-80` : "bg-[#00A3C4] hover:bg-[#00D1FF]"
+            }`}
+          >
+            采纳修改
+          </button>
+        )}
+      </div>
+    </div>
+  );
+});
+
+// ─── PhaseProgressCard ───────────────────────────────────────────────────────
+
+const PhaseProgressCard = memo(function PhaseProgressCard({ progress }: { progress: PhaseProgress }) {
+  const theme = PHASE_THEME[progress.completed_phase] || PHASE_THEME.phase1;
+  const nextTheme = progress.next_phase ? PHASE_THEME[progress.next_phase] : null;
+  return (
+    <div className={`mx-3 my-2 border-2 ${theme.border} ${theme.bg} text-[9px] font-mono`}>
+      <div className={`px-3 py-1.5 border-b ${theme.border} flex items-center gap-2`}>
+        <span className={`${theme.accent} text-white px-1.5 py-0.5 text-[7px] font-bold uppercase tracking-widest`}>
+          ✓ {theme.label}
+        </span>
+        <span className={`${theme.text} font-bold text-[8px] uppercase tracking-widest flex-1`}>完成</span>
+      </div>
+      <div className="px-3 py-2">
+        <div className="mb-1.5">
+          <span className="font-bold text-gray-500 text-[8px]">产出：</span>
+          <span className="text-gray-600">{progress.deliverables.join(" · ")}</span>
+        </div>
+        {nextTheme && progress.next_label && (
+          <div className={`mt-1 pt-1 border-t ${theme.border}`}>
+            <span className={`${nextTheme.text} font-bold text-[8px]`}>
+              → 下一步：{progress.next_label}
+            </span>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+});
+
+// ─── Stage Indicator ─────────────────────────────────────────────────────────
+
+function StageIndicator({ stage }: { stage: string | null }) {
+  return (
+    <span className="text-[#00A3C4] flex items-center gap-1.5">
+      <span className="flex gap-0.5">
+        {[0, 1, 2].map((i) => (
+          <span key={i} className="w-1 h-1 bg-[#00A3C4] rounded-full animate-pulse" style={{ animationDelay: `${i * 0.2}s` }} />
+        ))}
+      </span>
+      {stage && <span className="text-[8px] font-bold uppercase tracking-widest">{stage}</span>}
+    </span>
+  );
+}
+
+// ─── Message Bubble ──────────────────────────────────────────────────────────
+
+const MessageBubble = memo(function MessageBubble({
+  message,
+  isLast,
+  streaming,
+  streamStage,
+  quickActions,
+  onQuickAction,
+}: {
+  message: ChatMessage;
+  isLast: boolean;
+  streaming: boolean;
+  streamStage: string | null;
+  quickActions?: { label: string; msg: string; focusInput?: boolean }[];
+  onQuickAction?: (action: { label: string; msg: string; focusInput?: boolean }) => void;
+}) {
+  const isLongAssistant = message.role === "assistant" && !message.loading && message.text && message.text.length > 200;
+
+  return (
+    <div className={`flex flex-col ${message.role === "user" ? "items-end" : "items-start"}`}>
+      <div className={`max-w-[95%] px-2.5 py-2 text-[9px] font-mono leading-relaxed whitespace-pre-wrap border ${
+        message.role === "user" ? "bg-[#1A202C] text-white border-[#1A202C]" : "bg-[#F0F4F8] text-[#1A202C] border-gray-200"
+      } ${isLongAssistant ? "studio-collapsible" : ""}`}>
+        {message.loading && !message.text ? (
+          <StageIndicator stage={streaming ? streamStage : null} />
+        ) : isLongAssistant ? (
+          <details>
+            <summary className="cursor-pointer select-none text-[8px] text-gray-400 hover:text-[#00A3C4] font-bold uppercase tracking-widest mb-1">
+              {message.text!.slice(0, 80)}… <span className="text-[7px] normal-case font-normal">[展开全文]</span>
+            </summary>
+            <div className="mt-1 pt-1 border-t border-gray-200">{message.text}</div>
+          </details>
+        ) : (
+          <>
+            {message.text}
+            {message.loading && <span className="animate-pulse text-[#00A3C4]"> ▋</span>}
+          </>
+        )}
+      </div>
+      {message.role === "assistant" && !message.loading && isLast && !streaming && quickActions && (
+        <div className="flex gap-1 mt-1.5 flex-wrap max-w-[95%]">
+          {quickActions.map((action) => (
+            <button
+              key={action.label}
+              onClick={() => onQuickAction?.(action)}
+              className="text-[7px] px-1.5 py-0.5 border border-gray-300 text-gray-500 hover:border-[#00A3C4] hover:text-[#00A3C4] transition-colors font-mono uppercase tracking-wider"
+            >
+              {action.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+});
+
+// ─── GovernanceTimeline ──────────────────────────────────────────────────────
+
+export function GovernanceTimeline({
+  messages,
+  streaming,
+  streamStage,
+  governanceCards,
+  auditResult,
+  pendingGovernanceActions,
+  phaseProgress = [],
+  architectPhase,
+  architectQuestions = [],
+  answeredQuestionIdx = -1,
+  pendingPhaseSummary,
+  confirmedPhases = [],
+  architectStructures = [],
+  architectPriorities = [],
+  oodaDecisions = [],
+  architectReady,
+  onGovernanceAction,
+  onDismissGovernance,
+  onDismissAudit,
+  onAdoptGovernanceAction,
+  onQuickAction,
+  onArchitectAnswer,
+  onArchitectCustom,
+  onArchitectConfirm,
+  onArchitectRevise,
+  onOodaContinue,
+  onGenerateDraft,
+}: {
+  messages: ChatMessage[];
+  streaming: boolean;
+  streamStage: string | null;
+  governanceCards: GovernanceCardData[];
+  auditResult: AuditResult | null;
+  pendingGovernanceActions: GovernanceActionCard[];
+  phaseProgress?: PhaseProgress[];
+  architectPhase?: ArchitectPhaseStatus | null;
+  architectQuestions?: ArchitectQuestion[];
+  answeredQuestionIdx?: number;
+  pendingPhaseSummary?: ArchitectPhaseSummary | null;
+  confirmedPhases?: string[];
+  architectStructures?: ArchitectStructure[];
+  architectPriorities?: ArchitectPriorityMatrix[];
+  onGovernanceAction: (card: GovernanceCardData, action: GovernanceAction) => void;
+  onDismissGovernance: (card: GovernanceCardData) => void;
+  onDismissAudit: () => void;
+  onAdoptGovernanceAction: (action: GovernanceActionCard) => void;
+  onQuickAction: (action: { label: string; msg: string; focusInput?: boolean }) => void;
+  onArchitectAnswer?: (answer: string) => void;
+  onArchitectCustom?: (text: string) => void;
+  onArchitectConfirm?: () => void;
+  onArchitectRevise?: (note: string) => void;
+  oodaDecisions?: ArchitectOodaDecision[];
+  architectReady?: ArchitectReadyForDraft | null;
+  onOodaContinue?: () => void;
+  onGenerateDraft?: () => void;
+}) {
+  const quickActions = [
+    { label: "方向不对", msg: "你理解的方向不对，我重新说一下：", focusInput: true },
+    { label: "别重复问", msg: "这个问题你已经问过了，请基于已有信息继续推进" },
+    { label: "先别管文件", msg: "不要文件，直接基于对话内容推进" },
+    { label: "直接给草稿", msg: "信息够了，请直接输出 Skill 草稿" },
+    { label: "按上句改", msg: "按我刚才那句修正来调整方向" },
+  ];
+
+  return (
+    <>
+      {/* Message bubbles */}
+      {messages.map((m, i) => (
+        <MessageBubble
+          key={i}
+          message={m}
+          isLast={i === messages.length - 1}
+          streaming={streaming}
+          streamStage={streamStage}
+          quickActions={i === messages.length - 1 ? quickActions : undefined}
+          onQuickAction={i === messages.length - 1 ? onQuickAction : undefined}
+        />
+      ))}
+
+      {/* Architect phase status card */}
+      {architectPhase && (
+        <ArchitectPhaseCard phase={architectPhase} />
+      )}
+
+      {/* Architect question cards */}
+      {architectQuestions.map((q, i) => (
+        <ArchitectQuestionCard
+          key={`aq-${i}`}
+          question={q}
+          answered={i <= answeredQuestionIdx}
+          answeredText={i <= answeredQuestionIdx ? undefined : undefined}
+          onAnswer={(answer) => onArchitectAnswer?.(answer)}
+          onCustom={(text) => onArchitectCustom?.(text)}
+        />
+      ))}
+
+      {/* Architect structure cards (issue tree / dimension map / value chain) */}
+      {architectStructures.map((s, i) => (
+        <ArchitectStructureCard key={`as-${i}`} structure={s} />
+      ))}
+
+      {/* Architect priority matrix cards */}
+      {architectPriorities.map((m, i) => (
+        <PriorityMatrixView key={`pm-${i}`} matrix={m} />
+      ))}
+
+      {/* Architect phase confirm card */}
+      {pendingPhaseSummary && (
+        <ArchitectConfirmCard
+          summary={pendingPhaseSummary}
+          confirmed={confirmedPhases.includes(pendingPhaseSummary.phase)}
+          onConfirm={() => onArchitectConfirm?.()}
+          onRevise={(note) => onArchitectRevise?.(note)}
+        />
+      )}
+
+      {/* OODA decision cards */}
+      {oodaDecisions.map((d, i) => (
+        <OodaDecisionView
+          key={`ooda-${i}`}
+          decision={d}
+          phaseStatus={architectPhase ?? null}
+          onContinue={() => onOodaContinue?.()}
+        />
+      ))}
+
+      {/* Ready for draft card */}
+      {architectReady && (
+        <ReadyForDraftView
+          ready={architectReady}
+          onGenerateDraft={() => onGenerateDraft?.()}
+        />
+      )}
+
+      {/* Phase progress cards */}
+      {phaseProgress.map((pp) => (
+        <PhaseProgressCard key={pp.completed_phase} progress={pp} />
+      ))}
+
+      {/* Architect → Governance transition divider */}
+      {phaseProgress.length > 0 && (governanceCards.some((c) => c.status === "pending") || auditResult || pendingGovernanceActions.length > 0) && (
+        <div className="mx-3 my-2 flex items-center gap-2 text-[8px] font-mono text-gray-400">
+          <div className="flex-1 h-px bg-gray-200" />
+          <span className="font-bold uppercase tracking-widest">治理 · Governance</span>
+          <div className="flex-1 h-px bg-gray-200" />
+        </div>
+      )}
+
+      {/* Governance cards from store (new structured events) */}
+      {governanceCards.filter((c) => c.status === "pending").map((card) => (
+        <GovernanceCard
+          key={card.id}
+          card={card}
+          onAction={onGovernanceAction}
+          onDismiss={onDismissGovernance}
+        />
+      ))}
+
+      {/* Audit report */}
+      {auditResult && (
+        <AuditReportCard audit={auditResult} onDismiss={onDismissAudit} />
+      )}
+
+      {/* Governance action cards */}
+      {pendingGovernanceActions.map((ga) => (
+        <GovernanceActionCardComponent
+          key={ga.card_id}
+          action={ga}
+          onAdopt={onAdoptGovernanceAction}
+        />
+      ))}
+    </>
+  );
+}
+
+// Re-export for backward compatibility
+export { AuditReportCard, GovernanceActionCardComponent, PhaseProgressCard };
