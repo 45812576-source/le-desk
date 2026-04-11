@@ -149,11 +149,18 @@ export async function GET(
     );
   }
 
+  function _normalizeSessionApiPath(path) {
+    if (!path || !path.startsWith("/")) return path;
+    return path.replace(/^\\/[^/]+(\\/session\\/[^/]+\\/(?:message|messages|diff|todo)(?:[/?#].*)?)$/, "$1");
+  }
+
+
   function _rewriteRpcPath(url) {
     if (!url || typeof url !== "string") return url;
     var path = _resolveSameOriginPath(url) || url;
     if (path.startsWith("/api/")) return _addPort(path);
     if (!path.startsWith("/")) return url;
+    path = _normalizeSessionApiPath(path);
     if (_isStaticPath(path)) return _addPort("/api/opencode" + path);
     return _addPort("/api/opencode-rpc" + path);
   }
