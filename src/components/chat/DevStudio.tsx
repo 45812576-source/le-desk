@@ -204,6 +204,18 @@ interface LatestFile {
   category?: string;
 }
 
+function collectTreePaths(nodes: TreeNode[]): Set<string> {
+  const paths = new Set<string>();
+  const visit = (items: TreeNode[]) => {
+    for (const item of items) {
+      paths.add(item.path);
+      if (item.children?.length) visit(item.children);
+    }
+  };
+  visit(nodes);
+  return paths;
+}
+
 function DirPicker({
   nodes,
   selected,
@@ -288,6 +300,8 @@ function SaveModal({
   const [fileTree, setFileTree] = useState<TreeNode[]>([]);
   const [loadingTree, setLoadingTree] = useState(false);
   const [selectedFiles, setSelectedFiles] = useState<string[]>([]);
+  const [latestFiles, setLatestFiles] = useState<LatestFile[]>([]);
+  const [loadingLatestFiles, setLoadingLatestFiles] = useState(false);
 
   // Tool 模式：Skill 下拉选择
   const [skills, setSkills] = useState<SkillOption[]>([]);
@@ -304,6 +318,30 @@ function SaveModal({
       })
       .catch(() => {})
       .finally(() => setLoadingTree(false));
+  }, [mode]);
+
+  useEffect(() => {
+    if (mode !== "skill") return;
+    setLoadingLatestFiles(true);
+    apiFetch<{ items: { path: string; name: string; size: number; updated_at: string; category: string }[] }>("/dev-studio/output-files")
+      .then((res) => {
+        if (res.items && res.items.length > 0) {
+          setLatestFiles(res.items.map((f) => ({
+            path: f.path,
+            filename: f.name,
+            content: "",
+            tool: "output_file",
+            session_title: "",
+            exists_on_disk: true,
+            category: f.category,
+          })));
+        } else {
+          return apiFetch<LatestFile[]>("/dev-studio/latest-output?limit=20")
+            .then((files) => setLatestFiles(files));
+        }
+      })
+      .catch(() => setLatestFiles([]))
+      .finally(() => setLoadingLatestFiles(false));
   }, [mode]);
 
   // Tool 模式：加载可选 Skill 列表
@@ -364,6 +402,14 @@ function SaveModal({
       </div>
     ));
   }
+
+  const treePaths = useMemo(() => collectTreePaths(fileTree), [fileTree]);
+  const latestMarkdownFiles = latestFiles.filter((file) =>
+    file.exists_on_disk !== false &&
+    file.path &&
+    file.filename.toLowerCase().endsWith(".md") &&
+    !treePaths.has(file.path),
+  );
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -433,6 +479,29 @@ function SaveModal({
                 {renderFileCheckboxes(fileTree)}
               </div>
             )}
+            {loadingLatestFiles ? (
+              <div className="mt-2 text-[9px] text-gray-400 animate-pulse">加载最近产物...</div>
+            ) : latestMarkdownFiles.length > 0 ? (
+              <div className="mt-3 border-t border-[#E9D8FD] pt-2">
+                <div className="text-[8px] font-bold uppercase tracking-widest mb-1 text-[#6B46C1]">
+                  最近会话产物（未出现在工作区树中）
+                </div>
+                <div className="max-h-28 overflow-y-auto">
+                  {latestMarkdownFiles.map((file) => (
+                    <label key={file.path} className="flex items-center gap-1.5 py-0.5 cursor-pointer hover:bg-gray-50">
+                      <input
+                        type="checkbox"
+                        checked={selectedFiles.includes(file.path)}
+                        onChange={() => toggleFile(file.path)}
+                        className="w-3 h-3"
+                      />
+                      <span className="text-[9px] font-mono text-[#1A202C] truncate">{file.filename}</span>
+                      <span className="text-[8px] text-gray-300 truncate">{file.path}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+            ) : null}
             {selectedFiles.length > 0 && (
               <div className="mt-2 text-[8px] text-[#6B46C1]">
                 已选 {selectedFiles.length} 个文件
@@ -922,6 +991,9 @@ function WorkdirPanel({ onClose, onWorkdirChange }: { onClose: () => void; onWor
                     <div key={f.path} className="flex items-center gap-2 px-2 py-1 text-[9px] border border-gray-100 hover:border-gray-300 transition-colors">
                       <span className="font-mono font-bold text-[#1A202C] truncate flex-1">{f.filename}</span>
                       <span className="text-gray-400 text-[8px]">{f.tool}</span>
+                      {f.filename.toLowerCase().endsWith(".md") && (
+                        <span className="text-[8px] font-bold text-[#6B46C1] border border-[#E9D8FD] px-1">MD</span>
+                      )}
                       {f.session_title && <span className="text-gray-300 text-[8px] truncate max-w-[120px]">{f.session_title}</span>}
                       {f.exists_on_disk === false && (
                         <span className="text-[8px] font-bold text-red-400 border border-red-200 px-1">已删除</span>
