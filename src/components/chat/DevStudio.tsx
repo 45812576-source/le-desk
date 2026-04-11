@@ -5,6 +5,11 @@ import { apiFetch } from "@/lib/api";
 import { PixelButton } from "@/components/pixel/PixelButton";
 import { PixelBadge } from "@/components/pixel/PixelBadge";
 import { useTheme } from "@/lib/theme";
+import {
+  mergeVisibleOutputFiles,
+  type DevStudioVisibleFile,
+  type IndexedOutputFile,
+} from "@/lib/dev-studio-output";
 
 // ─── Stable iframe: memo-ized to prevent re-mount on parent re-render ────────
 
@@ -39,7 +44,7 @@ function TransferTableModal({
   onTransferred,
 }: {
   onClose: () => void;
-  onTransferred?: (result: { filename: string; rows: number }) => void;
+  onTransferred?: (result: { filename: string; rows: number; indexed: boolean }) => void;
 }) {
   const [tables, setTables] = useState<BusinessTableItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -81,7 +86,11 @@ function TransferTableModal({
         }
       );
       setResult({ filename: res.filename, rows: res.rows });
-      onTransferred?.({ filename: res.filename, rows: res.rows });
+      const visibleFiles = await loadVisibleOutputFiles(50).catch(() => []);
+      const indexed = visibleFiles.some((file) => file.download_ready && (
+        file.filename === res.filename || file.path.endsWith(`/${res.filename}`) || file.path === res.filename
+      ));
+      onTransferred?.({ filename: res.filename, rows: res.rows, indexed });
     } catch (err) {
       setError(err instanceof Error ? err.message : "传输失败");
     } finally {
@@ -204,6 +213,15 @@ interface LatestFile {
   category?: string;
 }
 
+async function loadVisibleOutputFiles(limit: number): Promise<DevStudioVisibleFile[]> {
+  const indexedResponse = await apiFetch<{ items: IndexedOutputFile[] }>("/dev-studio/output-files")
+    .catch(() => ({ items: [] }));
+  const indexedItems = indexedResponse.items ?? [];
+  const legacyItems = await apiFetch<LatestFile[]>(`/dev-studio/latest-output?limit=${limit}`)
+    .catch(() => []);
+  return mergeVisibleOutputFiles(indexedItems, legacyItems);
+}
+
 function collectTreePaths(nodes: TreeNode[]): Set<string> {
   const paths = new Set<string>();
   const visit = (items: TreeNode[]) => {
@@ -300,7 +318,7 @@ function SaveModal({
   const [fileTree, setFileTree] = useState<TreeNode[]>([]);
   const [loadingTree, setLoadingTree] = useState(false);
   const [selectedFiles, setSelectedFiles] = useState<string[]>([]);
-  const [latestFiles, setLatestFiles] = useState<LatestFile[]>([]);
+  const [latestFiles, setLatestFiles] = useState<DevStudioVisibleFile[]>([]);
   const [loadingLatestFiles, setLoadingLatestFiles] = useState(false);
 
   // Tool 模式：Skill 下拉选择
@@ -323,23 +341,8 @@ function SaveModal({
   useEffect(() => {
     if (mode !== "skill") return;
     setLoadingLatestFiles(true);
-    apiFetch<{ items: { path: string; name: string; size: number; updated_at: string; category: string }[] }>("/dev-studio/output-files")
-      .then((res) => {
-        if (res.items && res.items.length > 0) {
-          setLatestFiles(res.items.map((f) => ({
-            path: f.path,
-            filename: f.name,
-            content: "",
-            tool: "output_file",
-            session_title: "",
-            exists_on_disk: true,
-            category: f.category,
-          })));
-        } else {
-          return apiFetch<LatestFile[]>("/dev-studio/latest-output?limit=20")
-            .then((files) => setLatestFiles(files));
-        }
-      })
+    loadVisibleOutputFiles(20)
+      .then(setLatestFiles)
       .catch(() => setLatestFiles([]))
       .finally(() => setLoadingLatestFiles(false));
   }, [mode]);
@@ -405,7 +408,7 @@ function SaveModal({
 
   const treePaths = useMemo(() => collectTreePaths(fileTree), [fileTree]);
   const latestMarkdownFiles = latestFiles.filter((file) =>
-    file.exists_on_disk !== false &&
+    file.download_ready &&
     file.path &&
     file.filename.toLowerCase().endsWith(".md") &&
     !treePaths.has(file.path),
@@ -500,6 +503,10 @@ function SaveModal({
                     </label>
                   ))}
                 </div>
+              </div>
+            ) : latestFiles.some((file) => file.source === "legacy") ? (
+              <div className="mt-3 border-t border-[#E9D8FD] pt-2 text-[8px] text-amber-600">
+                最近会话产物尚未进入工作区索引，暂不作为可保存文件，请先在工作区文件管理中确认落盘结果。
               </div>
             ) : null}
             {selectedFiles.length > 0 && (
@@ -816,7 +823,7 @@ function WorkdirPanel({ onClose, onWorkdirChange }: { onClose: () => void; onWor
   const [deleteTarget, setDeleteTarget] = useState<TreeNode | null>(null);
   const [deleteBusy, setDeleteBusy] = useState(false);
   const [dragSrc, setDragSrc] = useState<string | null>(null);
-  const [latestFiles, setLatestFiles] = useState<LatestFile[]>([]);
+  const [latestFiles, setLatestFiles] = useState<DevStudioVisibleFile[]>([]);
   const [latestLoading, setLatestLoading] = useState(true);
 
   const loadTree = useCallback(() => {
@@ -831,25 +838,9 @@ function WorkdirPanel({ onClose, onWorkdirChange }: { onClose: () => void; onWor
 
   const loadLatestFiles = useCallback(() => {
     setLatestLoading(true);
-    apiFetch<{ items: { path: string; name: string; size: number; updated_at: string; category: string }[] }>("/dev-studio/output-files")
-      .then((res) => {
-        if (res.items && res.items.length > 0) {
-          setLatestFiles(res.items.map((f) => ({
-            path: f.path,
-            filename: f.name,
-            content: "",
-            tool: "output_file",
-            session_title: "",
-            exists_on_disk: true,
-            category: f.category,
-          })));
-        } else {
-          // fallback 到 latest-output（兼容迁移期）
-          return apiFetch<LatestFile[]>("/dev-studio/latest-output?limit=10")
-            .then((files) => setLatestFiles(files));
-        }
-      })
-      .catch(() => {})
+    loadVisibleOutputFiles(10)
+      .then(setLatestFiles)
+      .catch(() => setLatestFiles([]))
       .finally(() => setLatestLoading(false));
   }, []);
   useEffect(() => { loadLatestFiles(); }, [loadLatestFiles]);
@@ -918,8 +909,8 @@ function WorkdirPanel({ onClose, onWorkdirChange }: { onClose: () => void; onWor
       .catch(() => setError(`下载失败：${node.name}`));
   }
 
-  function handleLatestFileDownload(file: LatestFile) {
-    if (!file.path || file.exists_on_disk === false) {
+  function handleLatestFileDownload(file: DevStudioVisibleFile) {
+    if (!file.path || !file.download_ready) {
       setError(`文件不可下载：${file.filename}`);
       return;
     }
@@ -995,16 +986,22 @@ function WorkdirPanel({ onClose, onWorkdirChange }: { onClose: () => void; onWor
                         <span className="text-[8px] font-bold text-[#6B46C1] border border-[#E9D8FD] px-1">MD</span>
                       )}
                       {f.session_title && <span className="text-gray-300 text-[8px] truncate max-w-[120px]">{f.session_title}</span>}
-                      {f.exists_on_disk === false && (
+                      {f.source === "legacy" && (
+                        <span className="text-[8px] font-bold text-amber-500 border border-amber-200 px-1">仅会话记录</span>
+                      )}
+                      {f.exists_on_disk === false && f.source !== "legacy" && (
                         <span className="text-[8px] font-bold text-red-400 border border-red-200 px-1">已删除</span>
                       )}
-                      {f.exists_on_disk !== false && f.path && (
+                      {f.download_ready && f.path && (
                         <button
                           onClick={() => handleLatestFileDownload(f)}
                           className="text-[8px] font-bold px-1.5 py-0.5 border border-[#6B46C1] text-[#6B46C1] hover:bg-[#E9D8FD]"
                         >
                           下载
                         </button>
+                      )}
+                      {!f.download_ready && f.source === "legacy" && (
+                        <span className="text-[8px] text-amber-600">待进入工作区索引</span>
                       )}
                     </div>
                   ))}
@@ -1655,6 +1652,7 @@ export function DevStudio({ workspaceId, fromSkillId, initialViewId }: { convId:
   const [showSessionList, setShowSessionList] = useState(false);
   const [sessionItems, setSessionItems] = useState<{ id: string; title: string | null; directory: string | null; message_count: number; created_at: string | null; updated_at: string | null }[]>([]);
   const [sessionPage, setSessionPage] = useState(1);
+  const [sessionRefreshKey, setSessionRefreshKey] = useState(0);
   const [sessionTotal, setSessionTotal] = useState(0);
   const [sessionDbHealth, setSessionDbHealth] = useState<string>("unknown");
   const [sessionLoading, setSessionLoading] = useState(false);
@@ -1838,7 +1836,7 @@ export function DevStudio({ workspaceId, fromSkillId, initialViewId }: { convId:
       .catch(() => {})
       .finally(() => { if (!cancelled) setSessionLoading(false); });
     return () => { cancelled = true; };
-  }, [showSessionList, sessionPage]);
+  }, [showSessionList, sessionPage, sessionRefreshKey]);
 
   function handleRetry() {
     setStatus("loading");
@@ -2000,10 +1998,40 @@ export function DevStudio({ workspaceId, fromSkillId, initialViewId }: { convId:
               {sessionDbHealth === "missing" && (
                 <div className="text-[8px] text-gray-400 mt-0.5">DB 尚未创建</div>
               )}
+              {(sessionDbHealth === "missing" || sessionDbHealth === "error" || sessionDbHealth === "degraded") && (
+                <button
+                  className="text-[7px] font-bold text-[#00A3C4] border border-[#00A3C4] px-1.5 py-0.5 mt-1 hover:bg-[#00A3C4] hover:text-white"
+                  onClick={() => {
+                    apiFetch<{ ok: boolean; session_total: number; repaired: boolean; db_health: string }>("/dev-studio/session-repair", { method: "POST" })
+                      .then((res) => {
+                        if (res.repaired || res.session_total > 0) {
+                          setSessionDbHealth(res.db_health || "healthy");
+                          setSessionRefreshKey((k) => k + 1);
+                        }
+                      })
+                      .catch(() => {});
+                  }}
+                >
+                  尝试修复 Session DB
+                </button>
+              )}
+              {entryInfo?.session_db_source && (
+                <div className="text-[8px] text-gray-400 mt-1 break-all">
+                  来源: {entryInfo.session_db_source}
+                </div>
+              )}
+              {entryInfo?.session_db_path && (
+                <div className="text-[8px] text-gray-300 mt-0.5 break-all">
+                  路径: {entryInfo.session_db_path}
+                </div>
+              )}
             </div>
             {resumeError && (
-              <div className="px-3 py-1.5 bg-red-50 border-b border-red-100 text-[8px] text-red-500">
-                {resumeError}
+              <div className="px-3 py-1.5 bg-red-50 border-b border-red-100 text-[8px] text-red-500 space-y-1">
+                <div>{resumeError}</div>
+                <div className="text-[7px] text-red-400">
+                  如果历史会话存在但无法恢复，则优先检查 Session DB 状态、来源路径是否一致，再尝试重启运行时。
+                </div>
               </div>
             )}
             <div className="divide-y divide-gray-100">
@@ -2050,6 +2078,11 @@ export function DevStudio({ workspaceId, fromSkillId, initialViewId }: { convId:
                       </span>
                     )}
                   </div>
+                  {session.directory && (
+                    <div className="mt-0.5 text-[8px] text-gray-300 font-mono truncate">
+                      {session.directory}
+                    </div>
+                  )}
                 </button>
               ))}
               {!sessionLoading && sessionItems.length === 0 && (
@@ -2267,9 +2300,14 @@ export function DevStudio({ workspaceId, fromSkillId, initialViewId }: { convId:
       {showTransfer && (
         <TransferTableModal
           onClose={() => setShowTransfer(false)}
-          onTransferred={({ filename, rows }) => {
+          onTransferred={({ filename, rows, indexed }) => {
             refreshOpencodeWorkspace();
-            pushUploadMessage(`✓ 已写入工作区：${filename}（${rows} 行）`);
+            pushUploadMessage(
+              indexed
+                ? `✓ 已写入工作区：${filename}（${rows} 行）`
+                : `⚠ 已返回写入成功：${filename}（${rows} 行），但索引中暂未看到该文件，请在工作区文件管理中刷新确认`,
+              indexed ? 8000 : 12000,
+            );
           }}
         />
       )}

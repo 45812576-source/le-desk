@@ -33,6 +33,7 @@ const TYPE_LABELS: Record<string, string> = {
 
 export function SkillMemoPanel({ memo, onStartTask, onDirectTest, onStartFixTask, onTargetedRetest, onViewReport, sandboxReportId }: SkillMemoPanelProps) {
   const [showCompleted, setShowCompleted] = useState(false);
+  const [expandedTaskIds, setExpandedTaskIds] = useState<Set<string>>(new Set());
 
   // 提取所有 fix tasks
   const allMemoTasks = ((memo.memo as Record<string, unknown>)?.tasks as SkillMemoTask[] | undefined) || [];
@@ -56,6 +57,15 @@ export function SkillMemoPanel({ memo, onStartTask, onDirectTest, onStartFixTask
         : memo.latest_test.status === "passed")
     : null;
   const isFixing = memo.lifecycle_stage === "fixing" && testPassed === false;
+
+  function toggleTaskExpanded(taskId: string) {
+    setExpandedTaskIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(taskId)) next.delete(taskId);
+      else next.add(taskId);
+      return next;
+    });
+  }
 
   return (
     <div className="flex flex-col">
@@ -88,10 +98,10 @@ export function SkillMemoPanel({ memo, onStartTask, onDirectTest, onStartFixTask
               </button>
             )}
           </div>
-          <div className="px-3 py-1.5 text-[8px] text-gray-600 leading-relaxed border-t border-gray-100">
+          <div className="px-3 py-1.5 text-[8px] text-gray-600 leading-relaxed border-t border-gray-100 whitespace-pre-wrap break-words">
             {memo.latest_test.summary}
             {memo.latest_test.details?.blocking_reasons && memo.latest_test.details.blocking_reasons.length > 0 && (
-              <div className="mt-0.5 text-[7px] text-red-500">
+              <div className="mt-0.5 text-[7px] text-red-500 whitespace-pre-wrap break-words">
                 未通过: {memo.latest_test.details.blocking_reasons.join("、")}
               </div>
             )}
@@ -109,7 +119,7 @@ export function SkillMemoPanel({ memo, onStartTask, onDirectTest, onStartFixTask
             </span>
             <span className="text-[8px] font-bold uppercase tracking-widest text-[#00A3C4]">当前任务</span>
           </div>
-          <div className="text-[8px] text-[#1A202C] font-medium">{memo.current_task.title}</div>
+          <div className="text-[8px] text-[#1A202C] font-medium whitespace-pre-wrap break-words">{memo.current_task.title}</div>
           {memo.current_task.target_files.length > 0 && (
             <div className="mt-1 flex flex-wrap gap-1">
               {memo.current_task.target_files.map(f => (
@@ -138,31 +148,56 @@ export function SkillMemoPanel({ memo, onStartTask, onDirectTest, onStartFixTask
           </div>
           <div className="py-1 space-y-1">
             {pendingTasks.map(task => (
-              <div key={task.id} className="px-2 py-1 flex items-center gap-1.5 hover:bg-gray-50 transition-colors">
-                <span className={`text-[6px] font-bold px-1 py-0.5 rounded flex-shrink-0 ${PRIORITY_COLORS[task.priority] || "bg-gray-400 text-white"}`}>
-                  {task.priority === "high" ? "P0" : task.priority === "medium" ? "P1" : "P2"}
-                </span>
-                <span className="text-[7px] font-bold text-gray-500 w-7 flex-shrink-0">
-                  {TYPE_LABELS[task.type] || "修复"}
-                </span>
-                <span className="text-[8px] text-gray-700 flex-1 truncate">
-                  {task.title.replace(/^修复:\s*/, "")}
-                </span>
-                {task.type !== "run_targeted_retest" && onStartFixTask && (
-                  <button
-                    className="text-[7px] font-bold text-[#00A3C4] border border-[#00A3C4] px-1 py-0.5 hover:bg-[#00A3C4] hover:text-white flex-shrink-0"
-                    onClick={() => onStartFixTask(task)}
-                  >
-                    <Wrench size={7} className="inline" /> 修复
-                  </button>
-                )}
-                {task.type === "run_targeted_retest" && onTargetedRetest && (
-                  <button
-                    className="text-[7px] font-bold text-[#00CC99] border border-[#00CC99] px-1 py-0.5 hover:bg-[#00CC99] hover:text-white flex-shrink-0"
-                    onClick={() => onTargetedRetest(task.id)}
-                  >
-                    <PlayCircle size={7} className="inline" /> 重测
-                  </button>
+              <div key={task.id} className="px-2 py-1 hover:bg-gray-50 transition-colors">
+                <div className="flex items-start gap-1.5">
+                  <span className={`text-[6px] font-bold px-1 py-0.5 rounded flex-shrink-0 ${PRIORITY_COLORS[task.priority] || "bg-gray-400 text-white"}`}>
+                    {task.priority === "high" ? "P0" : task.priority === "medium" ? "P1" : "P2"}
+                  </span>
+                  <span className="text-[7px] font-bold text-gray-500 w-7 flex-shrink-0">
+                    {TYPE_LABELS[task.type] || "修复"}
+                  </span>
+                  <span className="text-[8px] text-gray-700 flex-1 min-w-0 whitespace-pre-wrap break-words leading-relaxed">
+                    {task.title.replace(/^修复:\s*/, "")}
+                  </span>
+                  {(task.description || task.acceptance_rule_text) && (
+                    <button
+                      type="button"
+                      className="text-[7px] font-bold text-[#6B46C1] border border-[#E9D8FD] px-1 py-0.5 hover:bg-[#FAF5FF] flex-shrink-0"
+                      onClick={() => toggleTaskExpanded(task.id)}
+                    >
+                      {expandedTaskIds.has(task.id) ? "收起" : "详情"}
+                    </button>
+                  )}
+                  {task.type !== "run_targeted_retest" && onStartFixTask && (
+                    <button
+                      className="text-[7px] font-bold text-[#00A3C4] border border-[#00A3C4] px-1 py-0.5 hover:bg-[#00A3C4] hover:text-white flex-shrink-0"
+                      onClick={() => onStartFixTask(task)}
+                    >
+                      <Wrench size={7} className="inline" /> 修复
+                    </button>
+                  )}
+                  {task.type === "run_targeted_retest" && onTargetedRetest && (
+                    <button
+                      className="text-[7px] font-bold text-[#00CC99] border border-[#00CC99] px-1 py-0.5 hover:bg-[#00CC99] hover:text-white flex-shrink-0"
+                      onClick={() => onTargetedRetest(task.id)}
+                    >
+                      <PlayCircle size={7} className="inline" /> 重测
+                    </button>
+                  )}
+                </div>
+                {expandedTaskIds.has(task.id) && (
+                  <div className="ml-[56px] mt-1 space-y-1">
+                    {task.description && (
+                      <div className="text-[8px] text-gray-600 bg-gray-50 border-l-2 border-gray-300 px-2 py-1 whitespace-pre-wrap break-words">
+                        {task.description}
+                      </div>
+                    )}
+                    {task.acceptance_rule_text && (
+                      <div className="text-[8px] text-[#00A3C4] bg-[#F0FAFF] border-l-2 border-[#00A3C4] px-2 py-1 whitespace-pre-wrap break-words">
+                        验收：{task.acceptance_rule_text}
+                      </div>
+                    )}
+                  </div>
                 )}
               </div>
             ))}
@@ -185,7 +220,7 @@ export function SkillMemoPanel({ memo, onStartTask, onDirectTest, onStartFixTask
               {completedTasks.map(task => (
                 <div key={task.id} className="px-2 py-0.5 flex items-center gap-1.5 opacity-50">
                   <CheckCircle size={8} className="text-green-400 flex-shrink-0" />
-                  <span className="text-[7px] text-gray-500 truncate">{task.title.replace(/^修复:\s*/, "")}</span>
+                  <span className="text-[7px] text-gray-500 whitespace-pre-wrap break-words">{task.title.replace(/^修复:\s*/, "")}</span>
                 </div>
               ))}
             </div>

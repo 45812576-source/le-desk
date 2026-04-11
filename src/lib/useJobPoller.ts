@@ -2,6 +2,7 @@
 
 import { useCallback, useRef, useState } from "react";
 import { apiFetch } from "@/lib/api";
+import { isTerminalJobStatus } from "@/lib/job-status";
 
 export interface JobStatus {
   job_id: number;
@@ -42,7 +43,7 @@ export function useJobPoller(endpoint: string, interval = 1500) {
         try {
           const data = await apiFetch<JobStatus>(`${endpoint}/${jobId}`);
           setJobStatus(data);
-          if (data.status === "success" || data.status === "partial_success" || data.status === "failed") {
+          if (isTerminalJobStatus(data.status)) {
             stopPolling();
           }
         } catch {

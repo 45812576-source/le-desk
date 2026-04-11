@@ -93,6 +93,7 @@ export function CommentsPanel({ skillId, onIterateDone, onAdopt, hideIterate, st
   const [selectingId, setSelectingId] = useState<number | null>(null);
   const [selectionPopup, setSelectionPopup] = useState<{ id: number; text: string; top: number; left: number } | null>(null);
   const selectionContainerRef = useRef<HTMLDivElement | null>(null);
+  const [expandedIds, setExpandedIds] = useState<Set<number>>(new Set());
 
   const fetchSuggestions = useCallback(() => {
     setLoading(true);
@@ -178,6 +179,15 @@ export function CommentsPanel({ skillId, onIterateDone, onAdopt, hideIterate, st
 
   function toggleSelect(id: number) {
     setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function toggleExpanded(id: number) {
+    setExpandedIds((prev) => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
       else next.add(id);
@@ -353,6 +363,7 @@ export function CommentsPanel({ skillId, onIterateDone, onAdopt, hideIterate, st
             const isSelectable = s.status === "adopted" || s.status === "partial";
             const isSelected = selected.has(s.id);
             const isInSelectMode = selectingId === s.id;
+            const isExpanded = expandedIds.has(s.id);
             return (
               <div
                 key={s.id}
@@ -404,7 +415,7 @@ export function CommentsPanel({ skillId, onIterateDone, onAdopt, hideIterate, st
 
                     <div
                       className={`text-[10px] font-bold text-[#1A202C] mb-1 leading-snug ${
-                        isInSelectMode ? "select-text cursor-text bg-yellow-50 px-1 rounded" : "select-none"
+                        isInSelectMode ? "select-text cursor-text bg-yellow-50 px-1 rounded whitespace-pre-wrap break-words" : "select-none whitespace-pre-wrap break-words"
                       }`}
                       onMouseUp={() => handleTextMouseUp(s.id)}
                     >
@@ -412,23 +423,38 @@ export function CommentsPanel({ skillId, onIterateDone, onAdopt, hideIterate, st
                     </div>
                     {s.expected_direction && s.expected_direction !== "来自对话消息的用户评论" && (
                       <div
-                        className={`text-[9px] text-gray-600 mb-1 ${isInSelectMode ? "select-text cursor-text" : "select-none"}`}
+                        className={`text-[9px] text-gray-600 mb-1 whitespace-pre-wrap break-words ${isInSelectMode ? "select-text cursor-text" : "select-none"}`}
                         onMouseUp={() => handleTextMouseUp(s.id)}
                       >
                         期望：{s.expected_direction}
                       </div>
                     )}
-                    {s.case_example && (
+                    {(s.case_example || s.review_note) && (
+                      <button
+                        type="button"
+                        onClick={() => toggleExpanded(s.id)}
+                        className="mb-1 text-[8px] font-bold uppercase tracking-widest text-[#805AD5] hover:text-[#6B46C1]"
+                      >
+                        {isExpanded ? "收起完整解释" : "查看完整解释"}
+                      </button>
+                    )}
+                    {isExpanded && s.case_example && (
                       <div
-                        className={`text-[9px] text-gray-500 bg-gray-50 px-2 py-1 border-l-2 border-gray-300 ${isInSelectMode ? "select-text cursor-text" : "select-none"}`}
+                        className={`text-[9px] text-gray-500 bg-gray-50 px-2 py-1 border-l-2 border-gray-300 whitespace-pre-wrap break-words ${isInSelectMode ? "select-text cursor-text" : "select-none"}`}
                         onMouseUp={() => handleTextMouseUp(s.id)}
                       >
                         示例：{s.case_example}
                       </div>
                     )}
 
+                    {isExpanded && s.review_note && s.status !== "partial" && (
+                      <div className="text-[9px] text-gray-600 bg-[#FAF5FF] px-2 py-1 border-l-2 border-[#805AD5] mt-1 whitespace-pre-wrap break-words">
+                        处理说明：{s.review_note}
+                      </div>
+                    )}
+
                     {s.status === "partial" && s.review_note && (
-                      <div className="text-[9px] text-[#ED8936] bg-orange-50 px-2 py-1 border-l-2 border-[#ED8936] mt-1">
+                      <div className="text-[9px] text-[#ED8936] bg-orange-50 px-2 py-1 border-l-2 border-[#ED8936] mt-1 whitespace-pre-wrap break-words">
                         已采纳片段：「{s.review_note}」
                       </div>
                     )}

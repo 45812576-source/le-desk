@@ -1010,6 +1010,8 @@ function PromptEditor({
   onSaved,
   onFork,
   onFileSaved,
+  sandboxVersionMismatch,
+  sandboxVersionMismatchMessage,
 }: {
   skill: SkillDetail | null;
   isNew: boolean;
@@ -1021,6 +1023,8 @@ function PromptEditor({
   onSaved: (skill: SkillDetail) => void;
   onFork: () => void;
   onFileSaved?: (filename: string, contentSize: number) => void;
+  sandboxVersionMismatch?: boolean;
+  sandboxVersionMismatchMessage?: string | null;
 }) {
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
@@ -1256,6 +1260,10 @@ function PromptEditor({
 
   async function handleSubmitReview() {
     if (!skill) return;
+    if (sandboxVersionMismatch) {
+      setSaveMsg(sandboxVersionMismatchMessage || "当前报告版本已过期，请重新运行质量检测");
+      return;
+    }
     setSubmitting(true);
     try {
       await apiFetch(`/skills/${skill.id}/status?status=published`, { method: "PATCH" });
@@ -1497,7 +1505,15 @@ function PromptEditor({
         <KnowledgeConfirmModal
           skillId={skill.id}
           items={showKbConfirm.map((it) => ({ check: it.check, ok: it.ok, issue: it.issue }))}
-          onDone={() => { setShowKbConfirm(null); runPreflight(); }}
+          onDone={(info) => {
+            setShowKbConfirm(null);
+            if (info && info.knowledgeEntryCount > 0) {
+              setSaveMsg(`✓ 已确认归档 ${info.confirmed} 项，返回 ${info.knowledgeEntryCount} 个知识库条目`);
+            } else {
+              setSaveMsg("⚠ 已提交归档确认，但接口未返回知识库条目 ID，请到知识库中核对是否真正落档");
+            }
+            runPreflight();
+          }}
           onCancel={() => setShowKbConfirm(null)}
         />
       )}
@@ -1656,7 +1672,7 @@ function KnowledgeConfirmModal({
 }: {
   skillId: number;
   items: { check: string; ok: boolean; issue?: string }[];
-  onDone: () => void;
+  onDone: (info?: { confirmed: number; knowledgeEntryCount: number }) => void;
   onCancel: () => void;
 }) {
   const [confirmations, setConfirmations] = useState(
@@ -1668,11 +1684,15 @@ function KnowledgeConfirmModal({
   async function handleConfirmAll() {
     setSaving(true);
     try {
-      await apiFetch(`/sandbox/preflight/${skillId}/knowledge-confirm`, {
+      const result = await apiFetch<Record<string, unknown>>(`/sandbox/preflight/${skillId}/knowledge-confirm`, {
         method: "POST",
         body: JSON.stringify({ confirmations }),
       });
-      onDone();
+      const ids = [
+        ...(((result.knowledge_entry_ids as unknown[] | undefined) ?? []).filter((item): item is number => typeof item === "number")),
+        ...(((result.created_entry_ids as unknown[] | undefined) ?? []).filter((item): item is number => typeof item === "number")),
+      ];
+      onDone({ confirmed: confirmations.length, knowledgeEntryCount: ids.length });
     } catch (err) {
       console.error("Knowledge confirm failed", err);
     } finally { setSaving(false); }
@@ -3203,6 +3223,16 @@ export function SkillStudio({
   const selectedSkill = selectedFile
     ? (skills.find((s) => s.id === selectedFile.skillId) ?? null)
     : null;
+  const sandboxVersionMismatch = Boolean(
+    fromSandbox &&
+    activeSandboxReport &&
+    selectedSkill &&
+    activeSandboxReport.target_version != null &&
+    selectedSkill.current_version !== activeSandboxReport.target_version,
+  );
+  const sandboxVersionMismatchMessage = sandboxVersionMismatch
+    ? `当前 Skill 已是 v${selectedSkill?.current_version}，但整改来源报告基于 v${activeSandboxReport?.target_version}。如果要继续发布，请先重新运行质量检测生成新报告。`
+    : null;
 
   // ── Memo: fetch when selected skill changes ──
   const fetchMemo = useCallback((skillId: number) => {
@@ -3535,6 +3565,11 @@ export function SkillStudio({
           {!memoSyncError && memo?.lifecycle_stage === "fixing" && (
             <span className="text-[#00CC99] font-bold ml-2">已进入整改模式</span>
           )}
+          {sandboxVersionMismatchMessage && (
+            <div className="basis-full text-red-600 font-bold border border-red-300 bg-red-50 px-2 py-1 mt-1">
+              {sandboxVersionMismatchMessage}
+            </div>
+          )}
         </div>
       )}
 
@@ -3577,6 +3612,8 @@ export function SkillStudio({
             onSaved={handleSaved}
             onFork={handleFork}
             onFileSaved={handleFileSaved}
+            sandboxVersionMismatch={sandboxVersionMismatch}
+            sandboxVersionMismatchMessage={sandboxVersionMismatchMessage}
           />
         )}
 
