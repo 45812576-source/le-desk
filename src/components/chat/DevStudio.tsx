@@ -2016,15 +2016,15 @@ export function DevStudio({ workspaceId, fromSkillId, initialViewId }: { convId:
                   onClick={async () => {
                     setResumeError(null);
                     try {
-                      const result = await apiFetch<{ ok: boolean; slug?: string | null; port?: number | null; error_message?: string | null }>(`/dev-studio/sessions/${session.id}/resume`, { method: "POST" });
-                      if (result.ok && result.slug) {
+                      const result = await apiFetch<{ ok: boolean; route_path?: string | null; port?: number | null; error_message?: string | null }>(`/dev-studio/sessions/${session.id}/resume`, { method: "POST" });
+                      if (result.ok && result.route_path) {
                         const nextPort = result.port ?? opencodePort;
                         if (nextPort) {
                           document.cookie = `oc_port=${nextPort}; path=/; SameSite=Lax`;
                           setOpencodePort(nextPort);
-                          setOpencodeUrl(`/api/opencode/~${result.slug}?_oc_port=${nextPort}`);
+                          setOpencodeUrl(`/api/opencode${result.route_path}?_oc_port=${nextPort}`);
                         } else {
-                          setOpencodeUrl(`/api/opencode/~${result.slug}`);
+                          setOpencodeUrl(`/api/opencode${result.route_path}`);
                         }
                         setShowSessionList(false);
                         setInstanceKey(Date.now());
