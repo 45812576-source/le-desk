@@ -51,7 +51,14 @@ function BitablePanel({ onAdded }: { onAdded: () => void }) {
     } else if (jobStatus.status === "partial_success") {
       setSyncing(false);
       setSyncStage("");
-      setError("⚠ 部分同步成功，部分记录未能同步，数据不完整，请重试或检查飞书权限");
+      const truncated = jobStatus.stats?.truncated;
+      const totalRecords = jobStatus.stats?.total_records;
+      const limit = jobStatus.stats?.max_records_limit;
+      if (truncated) {
+        setError(`⚠ 同步已完成前 ${totalRecords?.toLocaleString()} 条记录（上限 ${limit?.toLocaleString()}），该表数据量超大，已截断`);
+      } else {
+        setError("⚠ 部分同步成功，部分记录未能同步，数据不完整，请重试或检查飞书权限");
+      }
     } else if (jobStatus.status === "failed") {
       setSyncing(false);
       setSyncStage("");
