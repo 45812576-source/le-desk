@@ -199,11 +199,38 @@ export function PromptEditor({
           method: "POST",
           body: JSON.stringify({ system_prompt: prompt.trim(), change_note: changeNote.trim() || "手动编辑" }),
         });
-        if (name !== skill.name || description !== (skill.description ?? "")) {
+        const trimmedName = name.trim();
+        const trimmedDescription = description.trim();
+        const nameChanged = trimmedName !== skill.name;
+        const descriptionChanged = trimmedDescription !== (skill.description ?? "");
+
+        if (nameChanged) {
+          await apiFetch(`/skills/${skill.id}/rename`, {
+            method: "PATCH",
+            body: JSON.stringify({
+              display_name: trimmedName,
+              rename_folder: true,
+            }),
+          });
+        }
+
+        if (descriptionChanged) {
           await apiFetch(`/skills/${skill.id}`, {
             method: "PUT",
-            body: JSON.stringify({ name: name.trim(), description: description.trim() }),
-          }).catch(() => {});
+            body: JSON.stringify({
+              name: trimmedName,
+              description: trimmedDescription,
+              mode: skill.mode,
+              department_id: skill.department_id ?? null,
+              knowledge_tags: skill.knowledge_tags ?? [],
+              auto_inject: skill.auto_inject ?? true,
+              system_prompt: prompt.trim(),
+              variables: [],
+              required_inputs: [],
+              model_config_id: null,
+              output_schema: null,
+            }),
+          });
         }
         setChangeNote(""); setShowSaveNote(false);
         const assetCount = skill.source_files?.length ?? 0;

@@ -39,6 +39,45 @@ import type {
   ArchitectReadyForDraft,
 } from "./types";
 
+function extractEmbeddedStudioDraft(text: string): { cleanText: string; draft: StudioDraft | null } {
+  const pattern = /```studio_draft\s*([\s\S]*?)```/g;
+  let match: RegExpExecArray | null;
+  let draft: StudioDraft | null = null;
+
+  while ((match = pattern.exec(text)) !== null) {
+    const raw = match[1]?.trim();
+    if (!raw) continue;
+    try {
+      const parsed = JSON.parse(raw) as Partial<StudioDraft>;
+      if (typeof parsed.system_prompt === "string") {
+        draft = {
+          name: typeof parsed.name === "string" ? parsed.name : undefined,
+          system_prompt: parsed.system_prompt,
+          change_note: typeof parsed.change_note === "string" ? parsed.change_note : undefined,
+        };
+      }
+    } catch {
+      continue;
+    }
+  }
+
+  // 1) 移除 studio_draft blocks（已由上方 pattern 匹配）
+  let cleanText = text.replace(pattern, "");
+  // 2) 移除所有其他已闭合的 studio_*/architect_* fenced blocks
+  cleanText = cleanText.replace(/```(?:studio_\w+|architect_\w+)\s*[\s\S]*?```/g, "");
+  // 3) 移除末尾未闭合的结构化块（流式过程中）
+  cleanText = cleanText.replace(/```(?:studio_\w+|architect_\w+)\s*[\s\S]*$/, "");
+  // 4) 压缩多余空行
+  cleanText = cleanText.replace(/\n{3,}/g, "\n\n").trim();
+  // 5) 空文本占位
+  if (!cleanText) {
+    cleanText = draft
+      ? "草稿已生成，请在右侧草稿卡中查看并决定是否应用。"
+      : "治理建议已生成，请在下方卡片中查看并决定是否采纳。";
+  }
+  return { cleanText, draft };
+}
+
 // ─── StudioChat ───────────────────────────────────────────────────────────────
 
 export function StudioChat({
@@ -198,6 +237,7 @@ export function StudioChat({
   const storeAssistSkills = useStudioStore((s) => s.activeAssistSkills);
   const setActiveAssistSkills = useStudioStore((s) => s.setActiveAssistSkills);
   const setEditorVisibility = useStudioStore((s) => s.setEditorVisibility);
+  const setEditorManuallyCollapsed = useStudioStore((s) => s.setEditorManuallyCollapsed);
 
   // ── Staged edit adopt/reject handlers ──
 
@@ -215,6 +255,7 @@ export function StudioChat({
       // Auto-collapse if no more pending staged edits
       const remaining = storeStagedEdits.filter((e) => e.id !== editId && e.status === "pending");
       if (remaining.length === 0) {
+        setEditorManuallyCollapsed(false);
         setEditorVisibility("collapsed");
       }
     } catch (err) {
@@ -233,6 +274,7 @@ export function StudioChat({
       // Auto-collapse if no more pending staged edits
       const remaining = storeStagedEdits.filter((e) => e.id !== editId && e.status === "pending");
       if (remaining.length === 0) {
+        setEditorManuallyCollapsed(false);
         setEditorVisibility("collapsed");
       }
     } catch (err) {
@@ -339,12 +381,29 @@ export function StudioChat({
 
     apiFetch<{ id: number; role: string; content: string; metadata?: Record<string, unknown> }[]>(url)
       .then((dbMsgs) => {
-        const mapped: ChatMessage[] = dbMsgs.map((m) => ({
-          role: m.role as "user" | "assistant",
-          text: m.content,
-          loading: false,
-        }));
+        let latestDraft: StudioDraft | null = null;
+        const mapped: ChatMessage[] = dbMsgs.map((m) => {
+          if (m.role === "assistant") {
+            const { cleanText, draft } = extractEmbeddedStudioDraft(m.content);
+            if (draft) latestDraft = draft;
+            return {
+              role: m.role as "user" | "assistant",
+              text: cleanText,
+              loading: false,
+            };
+          }
+          return {
+            role: m.role as "user" | "assistant",
+            text: m.content,
+            loading: false,
+          };
+        });
         setMessages(mapped);
+        if (latestDraft) {
+          setPendingDraft(latestDraft);
+          setDrawerOpen(true);
+          onExpandEditor?.();
+        }
         try { localStorage.setItem(_storageKey, JSON.stringify(mapped)); } catch { /* ignore */ }
         setBackendLoaded(true);
       })
@@ -573,6 +632,15 @@ export function StudioChat({
     abortRef.current = ctrl;
     const token = getToken();
     let accText = "";
+    const syncEmbeddedDraft = (rawText: string) => {
+      const { cleanText, draft } = extractEmbeddedStudioDraft(rawText);
+      if (draft) {
+        setPendingDraft(draft);
+        setDrawerOpen(true);
+        onExpandEditor?.();
+      }
+      return cleanText;
+    };
 
     setStreamStage("connecting");
     const timeout = setTimeout(() => ctrl.abort(), 30_000);
@@ -862,6 +930,11 @@ export function StudioChat({
                   });
                   onMemoRefresh();
                 }
+              } else if (curEvt === "replace" && data.text !== undefined) {
+                accText = data.text;
+                setMessages((prev) => prev.map((m, i) =>
+                  i === msgIdx ? { ...m, text: syncEmbeddedDraft(accText) } : m
+                ));
               } else if (curEvt === "error") {
                 const errMsg = data.message || "服务端错误";
                 setMessages((prev) => prev.map((m, i) =>
@@ -870,25 +943,26 @@ export function StudioChat({
                 setStreamStage(null);
               } else if (curEvt === "done") {
                 setMessages((prev) => prev.map((m, i) =>
-                  i === msgIdx ? { ...m, loading: false } : m
+                  i === msgIdx ? { ...m, text: syncEmbeddedDraft(accText), loading: false } : m
                 ));
                 setStreamStage(null);
               } else if ((curEvt === "delta" || curEvt === "content_block_delta") && data.text) {
                 accText += data.text;
                 setStreamStage("generating");
-                setMessages((prev) => prev.map((m, i) => i === msgIdx ? { ...m, text: accText } : m));
+                setMessages((prev) => prev.map((m, i) => i === msgIdx ? { ...m, text: syncEmbeddedDraft(accText) } : m));
               }
             } catch { /* skip */ }
             curEvt = "delta";
           }
         }
       }
-      setMessages((prev) => prev.map((m, i) => i === msgIdx ? { ...m, loading: false } : m));
+      setMessages((prev) => prev.map((m, i) => i === msgIdx ? { ...m, text: syncEmbeddedDraft(accText), loading: false } : m));
     } catch (err) {
       if ((err as Error).name !== "AbortError") {
         if (accText) {
+          const cleanText = syncEmbeddedDraft(accText);
           setMessages((prev) => prev.map((m, i) =>
-            i === msgIdx ? { ...m, text: accText + "\n\n[连接中断，以上为已接收内容]", loading: false } : m
+            i === msgIdx ? { ...m, text: cleanText + "\n\n[连接中断，以上为已接收内容]", loading: false } : m
           ));
         } else {
           setMessages((prev) => prev.map((m, i) =>
@@ -896,8 +970,9 @@ export function StudioChat({
           ));
         }
       } else if (accText) {
+        const cleanText = syncEmbeddedDraft(accText);
         setMessages((prev) => prev.map((m, i) =>
-          i === msgIdx ? { ...m, text: accText, loading: false } : m
+          i === msgIdx ? { ...m, text: cleanText, loading: false } : m
         ));
       } else {
         setMessages((prev) => prev.map((m, i) =>
@@ -1165,6 +1240,10 @@ export function StudioChat({
             }}
             onGovernanceAction={(card, action) => {
               const stagedEditId = typeof card.content.staged_edit_id === "string" ? card.content.staged_edit_id : null;
+              const willCompleteGovernance = storeGovernanceCards.filter((c) => c.status === "pending").length === 1
+                && card.status === "pending"
+                && pendingGovernanceActions.length === 0
+                && !auditResult;
               if (action.type === "adopt") {
                 updateCardStatus(card.id, "adopted");
                 if (stagedEditId) handleAdoptStagedEdit(stagedEditId);
@@ -1176,6 +1255,16 @@ export function StudioChat({
               } else if (action.type === "refine") {
                 setInput(String(card.content.summary || card.title));
                 setTimeout(() => inputRef.current?.focus(), 50);
+              }
+              if (willCompleteGovernance && (action.type === "adopt" || action.type === "reject")) {
+                setMessages((prev) => [
+                  ...prev,
+                  {
+                    role: "assistant",
+                    text: "本轮整改项已处理完成。请点击“继续下一步”继续验收或生成后续结果。",
+                    loading: false,
+                  },
+                ]);
               }
             }}
             onDismissGovernance={(card) => updateCardStatus(card.id, "dismissed")}
@@ -1200,6 +1289,9 @@ export function StudioChat({
               } else {
                 send(action.msg);
               }
+            }}
+            onGovernanceComplete={() => {
+              send("我已处理完本轮整改，请基于当前最新内容继续下一步。");
             }}
           />
         </div>

@@ -69,12 +69,12 @@ export const ArchitectConfirmCard = memo(function ArchitectConfirmCard({
       {/* Body */}
       <div className="px-3 py-2">
         {/* Summary text */}
-        <p className="text-[#1A202C] mb-2">{summary.summary}</p>
+        <p className="text-[#1A202C] dark:text-foreground mb-2">{summary.summary}</p>
 
         {/* Deliverables */}
         {summary.deliverables.length > 0 && (
           <div className="mb-2">
-            <span className="font-bold text-gray-500 text-[8px]">产出：</span>
+            <span className="font-bold text-gray-500 dark:text-muted-foreground text-[8px]">产出：</span>
             <div className="mt-0.5 space-y-0.5">
               {summary.deliverables.map((d, i) => (
                 <div key={i} className={`flex items-center gap-1.5 ${theme.text}`}>
@@ -89,8 +89,8 @@ export const ArchitectConfirmCard = memo(function ArchitectConfirmCard({
         {/* Confidence bar */}
         <div className="mb-2">
           <div className="flex items-center gap-2 mb-0.5">
-            <span className="font-bold text-gray-500 text-[8px]">信心度</span>
-            <div className="flex-1 h-1.5 bg-gray-200 relative">
+            <span className="font-bold text-gray-500 dark:text-muted-foreground text-[8px]">信心度</span>
+            <div className="flex-1 h-1.5 bg-gray-200 dark:bg-zinc-800 relative">
               <div className={`h-full ${barColor}`} style={{ width: `${summary.confidence}%` }} />
             </div>
             <span className={`font-bold text-[8px] ${level === "high" ? "text-green-600" : level === "medium" ? "text-amber-600" : "text-red-500"}`}>
@@ -117,7 +117,7 @@ export const ArchitectConfirmCard = memo(function ArchitectConfirmCard({
             </button>
             <button
               onClick={() => setReviseMode(true)}
-              className={`px-3 py-1 text-[8px] font-bold uppercase tracking-widest border ${theme.border} ${theme.text} hover:${theme.bg} transition-colors`}
+              className={`px-3 py-1 text-[8px] font-bold uppercase tracking-widest border ${theme.border} ${theme.text} bg-white/50 dark:bg-zinc-900/60 transition-colors`}
             >
               我想修正
             </button>
@@ -137,7 +137,7 @@ export const ArchitectConfirmCard = memo(function ArchitectConfirmCard({
               }}
               placeholder="说明需要修正的内容..."
               autoFocus
-              className={`w-full px-2 py-1.5 border ${theme.border} text-[9px] focus:outline-none focus:border-[#00D1FF]`}
+              className={`w-full px-2 py-1.5 border ${theme.border} bg-white dark:bg-zinc-950 text-[9px] text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-[#00D1FF]`}
             />
             <div className="flex gap-1">
               <button
@@ -155,7 +155,7 @@ export const ArchitectConfirmCard = memo(function ArchitectConfirmCard({
               </button>
               <button
                 onClick={() => { setReviseMode(false); setReviseNote(""); }}
-                className="px-2 py-0.5 text-[8px] text-gray-400 hover:text-gray-600"
+                className="px-2 py-0.5 text-[8px] text-gray-400 hover:text-gray-600 dark:text-zinc-500 dark:hover:text-zinc-300"
               >
                 取消
               </button>

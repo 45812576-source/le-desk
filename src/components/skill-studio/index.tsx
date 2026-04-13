@@ -71,18 +71,20 @@ export function SkillStudio({
   // ── Editor visibility from store ──
   const editorVisibility = useStudioStore((s) => s.editorVisibility);
   const setEditorVisibility = useStudioStore((s) => s.setEditorVisibility);
+  const editorManuallyCollapsed = useStudioStore((s) => s.editorManuallyCollapsed);
+  const setEditorManuallyCollapsed = useStudioStore((s) => s.setEditorManuallyCollapsed);
   const editorExpanded = editorVisibility !== "collapsed";
 
   // Auto-expand editor when selecting a file to edit
   const prevSelectedFileRef = useRef(selectedFile);
   useEffect(() => {
     if (selectedFile && selectedFile !== prevSelectedFileRef.current) {
-      if (editorVisibility === "collapsed") {
+      if (editorVisibility === "collapsed" && !editorManuallyCollapsed) {
         setEditorVisibility("auto_expanded");
       }
     }
     prevSelectedFileRef.current = selectedFile;
-  }, [selectedFile, editorVisibility, setEditorVisibility]);
+  }, [selectedFile, editorVisibility, editorManuallyCollapsed, setEditorVisibility]);
 
   const router = useRouter();
 
@@ -513,7 +515,9 @@ export function SkillStudio({
           sandboxReportId={fromSandbox ? sandboxReportId : undefined}
           fromSandbox={fromSandbox}
           onExpandEditor={() => {
-            if (editorVisibility === "collapsed") setEditorVisibility("auto_expanded");
+            if (editorVisibility === "collapsed" && !editorManuallyCollapsed) {
+              setEditorVisibility("auto_expanded");
+            }
           }}
           editorExpanded={editorExpanded}
         />
@@ -532,7 +536,10 @@ export function SkillStudio({
                   {showAssetEditor ? (selectedFile as { filename: string }).filename : "Prompt 编辑"}
                 </span>
                 <button
-                  onClick={() => setEditorVisibility(editorVisibility === "pinned_open" ? "auto_expanded" : "pinned_open")}
+                  onClick={() => {
+                    setEditorManuallyCollapsed(false);
+                    setEditorVisibility(editorVisibility === "pinned_open" ? "auto_expanded" : "pinned_open");
+                  }}
                   className={`p-0.5 transition-colors ${
                     editorVisibility === "pinned_open"
                       ? "text-[#00A3C4]"
@@ -543,7 +550,10 @@ export function SkillStudio({
                   <Pin size={10} />
                 </button>
                 <button
-                  onClick={() => setEditorVisibility("collapsed")}
+                  onClick={() => {
+                    setEditorManuallyCollapsed(true);
+                    setEditorVisibility("collapsed");
+                  }}
                   className="text-gray-400 hover:text-gray-600 p-0.5"
                   title="收起编辑区"
                 >
@@ -585,7 +595,10 @@ export function SkillStudio({
         {/* Collapsed editor toggle (shown when editor is hidden) */}
         {!editorExpanded && selectedSkill && (
           <button
-            onClick={() => setEditorVisibility("auto_expanded")}
+            onClick={() => {
+              setEditorManuallyCollapsed(false);
+              setEditorVisibility("auto_expanded");
+            }}
             className="flex-shrink-0 w-8 border-l-2 border-[#1A202C] bg-[#F0F4F8] hover:bg-[#E0ECF0] flex flex-col items-center justify-center gap-1 transition-colors"
             title="展开编辑区"
           >

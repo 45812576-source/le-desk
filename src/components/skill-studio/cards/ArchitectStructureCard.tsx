@@ -6,9 +6,9 @@ import type { ArchitectStructure, ArchitectPriorityMatrix } from "../types";
 // ─── Priority badge colors ──────────────────────────────────────────────────
 
 const PRIORITY_COLORS: Record<string, string> = {
-  P0: "text-red-600 bg-red-50",
-  P1: "text-amber-600 bg-amber-50",
-  P2: "text-gray-500 bg-gray-100",
+  P0: "text-red-600 bg-red-50 dark:text-red-200 dark:bg-red-950/40",
+  P1: "text-amber-600 bg-amber-50 dark:text-amber-200 dark:bg-amber-950/40",
+  P2: "text-gray-500 bg-gray-100 dark:text-zinc-300 dark:bg-zinc-800",
 };
 
 const PRIORITY_ICONS: Record<string, string> = {
@@ -18,9 +18,9 @@ const PRIORITY_ICONS: Record<string, string> = {
 };
 
 const SENSITIVITY_COLORS: Record<string, string> = {
-  high: "text-red-500",
-  medium: "text-amber-500",
-  low: "text-gray-400",
+  high: "text-red-500 dark:text-red-300",
+  medium: "text-amber-500 dark:text-amber-300",
+  low: "text-gray-400 dark:text-zinc-400",
 };
 
 const SENSITIVITY_ICONS: Record<string, string> = {
@@ -57,8 +57,8 @@ function TreeNode({
   return (
     <>
       <div className="flex items-start" style={{ paddingLeft: `${depth * 16}px` }}>
-        <span className="text-gray-400 whitespace-pre select-none">{connector}</span>
-        <span className={isRoot ? "font-bold text-[#1A202C]" : "text-gray-600"}>
+        <span className="text-gray-400 dark:text-zinc-500 whitespace-pre select-none">{connector}</span>
+        <span className={isRoot ? "font-bold text-[#1A202C] dark:text-foreground" : "text-gray-600 dark:text-zinc-300"}>
           {isRoot && <span className="mr-1">●</span>}
           {node.label}
         </span>
@@ -103,10 +103,10 @@ const ValueChainView = memo(function ValueChainView({ structure }: { structure: 
     <div className="flex items-center gap-1 flex-wrap">
       {steps.map((step, i) => (
         <span key={step.id} className="flex items-center gap-1">
-          <span className="px-1.5 py-0.5 bg-gray-100 border border-gray-200 text-gray-700 text-[8px] font-bold">
+          <span className="px-1.5 py-0.5 bg-gray-100 dark:bg-zinc-800 border border-gray-200 dark:border-zinc-700 text-gray-700 dark:text-zinc-200 text-[8px] font-bold">
             {step.label}
           </span>
-          {i < steps.length - 1 && <span className="text-gray-400 text-[8px]">→</span>}
+          {i < steps.length - 1 && <span className="text-gray-400 dark:text-zinc-500 text-[8px]">→</span>}
         </span>
       ))}
     </div>
@@ -117,21 +117,21 @@ const ValueChainView = memo(function ValueChainView({ structure }: { structure: 
 
 const PriorityMatrixView = memo(function PriorityMatrixView({ matrix }: { matrix: ArchitectPriorityMatrix }) {
   return (
-    <div className="mx-3 my-2 border-2 border-gray-300 bg-white text-[9px] font-mono">
+    <div className="mx-3 my-2 border-2 border-gray-300 dark:border-zinc-700 bg-white dark:bg-card text-[9px] font-mono">
       {/* Header */}
-      <div className="px-3 py-1.5 border-b border-gray-300 flex items-center gap-2">
-        <span className="font-bold text-[#1A202C] text-[8px] uppercase tracking-widest">◈ 优先级矩阵</span>
+      <div className="px-3 py-1.5 border-b border-gray-300 dark:border-zinc-700 flex items-center gap-2">
+        <span className="font-bold text-[#1A202C] dark:text-foreground text-[8px] uppercase tracking-widest">◈ 优先级矩阵</span>
       </div>
 
       {/* Table */}
       <div className="overflow-x-auto">
         <table className="w-full">
           <thead>
-            <tr className="border-b border-gray-200">
-              <th className="px-2 py-1 text-left text-[8px] font-bold text-gray-500 uppercase tracking-widest">维度</th>
-              <th className="px-2 py-1 text-left text-[8px] font-bold text-gray-500 uppercase tracking-widest">优先级</th>
-              <th className="px-2 py-1 text-left text-[8px] font-bold text-gray-500 uppercase tracking-widest">敏感度</th>
-              <th className="px-2 py-1 text-left text-[8px] font-bold text-gray-500 uppercase tracking-widest">原因</th>
+            <tr className="border-b border-gray-200 dark:border-zinc-700">
+              <th className="px-2 py-1 text-left text-[8px] font-bold text-gray-500 dark:text-muted-foreground uppercase tracking-widest">维度</th>
+              <th className="px-2 py-1 text-left text-[8px] font-bold text-gray-500 dark:text-muted-foreground uppercase tracking-widest">优先级</th>
+              <th className="px-2 py-1 text-left text-[8px] font-bold text-gray-500 dark:text-muted-foreground uppercase tracking-widest">敏感度</th>
+              <th className="px-2 py-1 text-left text-[8px] font-bold text-gray-500 dark:text-muted-foreground uppercase tracking-widest">原因</th>
             </tr>
           </thead>
           <tbody>
@@ -141,8 +141,8 @@ const PriorityMatrixView = memo(function PriorityMatrixView({ matrix }: { matrix
               const sColor = SENSITIVITY_COLORS[dim.sensitivity] || SENSITIVITY_COLORS.low;
               const sIcon = SENSITIVITY_ICONS[dim.sensitivity] || "▽";
               return (
-                <tr key={i} className={i < matrix.dimensions.length - 1 ? "border-b border-gray-100" : ""}>
-                  <td className="px-2 py-1 font-bold text-[#1A202C]">{dim.name}</td>
+                <tr key={i} className={i < matrix.dimensions.length - 1 ? "border-b border-gray-100 dark:border-zinc-800" : ""}>
+                  <td className="px-2 py-1 font-bold text-[#1A202C] dark:text-foreground">{dim.name}</td>
                   <td className="px-2 py-1">
                     <span className={`px-1 py-0.5 text-[8px] font-bold ${pColor}`}>
                       {dim.priority} {pIcon}
@@ -153,7 +153,7 @@ const PriorityMatrixView = memo(function PriorityMatrixView({ matrix }: { matrix
                       {dim.sensitivity} {sIcon}
                     </span>
                   </td>
-                  <td className="px-2 py-1 text-gray-500">{dim.reason}</td>
+                  <td className="px-2 py-1 text-gray-500 dark:text-muted-foreground">{dim.reason}</td>
                 </tr>
               );
             })}
@@ -175,11 +175,11 @@ export const ArchitectStructureCard = memo(function ArchitectStructureCard({
   const isValueChain = structure.type === "value_chain";
 
   return (
-    <div className="mx-3 my-2 border-2 border-gray-300 bg-white text-[9px] font-mono">
+    <div className="mx-3 my-2 border-2 border-gray-300 dark:border-zinc-700 bg-white dark:bg-card text-[9px] font-mono">
       {/* Header */}
-      <div className="px-3 py-1.5 border-b border-gray-300 flex items-center gap-2">
-        <span className="font-bold text-[#1A202C] text-[8px] uppercase tracking-widest">◈ {typeLabel}</span>
-        <span className="text-[7px] text-gray-400">{structure.root}</span>
+      <div className="px-3 py-1.5 border-b border-gray-300 dark:border-zinc-700 flex items-center gap-2">
+        <span className="font-bold text-[#1A202C] dark:text-foreground text-[8px] uppercase tracking-widest">◈ {typeLabel}</span>
+        <span className="text-[7px] text-gray-400 dark:text-zinc-500">{structure.root}</span>
       </div>
 
       {/* Body */}

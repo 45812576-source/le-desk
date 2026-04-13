@@ -14,10 +14,10 @@ import { FRAMEWORK_LABELS } from "./utils";
 // ─── AuditReportCard（六维度 + 分数条 + 阶段入口）──────────────────────────
 
 const SEVERITY_COLORS: Record<string, string> = {
-  low: "text-green-600 bg-green-50 border-green-200",
-  medium: "text-amber-600 bg-amber-50 border-amber-200",
-  high: "text-red-500 bg-red-50 border-red-200",
-  critical: "text-red-700 bg-red-100 border-red-300",
+  low: "text-green-600 bg-green-50 border-green-200 dark:text-green-200 dark:bg-green-950/30 dark:border-green-900",
+  medium: "text-amber-600 bg-amber-50 border-amber-200 dark:text-amber-200 dark:bg-amber-950/30 dark:border-amber-900",
+  high: "text-red-500 bg-red-50 border-red-200 dark:text-red-200 dark:bg-red-950/30 dark:border-red-900",
+  critical: "text-red-700 bg-red-100 border-red-300 dark:text-red-100 dark:bg-red-950/50 dark:border-red-800",
 };
 
 const SCORE_BAR_COLORS: Record<string, string> = {
@@ -45,8 +45,8 @@ const AuditReportCard = memo(function AuditReportCard({ audit, onDismiss }: { au
         <span className={`text-[11px] font-bold ${audit.quality_score >= 70 ? "text-green-600" : audit.quality_score >= 40 ? "text-amber-600" : "text-red-600"}`}>
           {audit.quality_score}
         </span>
-        <span className="text-[7px] text-gray-400">/100</span>
-        <button onClick={onDismiss} className="text-[8px] opacity-40 hover:opacity-100 ml-1">✕</button>
+        <span className="text-[7px] text-gray-400 dark:text-zinc-500">/100</span>
+        <button onClick={onDismiss} className="text-[8px] opacity-40 hover:opacity-100 ml-1 dark:text-zinc-300">✕</button>
       </div>
 
       {/* 概要行 */}
@@ -77,17 +77,17 @@ const AuditReportCard = memo(function AuditReportCard({ audit, onDismiss }: { au
               <div key={i}>
                 <div className="flex items-center gap-1.5 mb-0.5">
                   <span className="font-bold w-20 flex-shrink-0 truncate">{issue.dimension}</span>
-                  <div className="flex-1 h-1 bg-gray-200 relative">
+                  <div className="flex-1 h-1 bg-gray-200 dark:bg-zinc-800 relative">
                     <div className={`h-full ${barColor}`} style={{ width: `${issue.score}%` }} />
                   </div>
                   <span className={`w-6 text-right font-bold ${level === "high" ? "text-green-600" : level === "medium" ? "text-amber-600" : "text-red-500"}`}>
                     {issue.score}
                   </span>
                   {fwLabel && (
-                    <span className="text-[7px] text-gray-400 w-16 truncate text-right" title={fwLabel}>{fwLabel}</span>
+                    <span className="text-[7px] text-gray-400 dark:text-zinc-500 w-16 truncate text-right" title={fwLabel}>{fwLabel}</span>
                   )}
                 </div>
-                <div className="text-gray-500 pl-[86px] text-[8px]">{issue.detail}</div>
+                <div className="text-gray-500 dark:text-muted-foreground pl-[86px] text-[8px]">{issue.detail}</div>
               </div>
             );
           })}
@@ -100,9 +100,9 @@ const AuditReportCard = memo(function AuditReportCard({ audit, onDismiss }: { au
 // ─── GovernanceActionCard（阶段色带 + 框架标签）──────────────────────────────
 
 const RISK_BADGE: Record<string, string> = {
-  low: "bg-green-100 text-green-700 border-green-300",
-  medium: "bg-amber-100 text-amber-700 border-amber-300",
-  high: "bg-red-100 text-red-700 border-red-300",
+  low: "bg-green-100 text-green-700 border-green-300 dark:bg-green-950/40 dark:text-green-200 dark:border-green-900",
+  medium: "bg-amber-100 text-amber-700 border-amber-300 dark:bg-amber-950/40 dark:text-amber-200 dark:border-amber-900",
+  high: "bg-red-100 text-red-700 border-red-300 dark:bg-red-950/40 dark:text-red-200 dark:border-red-900",
 };
 
 const GovernanceActionCardComponent = memo(function GovernanceActionCardComponent({
@@ -116,23 +116,23 @@ const GovernanceActionCardComponent = memo(function GovernanceActionCardComponen
   const phaseTheme = action.phase ? PHASE_THEME[action.phase] : null;
   const fwLabel = action.framework ? FRAMEWORK_LABELS[action.framework] || action.framework : null;
   return (
-    <div className={`mx-3 my-1.5 border-2 ${phaseTheme ? phaseTheme.border : "border-[#00A3C4]/30"} bg-white text-[9px] font-mono`}>
+    <div className={`mx-3 my-1.5 border-2 ${phaseTheme ? phaseTheme.border : "border-[#00A3C4]/30 dark:border-cyan-900"} bg-white dark:bg-card text-[9px] font-mono`}>
       {/* 标题栏：阶段色带 + 标题 + 风险徽章 */}
-      <div className={`px-2.5 py-1.5 border-b ${phaseTheme ? phaseTheme.border : "border-gray-200"} flex items-center gap-2`}>
+      <div className={`px-2.5 py-1.5 border-b ${phaseTheme ? phaseTheme.border : "border-gray-200 dark:border-zinc-700"} flex items-center gap-2`}>
         {phaseTheme && (
           <span className={`${phaseTheme.accent} text-white px-1 py-0.5 text-[6px] font-bold uppercase tracking-widest`}>
             {phaseTheme.label.split("·")[0].trim()}
           </span>
         )}
-        <span className="font-bold text-[#1A202C] flex-1">{action.title}</span>
+        <span className="font-bold text-[#1A202C] dark:text-foreground flex-1">{action.title}</span>
         <span className={`text-[7px] px-1 py-0.5 border font-bold uppercase ${riskClass}`}>
           {action.risk_level}
         </span>
       </div>
       {/* 正文 */}
       <div className="px-2.5 py-2">
-        <p className="text-gray-600 mb-1">{action.summary}</p>
-        <div className="flex items-center gap-2 text-[8px] text-gray-400 mb-1.5 flex-wrap">
+        <p className="text-gray-600 dark:text-muted-foreground mb-1">{action.summary}</p>
+        <div className="flex items-center gap-2 text-[8px] text-gray-400 dark:text-zinc-500 mb-1.5 flex-wrap">
           <span>原因：{action.reason}</span>
           {fwLabel && (
             <span className={`px-1 py-0.5 ${phaseTheme ? phaseTheme.bg : "bg-gray-100"} ${phaseTheme ? phaseTheme.text : "text-gray-500"} text-[7px]`}>
@@ -287,6 +287,7 @@ export function GovernanceTimeline({
   onArchitectRevise,
   onOodaContinue,
   onGenerateDraft,
+  onGovernanceComplete,
 }: {
   messages: ChatMessage[];
   streaming: boolean;
@@ -315,7 +316,22 @@ export function GovernanceTimeline({
   architectReady?: ArchitectReadyForDraft | null;
   onOodaContinue?: () => void;
   onGenerateDraft?: () => void;
+  onGovernanceComplete?: () => void;
 }) {
+  const pendingCards = governanceCards.filter((c) => c.status === "pending");
+  const resolvedCards = governanceCards.filter((c) => c.status !== "pending");
+  const hasPhase3Progress = phaseProgress.some((pp) => pp.completed_phase === "phase3");
+  const showGovernanceSection = phaseProgress.length > 0 && (
+    pendingCards.length > 0 ||
+    resolvedCards.length > 0 ||
+    !!auditResult ||
+    pendingGovernanceActions.length > 0
+  );
+  const governanceCompleted = hasPhase3Progress &&
+    governanceCards.length > 0 &&
+    pendingCards.length === 0 &&
+    pendingGovernanceActions.length === 0 &&
+    !auditResult;
   const quickActions = [
     { label: "方向不对", msg: "你理解的方向不对，我重新说一下：", focusInput: true },
     { label: "别重复问", msg: "这个问题你已经问过了，请基于已有信息继续推进" },
@@ -400,16 +416,16 @@ export function GovernanceTimeline({
       ))}
 
       {/* Architect → Governance transition divider */}
-      {phaseProgress.length > 0 && (governanceCards.some((c) => c.status === "pending") || auditResult || pendingGovernanceActions.length > 0) && (
-        <div className="mx-3 my-2 flex items-center gap-2 text-[8px] font-mono text-gray-400">
-          <div className="flex-1 h-px bg-gray-200" />
+      {showGovernanceSection && (
+        <div className="mx-3 my-2 flex items-center gap-2 text-[8px] font-mono text-gray-400 dark:text-muted-foreground">
+          <div className="flex-1 h-px bg-gray-200 dark:bg-zinc-800" />
           <span className="font-bold uppercase tracking-widest">治理 · Governance</span>
-          <div className="flex-1 h-px bg-gray-200" />
+          <div className="flex-1 h-px bg-gray-200 dark:bg-zinc-800" />
         </div>
       )}
 
       {/* Governance cards from store (new structured events) */}
-      {governanceCards.filter((c) => c.status === "pending").map((card) => (
+      {pendingCards.map((card) => (
         <GovernanceCard
           key={card.id}
           card={card}
@@ -417,6 +433,23 @@ export function GovernanceTimeline({
           onDismiss={onDismissGovernance}
         />
       ))}
+
+      {resolvedCards.length > 0 && (
+        <div className="space-y-1">
+          <div className="mx-3 mt-2 flex items-center gap-2 text-[8px] font-mono text-gray-400 dark:text-muted-foreground">
+            <div className="flex-1 h-px bg-gray-200 dark:bg-zinc-800" />
+            <span className="font-bold uppercase tracking-widest">已处理整改项</span>
+            <div className="flex-1 h-px bg-gray-200 dark:bg-zinc-800" />
+          </div>
+          {resolvedCards.map((card) => (
+            <GovernanceCard
+              key={card.id}
+              card={card}
+              onAction={onGovernanceAction}
+            />
+          ))}
+        </div>
+      )}
 
       {/* Audit report */}
       {auditResult && (
@@ -431,6 +464,30 @@ export function GovernanceTimeline({
           onAdopt={onAdoptGovernanceAction}
         />
       ))}
+
+      {governanceCompleted && (
+        <div className="mx-3 my-2 border-2 border-emerald-300 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-950/30 text-[9px] font-mono">
+          <div className="px-3 py-1.5 border-b border-emerald-300 dark:border-emerald-800 flex items-center gap-2">
+            <span className="bg-emerald-600 dark:bg-emerald-500 text-white px-1.5 py-0.5 text-[7px] font-bold uppercase tracking-widest">
+              ✓ Governance
+            </span>
+            <span className="text-emerald-700 dark:text-emerald-200 font-bold text-[8px] uppercase tracking-widest flex-1">
+              本轮整改已处理完成
+            </span>
+          </div>
+          <div className="px-3 py-2 space-y-2">
+            <p className="text-[#1A202C] dark:text-foreground">
+              已没有待采纳卡片。下一步应继续验收或进入最终草稿生成，而不是重复口头描述整改项。
+            </p>
+            <button
+              onClick={() => onGovernanceComplete?.()}
+              className="px-3 py-1 text-[8px] font-bold uppercase tracking-widest text-white bg-emerald-600 dark:bg-emerald-500 hover:opacity-80 transition-colors"
+            >
+              继续下一步
+            </button>
+          </div>
+        </div>
+      )}
     </>
   );
 }

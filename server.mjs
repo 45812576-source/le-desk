@@ -85,6 +85,22 @@ proxy.on("error", (err, req, res) => {
 app.prepare().then(() => {
   const server = createServer((req, res) => {
     const parsedUrl = parse(req.url, true);
+    const pathname = parsedUrl.pathname || "";
+
+    if (pathname.startsWith("/_next/static/chunks/")) {
+      const originalSetHeader = res.setHeader.bind(res);
+      res.setHeader = (name, value) => {
+        if (String(name).toLowerCase() === "cache-control") {
+          return originalSetHeader("Cache-Control", "no-store, max-age=0, must-revalidate");
+        }
+        return originalSetHeader(name, value);
+      };
+      res.setHeader("Cache-Control", "no-store, max-age=0, must-revalidate");
+    } else if (!pathname.startsWith("/_next/static/") && !pathname.startsWith("/api/")) {
+      res.setHeader("Cache-Control", "no-store, max-age=0, must-revalidate");
+      res.setHeader("Clear-Site-Data", '"cache"');
+    }
+
     handle(req, res, parsedUrl);
   });
 

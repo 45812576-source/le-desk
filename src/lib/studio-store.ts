@@ -26,6 +26,8 @@ export interface StudioSessionState {
   // 编辑区可见性
   editorVisibility: EditorVisibility;
   setEditorVisibility: (v: EditorVisibility) => void;
+  editorManuallyCollapsed: boolean;
+  setEditorManuallyCollapsed: (collapsed: boolean) => void;
 
   // 会话模式
   sessionMode: SessionMode;
@@ -68,6 +70,7 @@ export interface StudioSessionState {
 
 const initialState = {
   editorVisibility: "collapsed" as EditorVisibility,
+  editorManuallyCollapsed: false,
   sessionMode: null as SessionMode,
   activeAssistSkills: [] as { id: number; name: string; status: string }[],
   governanceCards: [] as GovernanceCardData[],
@@ -84,6 +87,7 @@ export const useStudioStore = create<StudioSessionState>((set) => ({
   ...initialState,
 
   setEditorVisibility: (v) => set({ editorVisibility: v }),
+  setEditorManuallyCollapsed: (collapsed) => set({ editorManuallyCollapsed: collapsed }),
   setSessionMode: (mode) => set({ sessionMode: mode }),
   setActiveAssistSkills: (skills) => set({ activeAssistSkills: skills }),
 

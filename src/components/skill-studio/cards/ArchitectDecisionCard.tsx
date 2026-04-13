@@ -26,14 +26,14 @@ export const OodaDecisionView = memo(function OodaDecisionView({
   const hasPhaseJump = decision.decision.includes("回调") || decision.decision.includes("Phase");
 
   return (
-    <div className={`mx-3 my-2 border-2 ${theme.border} bg-white text-[9px] font-mono`}>
+    <div className={`mx-3 my-2 border-2 ${theme.border} bg-white dark:bg-card text-[9px] font-mono`}>
       {/* Header */}
       <div className={`px-3 py-1.5 border-b ${theme.border} ${theme.bg} flex items-center gap-2`}>
         <span className={`${theme.accent} text-white px-1.5 py-0.5 text-[7px] font-bold uppercase tracking-widest`}>
           ■ OODA · 第 {decision.ooda_round} 轮
         </span>
         {phaseStatus && phaseStatus.phase && (
-          <span className="text-[7px] text-gray-400 ml-auto">
+          <span className="text-[7px] text-gray-400 dark:text-muted-foreground ml-auto">
             当前阶段：{phaseStatus.phase}
           </span>
         )}
@@ -44,7 +44,7 @@ export const OodaDecisionView = memo(function OodaDecisionView({
         {OODA_FIELDS.map(({ key, label }) => (
           <div key={key} className="flex gap-1.5">
             <span className={`font-bold ${theme.text} w-16 flex-shrink-0`}>{label}：</span>
-            <span className="text-[#1A202C]">{decision[key]}</span>
+            <span className="text-[#1A202C] dark:text-foreground">{decision[key]}</span>
           </div>
         ))}
 
@@ -88,7 +88,7 @@ export const ReadyForDraftView = memo(function ReadyForDraftView({
   );
 
   return (
-    <div className={`mx-3 my-2 border-2 ${theme.border} bg-white text-[9px] font-mono`}>
+    <div className={`mx-3 my-2 border-2 ${theme.border} bg-white dark:bg-card text-[9px] font-mono`}>
       {/* Header */}
       <div className={`px-3 py-1.5 border-b ${theme.border} ${theme.bg} flex items-center gap-2`}>
         <span className={`${theme.accent} text-white px-1.5 py-0.5 text-[7px] font-bold uppercase tracking-widest`}>
@@ -103,17 +103,17 @@ export const ReadyForDraftView = memo(function ReadyForDraftView({
       <div className="px-3 py-2 space-y-2">
         {/* Key elements */}
         <div>
-          <span className="font-bold text-gray-500 text-[8px]">关键要素：</span>
+          <span className="font-bold text-gray-500 dark:text-muted-foreground text-[8px]">关键要素：</span>
           <div className="mt-0.5 space-y-0.5">
             {sortedElements.map((el, i) => {
               const isP0 = el.priority === "P0";
               return (
                 <div key={i} className="flex items-center gap-1.5">
-                  <span className={`text-[7px] font-bold px-1 py-0.5 ${isP0 ? "bg-red-50 text-red-600" : "bg-gray-100 text-gray-500"}`}>
+                  <span className={`text-[7px] font-bold px-1 py-0.5 ${isP0 ? "bg-red-50 text-red-600 dark:bg-red-950/40 dark:text-red-200" : "bg-gray-100 text-gray-500 dark:bg-zinc-800 dark:text-zinc-300"}`}>
                     {el.priority}
                   </span>
-                  <span className="text-[#1A202C]">{el.name}</span>
-                  <span className="text-[7px] text-gray-400">(来源: {el.source_phase})</span>
+                  <span className="text-[#1A202C] dark:text-foreground">{el.name}</span>
+                  <span className="text-[7px] text-gray-400 dark:text-zinc-500">(来源: {el.source_phase})</span>
                 </div>
               );
             })}
@@ -123,10 +123,10 @@ export const ReadyForDraftView = memo(function ReadyForDraftView({
         {/* Failure prevention */}
         {ready.failure_prevention.length > 0 && (
           <div>
-            <span className="font-bold text-gray-500 text-[8px]">失败预防：</span>
+            <span className="font-bold text-gray-500 dark:text-muted-foreground text-[8px]">失败预防：</span>
             <div className="mt-0.5 space-y-0.5">
               {ready.failure_prevention.map((item, i) => (
-                <div key={i} className="flex items-start gap-1 text-amber-600">
+                <div key={i} className="flex items-start gap-1 text-amber-600 dark:text-amber-200">
                   <span className="flex-shrink-0">⚠</span>
                   <span>{item}</span>
                 </div>
@@ -138,8 +138,8 @@ export const ReadyForDraftView = memo(function ReadyForDraftView({
         {/* Draft approach */}
         {ready.draft_approach && (
           <div>
-            <span className="font-bold text-gray-500 text-[8px]">生成方式：</span>
-            <span className="text-[#1A202C] ml-1">{ready.draft_approach}</span>
+            <span className="font-bold text-gray-500 dark:text-muted-foreground text-[8px]">生成方式：</span>
+            <span className="text-[#1A202C] dark:text-foreground ml-1">{ready.draft_approach}</span>
           </div>
         )}
 
