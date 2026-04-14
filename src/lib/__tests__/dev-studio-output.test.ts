@@ -30,4 +30,40 @@ describe("mergeVisibleOutputFiles", () => {
       exists_on_disk: false,
     });
   });
+
+  it("allows legacy files to download when disk path is confirmed", () => {
+    const files = mergeVisibleOutputFiles(
+      [],
+      [{
+        path: "/workspace/project/output/c.md",
+        filename: "c.md",
+        content: "",
+        tool: "write",
+        session_title: "s3",
+        exists_on_disk: true,
+      }],
+    );
+
+    expect(files).toHaveLength(1);
+    expect(files[0]).toMatchObject({
+      path: "/workspace/project/output/c.md",
+      source: "legacy",
+      download_ready: true,
+      exists_on_disk: true,
+    });
+  });
+
+  it("deduplicates legacy files against indexed files after path normalization", () => {
+    const files = mergeVisibleOutputFiles(
+      [{ path: "C:\\workspace\\output\\d.md", name: "d.md", category: "output" }],
+      [{ path: "C:/workspace/output/d.md", filename: "d.md", content: "", tool: "write", session_title: "s4", exists_on_disk: true }],
+    );
+
+    expect(files).toHaveLength(1);
+    expect(files[0]).toMatchObject({
+      path: "C:\\workspace\\output\\d.md",
+      source: "index",
+      download_ready: true,
+    });
+  });
 });

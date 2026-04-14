@@ -24,6 +24,10 @@ export interface DevStudioVisibleFile extends LatestSessionFile {
   download_ready: boolean;
 }
 
+function canonicalizeVisiblePath(path: string): string {
+  return path.replaceAll("\\", "/").replace(/\/+/g, "/");
+}
+
 export function normalizeIndexedOutputFiles(items: IndexedOutputFile[]): DevStudioVisibleFile[] {
   return items.map((item) => ({
     path: item.path,
@@ -43,7 +47,7 @@ export function normalizeLegacyOutputFiles(items: LatestSessionFile[]): DevStudi
     ...item,
     exists_on_disk: item.exists_on_disk ?? false,
     source: "legacy",
-    download_ready: false,
+    download_ready: (item.exists_on_disk ?? false) && Boolean(item.path),
   }));
 }
 
@@ -52,7 +56,9 @@ export function mergeVisibleOutputFiles(
   legacyItems: LatestSessionFile[],
 ): DevStudioVisibleFile[] {
   const indexed = normalizeIndexedOutputFiles(indexedItems);
-  const indexedPaths = new Set(indexed.map((item) => item.path));
-  const legacy = normalizeLegacyOutputFiles(legacyItems).filter((item) => !indexedPaths.has(item.path));
+  const indexedPaths = new Set(indexed.map((item) => canonicalizeVisiblePath(item.path)));
+  const legacy = normalizeLegacyOutputFiles(legacyItems).filter(
+    (item) => !indexedPaths.has(canonicalizeVisiblePath(item.path)),
+  );
   return [...indexed, ...legacy];
 }
