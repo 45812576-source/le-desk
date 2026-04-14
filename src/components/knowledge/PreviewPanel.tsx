@@ -13,6 +13,7 @@ import type {
   User,
 } from "@/lib/types";
 import { apiFetch } from "@/lib/api";
+import { shouldPreferDetachedCopySourcePreview } from "@/lib/knowledge-preview-routing";
 import { marked } from "marked";
 import { RichEditor } from "@/components/knowledge/RichEditor";
 import { CollabEditor } from "@/components/knowledge/CollabEditor";
@@ -848,6 +849,7 @@ function DocumentRenderResolver({
   const renderStatus = entry.doc_render_status;
   const isLarkDoc = entry.source_type === "lark_doc";
   const isDetachedLarkCopy = isLarkDoc && entry.external_edit_mode === "detached_copy";
+  const shouldPreferSourcePreview = shouldPreferDetachedCopySourcePreview(entry);
   // PDF 转换成功后不再视为 media，走 OnlyOffice 路径
   const isMedia = !!entry.oss_key && MEDIA_EXTS.has(ext) && !(ext === ".pdf" && entry.can_open_onlyoffice);
   const hasRenderableContent = Boolean(entry.content_html || entry.content || htmlVal);
@@ -866,7 +868,7 @@ function DocumentRenderResolver({
   // 1. 正在转换中 — 显示进度提示，同时允许编辑正文 fallback
   //    仅当有实际文件（oss_key）时才视为真正在转换；无文件的手动文档跳过
   //    媒体文件（PDF/图片/音视频）不需要等转换完成，直接走原生预览
-  if ((renderStatus === "processing" || renderStatus === "pending") && entry.oss_key && !isMedia) {
+  if ((renderStatus === "processing" || renderStatus === "pending") && entry.oss_key && !isMedia && !shouldPreferSourcePreview) {
     const hasFallback = hasRenderableContent;
     return (
       <div className="flex flex-col h-full">
@@ -892,7 +894,7 @@ function DocumentRenderResolver({
   }
 
   // 2. 转换失败 — 显示原因 + 回退编辑
-  if (renderStatus === "failed") {
+  if (renderStatus === "failed" && !shouldPreferSourcePreview) {
     return (
       <div className="flex flex-col h-full">
         <RenderFailedBanner entry={entry} onRetry={onRetry} />
@@ -916,7 +918,7 @@ function DocumentRenderResolver({
   }
 
   // 3. content_html ready → CollabEditor（协同）或 RichEditor（非媒体文件）
-  if (renderStatus === "ready" && entry.content_html && !isMedia) {
+  if (renderStatus === "ready" && entry.content_html && !isMedia && !shouldPreferSourcePreview) {
     if (currentUser && canEdit) {
       return (
         <EditorErrorBoundary fallback={<RichEditor key={entry.id} content={htmlVal} onChange={onContentChange} editable={canEdit} />}>
@@ -946,7 +948,7 @@ function DocumentRenderResolver({
   }
 
   // 5. OnlyOffice 可打开的 Office 文件
-  if (entry.can_open_onlyoffice && entry.oss_key && !isDetachedLarkCopy) {
+  if (entry.can_open_onlyoffice && entry.oss_key && (!isDetachedLarkCopy || shouldPreferSourcePreview)) {
     return (
       <EditorErrorBoundary fallback={<ViewerFallback entry={entry} />}>
         <div className="h-full overflow-y-auto">
