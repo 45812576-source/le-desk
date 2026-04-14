@@ -51,6 +51,7 @@ export function SkillStudio({
   }, []);
   const [isNew, setIsNew] = useState(false);
   const [showImportModal, setShowImportModal] = useState(false);
+  const [skillListCollapsed, setSkillListCollapsed] = useState(false);
   const [showSandbox, setShowSandbox] = useState<number | null>(null);
   const [memo, setMemo] = useState<SkillMemo | null>(null);
   const [sandboxEntryHandled, setSandboxEntryHandled] = useState(false);
@@ -195,6 +196,12 @@ export function SkillStudio({
               if ((remediation.cards?.length || 0) > 0 || (remediation.staged_edits?.length || 0) > 0) {
                 setEditorManuallyCollapsed(false);
                 setEditorVisibility("auto_expanded");
+                const firstSourceFileEdit = (remediation.staged_edits || []).find((edit) =>
+                  edit.target_type === "source_file" && typeof edit.target_key === "string" && edit.target_key
+                );
+                if (firstSourceFileEdit?.target_key) {
+                  setSelectedFile({ skillId: initialSkillId, fileType: "asset", filename: String(firstSourceFileEdit.target_key) });
+                }
               }
             }
           } catch {
@@ -308,6 +315,18 @@ export function SkillStudio({
   function handleNew() {
     setSelectedFile(null);
     setIsNew(true);
+    setPrompt("");
+    setSavedPrompt("");
+  }
+
+  async function handleNewFromList(name: string) {
+    const created = await apiFetch<SkillDetail>("/skills", {
+      method: "POST",
+      body: JSON.stringify({ name, description: "", system_prompt: "", mode: "hybrid", variables: [], auto_inject: true }),
+    });
+    fetchSkills();
+    setSelectedFile({ skillId: created.id, fileType: "prompt" });
+    setIsNew(false);
     setPrompt("");
     setSavedPrompt("");
   }
@@ -516,14 +535,16 @@ export function SkillStudio({
           loading={skillsLoading}
           selectedFile={selectedFile}
           refreshCounter={skillRefreshCounter}
+          collapsed={skillListCollapsed}
           onSelectFile={(f) => {
             setSelectedFile(f);
             setIsNew(false);
           }}
-          onNew={handleNew}
+          onNew={handleNewFromList}
           onImport={() => setShowImportModal(true)}
           onRefreshSkill={refreshSkill}
           onAdoptSuggestion={handleAdoptSuggestion}
+          onToggleCollapse={() => setSkillListCollapsed((v) => !v)}
         />
 
         {/* Center: Chat (main work area) */}

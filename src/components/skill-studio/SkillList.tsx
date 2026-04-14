@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { ChevronDown, ChevronRight, File, Upload, Trash2, Zap, Plus, Package, X, Search } from "lucide-react";
+import { ChevronDown, ChevronRight, File, Upload, Trash2, Zap, Plus, Package, X, Search, PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import { PixelButton } from "@/components/pixel/PixelButton";
 import { PixelBadge } from "@/components/pixel/PixelBadge";
 import { apiFetch, getToken } from "@/lib/api";
@@ -106,26 +106,45 @@ export function SkillList({
   skills,
   loading,
   selectedFile,
+  collapsed,
   onSelectFile,
   onNew,
   onImport,
   onRefreshSkill,
   onAdoptSuggestion,
+  onToggleCollapse,
 }: {
   skills: SkillDetail[];
   loading: boolean;
   selectedFile: SelectedFile | null;
   refreshCounter?: number;
+  collapsed?: boolean;
   onSelectFile: (f: SelectedFile) => void;
-  onNew: () => void;
+  onNew: (name: string) => Promise<void>;
   onImport: () => void;
   onRefreshSkill: (skillId: number) => void;
   onAdoptSuggestion?: (skillName: string, suggestion: Suggestion) => void;
+  onToggleCollapse?: () => void;
 }) {
   const [expanded, setExpanded] = useState<Set<number>>(new Set());
   const uploadInputRef = useRef<HTMLInputElement>(null);
   const [uploadingFor, setUploadingFor] = useState<number | null>(null);
   const [suggestionPopupSkillId, setSuggestionPopupSkillId] = useState<number | null>(null);
+  const [showInlineNew, setShowInlineNew] = useState(false);
+  const [inlineNewName, setInlineNewName] = useState("");
+  const [inlineCreating, setInlineCreating] = useState(false);
+
+  async function handleInlineCreate() {
+    const trimmed = inlineNewName.trim();
+    if (!trimmed || inlineCreating) return;
+    setInlineCreating(true);
+    try {
+      await onNew(trimmed);
+      setShowInlineNew(false);
+      setInlineNewName("");
+    } catch { /* parent handles error */ }
+    finally { setInlineCreating(false); }
+  }
 
   const visibleSkills = skills.filter((s) => isVisibleInSkillStudio(s.status));
   const drafts = visibleSkills.filter((s) => isEditableSkillStatus(s.status));
@@ -514,15 +533,70 @@ export function SkillList({
     );
   }
 
+  if (collapsed) {
+    return (
+      <button
+        onClick={onToggleCollapse}
+        className="flex-shrink-0 w-8 border-r-2 border-[#1A202C] bg-[#EBF4F7] hover:bg-[#E0ECF0] flex flex-col items-center justify-center gap-1 transition-colors"
+        title="展开 Skill 列表"
+      >
+        <PanelLeftOpen size={12} className="text-gray-400" />
+        <span className="text-[7px] text-gray-400 font-bold" style={{ writingMode: "vertical-rl" }}>
+          Skills
+        </span>
+      </button>
+    );
+  }
+
   return (
     <div className="flex flex-col h-full border-r-2 border-[#1A202C] bg-[#EBF4F7] w-52 flex-shrink-0">
       <div className="px-3 py-2.5 border-b-2 border-[#1A202C] flex items-center justify-between">
         <span className="text-[9px] font-bold uppercase tracking-widest text-[#00A3C4]">Skills</span>
         <div className="flex items-center gap-1">
           <PixelButton size="sm" variant="secondary" onClick={onImport}>导入</PixelButton>
-          <PixelButton size="sm" onClick={onNew}>+ 新建</PixelButton>
+          <PixelButton size="sm" onClick={() => setShowInlineNew(true)}>+ 新建</PixelButton>
+          <button
+            onClick={onToggleCollapse}
+            className="text-gray-400 hover:text-gray-600 p-0.5 ml-0.5"
+            title="收起 Skill 列表"
+          >
+            <PanelLeftClose size={12} />
+          </button>
         </div>
       </div>
+
+      {/* Inline new skill input */}
+      {showInlineNew && (
+        <div className="px-3 py-2 bg-[#F0FBFF] border-b-2 border-[#00D1FF] flex items-center gap-1.5">
+          <SkillIcon size={10} />
+          <input
+            value={inlineNewName}
+            onChange={(e) => setInlineNewName(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") handleInlineCreate();
+              if (e.key === "Escape") { setShowInlineNew(false); setInlineNewName(""); }
+            }}
+            placeholder="Skill 名称..."
+            className="flex-1 text-[9px] font-mono px-1.5 py-1 border border-[#00A3C4] bg-white outline-none focus:border-[#00D1FF] min-w-0"
+            autoFocus
+            disabled={inlineCreating}
+          />
+          <button
+            onClick={handleInlineCreate}
+            disabled={inlineCreating || !inlineNewName.trim()}
+            className="text-[8px] font-bold px-2 py-1 bg-[#00A3C4] text-white disabled:opacity-50"
+          >
+            {inlineCreating ? "..." : "创建"}
+          </button>
+          <button
+            onClick={() => { setShowInlineNew(false); setInlineNewName(""); }}
+            className="text-gray-400 hover:text-gray-600"
+          >
+            <X size={10} />
+          </button>
+        </div>
+      )}
+
       <div className="flex-1 overflow-y-auto">
         {loading ? (
           <div className="p-4 text-center text-[9px] font-bold uppercase tracking-widest text-[#00A3C4] animate-pulse">加载中...</div>
