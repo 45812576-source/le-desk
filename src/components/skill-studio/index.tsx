@@ -553,6 +553,7 @@ export function SkillStudio({
           convId={convId}
           skillId={selectedSkill?.id ?? null}
           currentPrompt={prompt}
+          currentDescription={selectedSkill?.description ?? ""}
           editorIsDirty={editorIsDirty}
           selectedSourceFile={selectedFile?.fileType === "asset" ? (selectedFile as { filename: string }).filename : null}
           allSkills={searchableSkills}
