@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import { apiFetch } from "@/lib/api";
 import { PixelButton } from "@/components/pixel/PixelButton";
@@ -43,6 +44,7 @@ export function SandboxTestModal({
   initialSessionId,
 }: SandboxTestModalProps) {
   const router = useRouter();
+  const [mounted, setMounted] = useState(false);
   const [session, setSession] = useState<SandboxSession | null>(null);
   const [report, setReport] = useState<SandboxReport | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -52,6 +54,11 @@ export function SandboxTestModal({
   const [approvalInfo, setApprovalInfo] = useState<string | null>(null);
 
   // ── Resume 已有会话（从沙盒报告跳转进来） ──
+  useEffect(() => {
+    setMounted(true);
+    return () => setMounted(false);
+  }, []);
+
   useEffect(() => {
     if (!initialSessionId) return;
     let cancelled = false;
@@ -103,7 +110,9 @@ export function SandboxTestModal({
 
   const STEP_LABELS = ["开始", "输入槽位", "Tool 确认", "权限确认", "执行测试", "报告"];
 
-  return (
+  if (!mounted) return null;
+
+  return createPortal(
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
       <div className="bg-white border-2 border-[#1A202C] w-[720px] max-h-[85vh] flex flex-col">
         {/* Header */}
@@ -413,7 +422,8 @@ export function SandboxTestModal({
           <PixelButton variant="secondary" onClick={onCancel}>关闭</PixelButton>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
 
