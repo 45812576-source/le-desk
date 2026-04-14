@@ -80,13 +80,18 @@ export async function handler(
     || respContentType.startsWith("video/")
     || respContentType.startsWith("audio/")
     || respContentType.includes("octet-stream")
-    || respContentType.includes("pdf");
+    || respContentType.includes("pdf")
+    || respContentType.includes("spreadsheetml")
+    || respContentType.includes("text/csv");
 
   if (isBinary) {
     const respBody = await resp.arrayBuffer();
+    const binaryHeaders: Record<string, string> = { "Content-Type": respContentType };
+    const disposition = resp.headers.get("Content-Disposition");
+    if (disposition) binaryHeaders["Content-Disposition"] = disposition;
     return new NextResponse(respBody, {
       status: resp.status,
-      headers: { "Content-Type": respContentType },
+      headers: binaryHeaders,
     });
   }
 

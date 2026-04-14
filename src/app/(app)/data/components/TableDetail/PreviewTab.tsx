@@ -132,8 +132,24 @@ export default function PreviewTab({ detail, capabilities }: Props) {
     }
   }
 
-  function handleExport(format: "csv" | "excel" | "json") {
-    window.open(getExportUrl(detail.table_name, format), "_blank");
+  async function handleExport(format: "csv" | "excel" | "json") {
+    try {
+      const token = (await import("@/lib/api")).getToken();
+      const headers: Record<string, string> = {};
+      if (token) headers["Authorization"] = `Bearer ${token}`;
+      const res = await fetch(`/api/proxy/data/${encodeURIComponent(detail.table_name)}/export?format=${format}`, { headers });
+      if (!res.ok) throw new Error(`导出失败 (${res.status})`);
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      const ext = format === "excel" ? "xlsx" : format;
+      a.download = `${detail.display_name || detail.table_name}.${ext}`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "导出失败");
+    }
   }
 
   if (loading) {

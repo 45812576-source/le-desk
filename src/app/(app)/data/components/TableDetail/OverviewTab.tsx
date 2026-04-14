@@ -45,6 +45,34 @@ export default function OverviewTab({ detail, onRefresh, onDeleteTable, capabili
   const isV2 = useV2DataAssets();
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [publishing, setPublishing] = useState(false);
+
+  const isPublished = (detail as unknown as Record<string, unknown>).publish_status === "published";
+
+  async function handlePublish() {
+    setPublishing(true);
+    try {
+      await apiFetch(`/data-assets/tables/${detail.id}/publish`, { method: "POST" });
+      onRefresh();
+    } catch (e: unknown) {
+      alert(e instanceof Error ? e.message : "发布失败");
+    } finally {
+      setPublishing(false);
+    }
+  }
+
+  async function handleUnpublish() {
+    if (!confirm("取消发布后，Skill 将无法绑定此数据表。确认？")) return;
+    setPublishing(true);
+    try {
+      await apiFetch(`/data-assets/tables/${detail.id}/unpublish`, { method: "POST" });
+      onRefresh();
+    } catch (e: unknown) {
+      alert(e instanceof Error ? e.message : "取消发布失败");
+    } finally {
+      setPublishing(false);
+    }
+  }
 
   // 元信息编辑状态
   const [editingName, setEditingName] = useState(false);
@@ -177,6 +205,22 @@ export default function OverviewTab({ detail, onRefresh, onDeleteTable, capabili
         <InfoRow label="视图数">{detail.views.length}</InfoRow>
         <InfoRow label="Skill 绑定">{detail.bindings.length}</InfoRow>
         <InfoRow label="创建时间">{detail.created_at ? new Date(detail.created_at).toLocaleString("zh-CN") : "-"}</InfoRow>
+        <InfoRow label="发布状态">
+          <div className="flex items-center gap-2">
+            <span className={`text-[9px] font-bold px-2 py-0.5 rounded ${isPublished ? "bg-green-50 text-green-600" : "bg-gray-100 text-gray-500"}`}>
+              {isPublished ? "已发布" : "草稿"}
+            </span>
+            {isPublished ? (
+              <PixelButton size="sm" variant="secondary" onClick={handleUnpublish} disabled={publishing}>
+                {publishing ? "..." : "取消发布"}
+              </PixelButton>
+            ) : (
+              <PixelButton size="sm" onClick={handlePublish} disabled={publishing}>
+                {publishing ? "..." : "申请发布"}
+              </PixelButton>
+            )}
+          </div>
+        </InfoRow>
       </div>
 
       {/* 同步状态 */}

@@ -171,6 +171,9 @@ export default function AssetList({ tables, selectedTableId, onSelectTable, load
                     <span className={`w-2 h-2 rounded-full flex-shrink-0 ${riskColor}`} title={`风险: ${riskLevel}`} />
                   )}
                   <span className="text-[10px] font-bold truncate flex-1">{t.display_name}</span>
+                  {(t as unknown as Record<string, unknown>).publish_status === "published" && (
+                    <span className="text-[7px] font-bold px-1 py-px bg-green-50 text-green-600 border border-green-200 rounded">已发布</span>
+                  )}
                   <span className={`text-[8px] font-bold px-1.5 py-px border rounded ${src.color}`}>{src.label}</span>
                 </div>
                 <div className="flex items-center gap-3 text-[8px] text-gray-400">

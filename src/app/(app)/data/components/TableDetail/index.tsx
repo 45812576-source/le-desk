@@ -160,7 +160,7 @@ export default function TableDetailPanel({ tableId, onRefresh, onDeleteTable }: 
         <div className="flex-1 min-h-0 overflow-y-auto">
           {v1Tab === "overview" && <OverviewTab detail={detail} onRefresh={handleRefresh} onDeleteTable={onDeleteTable} capabilities={capabilities} />}
           {v1Tab === "preview" && <PreviewTab detail={detail} capabilities={capabilities} />}
-          {v1Tab === "fields" && <FieldsTab detail={detail} capabilities={capabilities} />}
+          {v1Tab === "fields" && <FieldsTab detail={detail} onRefresh={handleRefresh} capabilities={capabilities} />}
           {v1Tab === "views" && <ViewsTab detail={detail} onRefresh={handleRefresh} />}
           {v1Tab === "permissions" && <PermissionsTab detail={detail} onRefresh={handleRefresh} />}
           {v1Tab === "bindings" && <SkillBindingsTab detail={detail} onRefresh={handleRefresh} />}

@@ -33,11 +33,13 @@ function UploadFilePanel({ onAdded }: { onAdded: () => void }) {
         headers: token ? { Authorization: `Bearer ${token}` } : {},
         body: formData,
       });
-      const data = await res.json();
       if (!res.ok) {
-        setError(data.detail || `上传失败 (${res.status})`);
+        let detail = `上传失败 (${res.status})`;
+        try { const j = await res.json(); detail = j.detail || detail; } catch { /* non-JSON body */ }
+        setError(detail);
         return;
       }
+      const data = await res.json();
       setResult(data);
       setFile(null);
       if (fileRef.current) fileRef.current.value = "";
