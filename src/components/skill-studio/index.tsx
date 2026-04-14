@@ -11,11 +11,12 @@ import { SandboxTestModal } from "@/components/skill/SandboxTestModal";
 import { isEditableSkillStatus, isPublishedSkillStatus } from "@/lib/skill-status";
 import { useStudioStore } from "@/lib/studio-store";
 
-import type { ChatMessage, SelectedFile, StudioDraft, DiffOp, StagedEdit, GovernanceCardData } from "./types";
+import type { ChatMessage, SelectedFile, StudioDraft, StagedEdit, GovernanceCardData } from "./types";
 import { SkillList, SkillIcon } from "./SkillList";
 import { PromptEditor } from "./PromptEditor";
 import { StudioChat } from "./StudioChat";
 import { AssetFileEditor } from "./AssetFileEditor";
+import { normalizeStagedEditPayload } from "./utils";
 
 // ─── Main page ────────────────────────────────────────────────────────────────
 
@@ -714,22 +715,5 @@ export function SkillStudio({
   );
 }
   function normalizeStagedEdit(raw: Record<string, unknown>): StagedEdit {
-    return {
-      id: String(raw.id ?? Date.now()),
-      fileType: (raw.target_type as string) || "system_prompt",
-      filename: raw.target_key
-        ? String(raw.target_key)
-        : ((raw.target_type as string) === "system_prompt" ? "SKILL.md" : ""),
-      diff: (((raw.diff_ops as DiffOp[]) || []).map((op) => ({
-        type: (op as unknown as { op?: string }).op === "replace"
-          ? "replace"
-          : (op as unknown as { op?: string }).op === "insert"
-            ? "insert_after"
-            : "delete",
-        old: op.old,
-        new: op.new || op.content,
-      })) as DiffOp[]),
-      changeNote: raw.summary as string,
-      status: (raw.status as StagedEdit["status"]) || "pending",
-    };
+    return normalizeStagedEditPayload(raw);
   }

@@ -8,16 +8,20 @@ import type { StudioDraft } from "../types";
 export function DraftCard({
   draft,
   currentPrompt,
+  currentDescription = "",
   onApply,
   onDiscard,
 }: {
   draft: StudioDraft;
   currentPrompt: string;
+  currentDescription?: string;
   onApply: () => void;
   onDiscard: () => void;
 }) {
   const [showPreview, setShowPreview] = useState(false);
-  const hasDiff = currentPrompt !== draft.system_prompt;
+  const hasPromptDiff = currentPrompt !== draft.system_prompt;
+  const hasDescriptionDiff = typeof draft.description === "string" && draft.description !== currentDescription;
+  const hasDiff = hasPromptDiff || hasDescriptionDiff;
 
   return (
     <div className="mx-3 my-2 border-2 border-[#00A3C4] bg-[#F0FAFF] flex-shrink-0">
@@ -37,7 +41,13 @@ export function DraftCard({
       {draft.change_note && (
         <div className="px-3 py-1.5 text-[9px] text-gray-600 border-b border-[#CCE8F4]">{draft.change_note}</div>
       )}
-      {showPreview && hasDiff && (
+      {showPreview && hasDescriptionDiff && (
+        <div className="max-h-32 overflow-auto border-b border-[#CCE8F4]">
+          <div className="px-3 py-1 text-[8px] font-bold uppercase tracking-widest text-gray-400">Skill 描述</div>
+          <DiffViewer oldText={currentDescription} newText={draft.description ?? ""} />
+        </div>
+      )}
+      {showPreview && hasPromptDiff && (
         <div className="max-h-48 overflow-auto border-b border-[#CCE8F4]">
           <DiffViewer oldText={currentPrompt} newText={draft.system_prompt} />
         </div>

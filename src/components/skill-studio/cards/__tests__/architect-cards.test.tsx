@@ -281,23 +281,17 @@ describe("ArchitectPhaseCard", () => {
   it("renders phase label and goal", () => {
     render(<ArchitectPhaseCard phase={phase} />);
     expect(screen.getByText("Phase 1 · 问题定义")).toBeTruthy();
-    expect(screen.getByText(/确认根因/)).toBeTruthy();
+    expect(screen.getByText(/新建 Skill/)).toBeTruthy();
   });
 
-  it("hides frameworks by default (P2-2 collapsed)", () => {
+  it("hides detail toggle when no upgrade reason exists", () => {
     render(<ArchitectPhaseCard phase={phase} />);
-    // Frameworks should not be visible initially
-    expect(screen.queryByText("5 Whys")).toBeFalsy();
-    expect(screen.queryByText("JTBD")).toBeFalsy();
-    // But toggle button should exist
-    expect(screen.getByText(/框架与细节/)).toBeTruthy();
+    expect(screen.queryByText(/补充说明/)).toBeFalsy();
   });
 
-  it("shows frameworks after clicking toggle", () => {
-    render(<ArchitectPhaseCard phase={phase} />);
-    fireEvent.click(screen.getByText(/框架与细节/));
-    expect(screen.getByText("5 Whys")).toBeTruthy();
-    expect(screen.getByText("JTBD")).toBeTruthy();
-    expect(screen.getByText("第一性原理")).toBeTruthy();
+  it("shows upgrade reason after clicking detail toggle", () => {
+    render(<ArchitectPhaseCard phase={{ ...phase, upgrade_reason: "审计评分过低(25/100)，建议重构" }} />);
+    fireEvent.click(screen.getByText(/补充说明/));
+    expect(screen.getByText(/审计评分过低/)).toBeTruthy();
   });
 });

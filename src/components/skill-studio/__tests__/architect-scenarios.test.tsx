@@ -221,8 +221,8 @@ describe("场景 3：导入 Skill 审计差 → 升级进入 architect", () => {
     );
     // Phase card shows
     expect(screen.getByText("Phase 1 · 问题定义")).toBeTruthy();
-    // Expand frameworks to see upgrade_reason
-    fireEvent.click(screen.getByText(/框架与细节/));
+    // Expand detail to see upgrade_reason
+    fireEvent.click(screen.getByText(/补充说明/));
     expect(screen.getByText(/审计评分过低/)).toBeTruthy();
   });
 });
@@ -283,6 +283,42 @@ describe("场景 4：完整 spec → 直接 Phase 3 + 优先级矩阵", () => {
     expect(screen.getByText("验证收敛完成，所有维度已覆盖")).toBeTruthy();
     fireEvent.click(screen.getByText("确认进入下一阶段"));
     expect(onConfirm).toHaveBeenCalled();
+  });
+});
+
+describe("快捷 chat：Skill 创作工作台", () => {
+  it("展示面向产出的 5 个快捷动作", () => {
+    render(
+      <GovernanceTimeline
+        {...baseProps({
+          messages: [{ role: "assistant", text: "已进入创作模式", loading: false }],
+        })}
+      />,
+    );
+
+    expect(screen.getByText("补齐描述")).toBeTruthy();
+    expect(screen.getByText("重写定位")).toBeTruthy();
+    expect(screen.getByText("输出草稿")).toBeTruthy();
+    expect(screen.getByText("只改这段")).toBeTruthy();
+    expect(screen.getByText("收敛成版")).toBeTruthy();
+  });
+
+  it("点击快捷动作时发送新的创作指令", () => {
+    const onQuickAction = vi.fn();
+    render(
+      <GovernanceTimeline
+        {...baseProps({
+          messages: [{ role: "assistant", text: "已进入创作模式", loading: false }],
+          onQuickAction,
+        })}
+      />,
+    );
+
+    fireEvent.click(screen.getByText("补齐描述"));
+    expect(onQuickAction).toHaveBeenCalledWith({
+      label: "补齐描述",
+      msg: "请直接补一版用于检索、展示和审核的 Skill 描述，要求短、准、可读",
+    });
   });
 });
 

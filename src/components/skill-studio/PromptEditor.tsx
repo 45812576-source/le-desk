@@ -12,6 +12,7 @@ import { DiffViewer, LineNumberedEditor } from "./DiffViewer";
 import { PreflightReport } from "./PreflightReport";
 import { KnowledgeConfirmModal } from "./KnowledgeConfirmModal";
 import type { GovernanceCardData, PreflightResult, PreflightGate, StagedEdit, DiffOp } from "./types";
+import { normalizeStagedEditPayload } from "./utils";
 
 function SkillIcon({ size }: { size: number }) {
   const { theme } = useTheme();
@@ -53,6 +54,7 @@ export function PromptEditor({
   isNew,
   prompt,
   externalName,
+  externalDescription,
   pendingDiffBase,
   saveRef,
   onPromptChange,
@@ -66,6 +68,7 @@ export function PromptEditor({
   isNew: boolean;
   prompt: string;
   externalName?: string | null;
+  externalDescription?: string | null;
   pendingDiffBase?: string | null;
   saveRef?: React.MutableRefObject<(() => void) | null>;
   onPromptChange: (p: string) => void;
@@ -138,22 +141,7 @@ export function PromptEditor({
     : null;
 
   function normalizeStagedEdit(raw: Record<string, unknown>): StagedEdit {
-    return {
-      id: String(raw.id ?? Date.now()),
-      fileType: (raw.target_type as string) || "system_prompt",
-      filename: raw.target_key ? String(raw.target_key) : ((raw.target_type as string) === "system_prompt" ? "SKILL.md" : ""),
-      diff: (((raw.diff_ops as DiffOp[]) || []).map((op) => ({
-        type: (op as unknown as { op?: string }).op === "replace"
-          ? "replace"
-          : (op as unknown as { op?: string }).op === "insert"
-            ? "insert_after"
-            : "delete",
-        old: op.old,
-        new: op.new || op.content,
-      })) as DiffOp[]),
-      changeNote: raw.summary as string,
-      status: (raw.status as StagedEdit["status"]) || "pending",
-    };
+    return normalizeStagedEditPayload(raw);
   }
 
   useEffect(() => {
@@ -194,6 +182,10 @@ export function PromptEditor({
   useEffect(() => {
     if (externalName) setName(externalName);
   }, [externalName]);
+
+  useEffect(() => {
+    if (externalDescription !== undefined && externalDescription !== null) setDescription(externalDescription);
+  }, [externalDescription]);
 
   useEffect(() => {
     if (!showTablePicker) return;

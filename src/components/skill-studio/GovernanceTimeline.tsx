@@ -333,11 +333,11 @@ export function GovernanceTimeline({
     pendingGovernanceActions.length === 0 &&
     !auditResult;
   const quickActions = [
-    { label: "方向不对", msg: "你理解的方向不对，我重新说一下：", focusInput: true },
-    { label: "别重复问", msg: "这个问题你已经问过了，请基于已有信息继续推进" },
-    { label: "先别管文件", msg: "不要文件，直接基于对话内容推进" },
-    { label: "直接给草稿", msg: "信息够了，请直接输出 Skill 草稿" },
-    { label: "按上句改", msg: "按我刚才那句修正来调整方向" },
+    { label: "补齐描述", msg: "请直接补一版用于检索、展示和审核的 Skill 描述，要求短、准、可读" },
+    { label: "重写定位", msg: "请基于现有上下文，重写这个 Skill 的定位、适用对象、核心任务和边界" },
+    { label: "输出草稿", msg: "信息足够了，请直接输出完整可用的 SKILL.md 草稿" },
+    { label: "只改这段", msg: "不要重写全文，只修改我刚才指出的那一段，保持其他部分不变" },
+    { label: "收敛成版", msg: "请按当前结论整理成可直接采纳的最终版本，不再继续追问" },
   ];
 
   return (

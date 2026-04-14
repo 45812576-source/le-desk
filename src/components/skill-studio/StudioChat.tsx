@@ -14,7 +14,7 @@ import { FileSplitCard } from "./cards/FileSplitCard";
 import { GovernanceTimeline } from "./GovernanceTimeline";
 import { RouteStatusBar } from "./RouteStatusBar";
 import { AssistSkillsBar } from "./AssistSkillsBar";
-import { applyOps, estimateMessagesTokens, TOKEN_COMPRESS_THRESHOLD } from "./utils";
+import { applyOps, estimateMessagesTokens, normalizeStagedEditPayload, TOKEN_COMPRESS_THRESHOLD } from "./utils";
 import { parseStructuredStudioMessage } from "./message-parser";
 import type {
   ChatMessage,
@@ -47,6 +47,7 @@ export function StudioChat({
   convId,
   skillId,
   currentPrompt,
+  currentDescription,
   editorIsDirty,
   allSkills,
   memo,
@@ -71,6 +72,7 @@ export function StudioChat({
   convId: number;
   skillId: number | null;
   currentPrompt: string;
+  currentDescription: string;
   editorIsDirty: boolean;
   selectedSourceFile: string | null;
   allSkills: SkillDetail[];
@@ -218,11 +220,11 @@ export function StudioChat({
       adoptStagedEdit(editId);
       // Apply diff ops to prompt
       const edit = storeStagedEdits.find((e) => e.id === editId);
-      if (edit?.fileType === "system_prompt" && edit.diff && edit.diff.length > 0) {
+      if ((edit?.fileType === "system_prompt" || edit?.fileType === "prompt") && edit.diff && edit.diff.length > 0) {
         const newPrompt = applyOps(currentPrompt, edit.diff);
         onApplyDraft({ system_prompt: newPrompt, change_note: edit.changeNote || "采纳编辑" });
       }
-      if (result?.target_type && result.target_type !== "system_prompt") {
+      if (result?.target_type && result.target_type !== "system_prompt" && result.target_type !== "prompt") {
         onRefreshSkill();
       }
       requestPreflightRefresh();
@@ -410,30 +412,7 @@ export function StudioChat({
   }
 
   function normalizeBackendStagedEdit(raw: Record<string, unknown>): StagedEdit {
-    if (raw.fileType || raw.diff) {
-      return {
-        id: String(raw.id ?? Date.now()),
-        fileType: (raw.fileType as string) || "prompt",
-        filename: (raw.filename as string) || "",
-        diff: (raw.diff as DiffOp[]) || [],
-        changeNote: (raw.changeNote as string) || (raw.change_note as string),
-        status: (raw.status as StagedEdit["status"]) || "pending",
-        source: studioChatSource,
-      };
-    }
-    return {
-      id: String(raw.id ?? Date.now()),
-      fileType: (raw.target_type as string) || "system_prompt",
-      filename: (raw.target_key as string) || "",
-      diff: ((raw.diff_ops as DiffOp[]) || []).map((op) => ({
-        type: (op as unknown as { op?: string }).op === "replace" ? "replace" : (op as unknown as { op?: string }).op === "insert" ? "insert_after" : "delete",
-        old: op.old,
-        new: op.new || op.content,
-      } as DiffOp)),
-      changeNote: raw.summary as string,
-      status: (raw.status as StagedEdit["status"]) || "pending",
-      source: studioChatSource,
-    };
+    return normalizeStagedEditPayload(raw, studioChatSource);
   }
 
   function handleRunEvent(eventName: string, data: Record<string, unknown>) {
@@ -456,7 +435,13 @@ export function StudioChat({
           source: studioChatSource,
           type: raw.suggested_action === "staged_edit" ? "staged_edit" : "followup_prompt",
           title: (raw.title as string) || "治理建议",
-          content: { description: raw.description, severity: raw.severity, category: raw.category },
+          content: {
+            description: raw.description,
+            summary: raw.summary,
+            severity: raw.severity,
+            category: raw.category,
+            staged_edit_id: raw.staged_edit_id || raw.id,
+          },
           status: "pending",
           actions: raw.suggested_action === "staged_edit"
             ? [{ label: "查看修改", type: "view_diff" as const }, { label: "采纳", type: "adopt" as const }]
@@ -1159,7 +1144,13 @@ export function StudioChat({
                     source: studioChatSource,
                     type: raw.suggested_action === "staged_edit" ? "staged_edit" : "followup_prompt",
                     title: (raw.title as string) || "治理建议",
-                    content: { description: raw.description, severity: raw.severity, category: raw.category },
+                    content: {
+                      description: raw.description,
+                      summary: raw.summary,
+                      severity: raw.severity,
+                      category: raw.category,
+                      staged_edit_id: raw.staged_edit_id || raw.id,
+                    },
                     status: "pending",
                     actions: raw.suggested_action === "staged_edit"
                       ? [{ label: "查看修改", type: "view_diff" as const }, { label: "采纳", type: "adopt" as const }]
@@ -1168,39 +1159,8 @@ export function StudioChat({
                   addGovernanceCard(card);
                 }
               } else if (curEvt === "staged_edit_notice") {
-                // 兼容两种格式：
-                // 1) 完整 StagedEdit（前端 camelCase：id/fileType/filename/diff/changeNote/status）
-                // 2) 后端 snake_case：{id, target_type, target_key, summary, risk_level, diff_ops, status}
                 const raw = data as Record<string, unknown>;
-                let se: StagedEdit;
-                if (raw.fileType || raw.diff) {
-                  // 已经是前端格式
-                  se = {
-                    id: (raw.id as string) || `se-${Date.now()}`,
-                    fileType: (raw.fileType as string) || "prompt",
-                    filename: (raw.filename as string) || "",
-                    diff: (raw.diff as DiffOp[]) || [],
-                    changeNote: (raw.changeNote as string) || (raw.change_note as string),
-                    status: (raw.status as StagedEdit["status"]) || "pending",
-                    source: studioChatSource,
-                  };
-                } else {
-                  // 后端 snake_case 格式
-                  se = {
-                    id: String(raw.id ?? Date.now()),
-                    fileType: (raw.target_type as string) || "system_prompt",
-                    filename: (raw.target_key as string) || "",
-                    diff: ((raw.diff_ops as DiffOp[]) || []).map((op) => ({
-                      type: (op as unknown as { op?: string }).op === "replace" ? "replace" : (op as unknown as { op?: string }).op === "insert" ? "insert_after" : "delete",
-                      old: op.old,
-                      new: op.new || op.content,
-                    } as DiffOp)),
-                    changeNote: raw.summary as string,
-                    status: (raw.status as StagedEdit["status"]) || "pending",
-                    source: studioChatSource,
-                  };
-                }
-                addStagedEdit(se);
+                addStagedEdit(normalizeStagedEditPayload(raw, studioChatSource));
                 onExpandEditor?.();
               } else if (curEvt === "assist_skills_status") {
                 // 后端发 string[]（skill name），转为前端需要的 {id, name, status}[]
@@ -1925,6 +1885,7 @@ export function StudioChat({
                 <DraftCard
                   draft={pendingDraft}
                   currentPrompt={currentPrompt}
+                  currentDescription={currentDescription}
                   onApply={handleApplyDraft}
                   onDiscard={() => setPendingDraft(null)}
                 />

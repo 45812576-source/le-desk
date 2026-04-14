@@ -1,5 +1,5 @@
 import { File, BookOpen, FileText, Lightbulb, Terminal, Layout } from "lucide-react";
-import type { DiffOp, FileCategory } from "./types";
+import type { DiffOp, FileCategory, StagedEdit } from "./types";
 
 // ─── Category config ────────────────────────────────────────────────────────
 
@@ -98,6 +98,112 @@ export function applyOps(text: string, ops: DiffOp[]): string {
     }
   }
   return result;
+}
+
+function normalizeDiffOp(raw: DiffOp | Record<string, unknown>): DiffOp {
+  const opType = typeof (raw as { type?: unknown }).type === "string"
+    ? String((raw as { type?: unknown }).type)
+    : typeof (raw as { op?: unknown }).op === "string"
+      ? String((raw as { op?: unknown }).op)
+      : "replace";
+
+  if (opType === "replace") {
+    return {
+      type: "replace",
+      old: typeof (raw as { old?: unknown }).old === "string" ? String((raw as { old?: unknown }).old) : undefined,
+      new: typeof (raw as { new?: unknown }).new === "string"
+        ? String((raw as { new?: unknown }).new)
+        : typeof (raw as { content?: unknown }).content === "string"
+          ? String((raw as { content?: unknown }).content)
+          : undefined,
+    };
+  }
+
+  if (opType === "insert" || opType === "insert_after") {
+    return {
+      type: "insert_after",
+      anchor: typeof (raw as { anchor?: unknown }).anchor === "string"
+        ? String((raw as { anchor?: unknown }).anchor)
+        : typeof (raw as { old?: unknown }).old === "string"
+          ? String((raw as { old?: unknown }).old)
+          : undefined,
+      content: typeof (raw as { content?: unknown }).content === "string"
+        ? String((raw as { content?: unknown }).content)
+        : typeof (raw as { new?: unknown }).new === "string"
+          ? String((raw as { new?: unknown }).new)
+          : undefined,
+      old: typeof (raw as { old?: unknown }).old === "string" ? String((raw as { old?: unknown }).old) : undefined,
+      new: typeof (raw as { new?: unknown }).new === "string" ? String((raw as { new?: unknown }).new) : undefined,
+    };
+  }
+
+  if (opType === "insert_before") {
+    return {
+      type: "insert_before",
+      anchor: typeof (raw as { anchor?: unknown }).anchor === "string"
+        ? String((raw as { anchor?: unknown }).anchor)
+        : typeof (raw as { old?: unknown }).old === "string"
+          ? String((raw as { old?: unknown }).old)
+          : undefined,
+      content: typeof (raw as { content?: unknown }).content === "string"
+        ? String((raw as { content?: unknown }).content)
+        : typeof (raw as { new?: unknown }).new === "string"
+          ? String((raw as { new?: unknown }).new)
+          : undefined,
+      old: typeof (raw as { old?: unknown }).old === "string" ? String((raw as { old?: unknown }).old) : undefined,
+      new: typeof (raw as { new?: unknown }).new === "string" ? String((raw as { new?: unknown }).new) : undefined,
+    };
+  }
+
+  if (opType === "append") {
+    return {
+      type: "append",
+      content: typeof (raw as { content?: unknown }).content === "string"
+        ? String((raw as { content?: unknown }).content)
+        : typeof (raw as { new?: unknown }).new === "string"
+          ? String((raw as { new?: unknown }).new)
+          : undefined,
+      new: typeof (raw as { new?: unknown }).new === "string" ? String((raw as { new?: unknown }).new) : undefined,
+    };
+  }
+
+  return {
+    type: "delete",
+    old: typeof (raw as { old?: unknown }).old === "string" ? String((raw as { old?: unknown }).old) : undefined,
+  };
+}
+
+export function normalizeStagedEditPayload(raw: Record<string, unknown>, source?: string): StagedEdit {
+  const rawDiff = Array.isArray(raw.diff) ? raw.diff : Array.isArray(raw.diff_ops) ? raw.diff_ops : [];
+  const rawFileType = typeof raw.fileType === "string"
+    ? raw.fileType
+    : typeof raw.target_type === "string"
+      ? raw.target_type
+      : "system_prompt";
+  const fileType = rawFileType === "prompt" ? "system_prompt" : rawFileType;
+  const filename = typeof raw.filename === "string" && raw.filename
+    ? raw.filename
+    : typeof raw.target_key === "string" && raw.target_key
+      ? raw.target_key
+      : fileType === "system_prompt"
+        ? "SKILL.md"
+        : "";
+
+  return {
+    id: String(raw.id ?? `se-${Date.now()}`),
+    source,
+    fileType,
+    filename,
+    diff: rawDiff.map((op) => normalizeDiffOp(op as DiffOp | Record<string, unknown>)),
+    changeNote: typeof raw.changeNote === "string"
+      ? raw.changeNote
+      : typeof raw.change_note === "string"
+        ? raw.change_note
+        : typeof raw.summary === "string"
+          ? raw.summary
+          : undefined,
+    status: (raw.status as StagedEdit["status"]) || "pending",
+  };
 }
 
 // ─── Token estimation ─────────────────────────────────────────────────────────
