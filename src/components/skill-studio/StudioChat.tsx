@@ -426,8 +426,9 @@ export function StudioChat({
         let latestFileSplit: StudioFileSplit | null = null;
         let latestAuditResult: AuditResult | null = null;
         let latestPendingPhaseSummary: ArchitectPhaseSummary | null = null;
+        let latestPendingPhase: string | null = null;
         let latestArchitectReady: ArchitectReadyForDraft | null = null;
-        let latestArchitectQuestion: ArchitectQuestion | null = null;
+        let latestArchitectQuestionPhase: string | null = null;
         const governanceActions: GovernanceActionCard[] = [];
         const nextPhaseProgress: PhaseProgress[] = [];
         const nextArchitectQuestions: ArchitectQuestion[] = [];
@@ -443,10 +444,13 @@ export function StudioChat({
             if (parsed.toolSuggestion) latestToolSuggestion = parsed.toolSuggestion;
             if (parsed.fileSplit) latestFileSplit = parsed.fileSplit;
             if (parsed.auditResult) latestAuditResult = parsed.auditResult;
-            if (parsed.pendingPhaseSummary) latestPendingPhaseSummary = parsed.pendingPhaseSummary;
+            if (parsed.pendingPhaseSummary) {
+              latestPendingPhaseSummary = parsed.pendingPhaseSummary;
+              latestPendingPhase = parsed.pendingPhaseSummary.phase;
+            }
             if (parsed.architectReady) latestArchitectReady = parsed.architectReady;
             if (parsed.architectQuestions.length > 0) {
-              latestArchitectQuestion = parsed.architectQuestions[parsed.architectQuestions.length - 1];
+              latestArchitectQuestionPhase = parsed.architectQuestions[parsed.architectQuestions.length - 1]?.phase || null;
               nextArchitectQuestions.push(...parsed.architectQuestions);
             }
             if (parsed.pendingGovernanceActions.length > 0) {
@@ -494,23 +498,21 @@ export function StudioChat({
         setOodaDecisions(nextOodaDecisions);
         setPendingPhaseSummary(latestPendingPhaseSummary);
         setArchitectReady(latestArchitectReady);
-        const pendingPhaseSummary = latestPendingPhaseSummary;
-        const latestQuestion = latestArchitectQuestion;
         if (latestArchitectReady) {
           setArchitectPhase({
             phase: "ready_for_draft",
             mode_source: "create_new_skill",
             ooda_round: nextOodaDecisions[nextOodaDecisions.length - 1]?.ooda_round || 0,
           });
-        } else if (pendingPhaseSummary) {
+        } else if (latestPendingPhase) {
           setArchitectPhase({
-            phase: pendingPhaseSummary.phase,
+            phase: latestPendingPhase,
             mode_source: "create_new_skill",
             ooda_round: nextOodaDecisions[nextOodaDecisions.length - 1]?.ooda_round || 0,
           });
-        } else if (latestQuestion) {
+        } else if (latestArchitectQuestionPhase) {
           setArchitectPhase({
-            phase: latestQuestion.phase,
+            phase: latestArchitectQuestionPhase,
             mode_source: "create_new_skill",
             ooda_round: nextOodaDecisions[nextOodaDecisions.length - 1]?.ooda_round || 0,
           });
