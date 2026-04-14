@@ -12,6 +12,7 @@ import { apiFetch } from "@/lib/api";
 import type { SkillDetail, ToolEntry } from "@/lib/types";
 import { SandboxTestModal } from "@/components/skill/SandboxTestModal";
 import { SKILL_STATUS_BADGE, isWorkspaceMountableSkillStatus } from "@/lib/skill-status";
+import { buildOwnWorkspaceSkillItems } from "@/lib/workspace-skill-config";
 
 function SkillIcon({ size }: { size: number }) {
   const { theme } = useTheme();
@@ -120,6 +121,8 @@ function CheckItem({
   statusBadge,
   extraBadges,
   checked,
+  disabled = false,
+  helperText,
   onToggle,
   actions,
 }: {
@@ -129,16 +132,23 @@ function CheckItem({
   statusBadge?: { color: "cyan" | "green" | "yellow" | "gray" | "red"; label: string };
   extraBadges?: React.ReactNode;
   checked: boolean;
+  disabled?: boolean;
+  helperText?: string;
   onToggle: (checked: boolean) => void;
   actions?: React.ReactNode;
 }) {
   return (
-    <label className={`flex items-center gap-3 border-2 p-3 cursor-pointer transition-colors ${
-      checked ? "border-[#00A3C4] bg-[#F0FDFA] dark:bg-[#0A2F2A]" : "border-border bg-card hover:border-muted-foreground"
+    <label className={`flex items-center gap-3 border-2 p-3 transition-colors ${
+      disabled
+        ? "cursor-not-allowed opacity-75 border-border bg-card"
+        : checked
+          ? "cursor-pointer border-[#00A3C4] bg-[#F0FDFA] dark:bg-[#0A2F2A]"
+          : "cursor-pointer border-border bg-card hover:border-muted-foreground"
     }`}>
       <input
         type="checkbox"
         checked={checked}
+        disabled={disabled}
         onChange={(e) => onToggle(e.target.checked)}
         className="w-4 h-4 accent-[#00CC99] flex-shrink-0"
       />
@@ -153,6 +163,9 @@ function CheckItem({
         </div>
         {description && (
           <p className="text-[8px] text-muted-foreground line-clamp-1">{description}</p>
+        )}
+        {helperText && (
+          <p className="text-[8px] text-amber-600 mt-1">{helperText}</p>
         )}
       </div>
       {actions && (
@@ -473,7 +486,10 @@ export default function SkillsPage() {
     [mountedSkills, mySkills],
   );
 
-  const ownSkills = Array.from(visibleMountedSkills.values()).filter((s) => s.source === "own");
+  const ownSkills = useMemo(
+    () => buildOwnWorkspaceSkillItems(mySkills, visibleMountedSkills),
+    [mySkills, visibleMountedSkills],
+  );
   const deptSkills = Array.from(mountedSkills.values()).filter((s) => s.source === "dept");
   const marketSkills = Array.from(mountedSkills.values()).filter((s) => s.source === "market");
   const ownTools = Array.from(mountedTools.values()).filter((t) => t.source === "own");
@@ -541,14 +557,19 @@ export default function SkillsPage() {
                       </>
                     }
                     checked={s.mounted}
-                    onToggle={(checked) => toggleSkillMount(s.id, checked)}
+                    disabled={!s.mountable}
+                    helperText={s.mountable ? undefined : "Skill需通过审核发布后，可在工作台中配置使用"}
+                    onToggle={(checked) => {
+                      if (!s.mountable) return;
+                      toggleSkillMount(s.id, checked);
+                    }}
                     actions={skill ? <MySkillActions skill={skill} onRefresh={() => { fetchSkills(); fetchConfig(); }} /> : undefined}
                   />
                 );
               })
             ) : (
               <div className="text-[10px] text-muted-foreground text-center py-6">
-                暂无自己开发的 Skill，前往 Skill Studio 创建
+                暂无自己开发的 Skill，前往 Skill Studio 创建；Skill需通过审核发布后，可在工作台中配置使用
               </div>
             )}
           </SectionGroup>
