@@ -19,6 +19,35 @@ function SkillIcon({ size }: { size: number }) {
   return <Zap size={size} className="text-muted-foreground" />;
 }
 
+function applyDiffOpsForPreview(text: string, ops: DiffOp[]) {
+  let next = text;
+  for (const op of ops) {
+    if (op.type === "replace" && op.old) {
+      next = next.replace(op.old, op.new || "");
+    } else if (op.type === "delete" && op.old) {
+      next = next.replace(op.old, "");
+    } else if (op.type === "append") {
+      next += op.content || op.new || "";
+    } else if (op.type === "insert_after") {
+      const anchor = op.anchor || op.old || "";
+      const insert = op.content || op.new || "";
+      if (anchor && next.includes(anchor)) {
+        const idx = next.indexOf(anchor) + anchor.length;
+        next = next.slice(0, idx) + insert + next.slice(idx);
+      } else {
+        next += `\n${insert}`;
+      }
+    } else if (op.type === "insert_before") {
+      const anchor = op.anchor || op.old || "";
+      const insert = op.content || op.new || "";
+      next = anchor && next.includes(anchor)
+        ? next.replace(anchor, `${insert}${anchor}`)
+        : `${insert}\n${next}`;
+    }
+  }
+  return next;
+}
+
 export function PromptEditor({
   skill,
   isNew,
@@ -94,6 +123,9 @@ export function PromptEditor({
   const isReadOnly = skill?.status === "published" || skill?.status === "archived";
   const hasDiff = diffBase !== null && diffBase !== prompt;
   const pendingStagedEditCount = useStudioStore((s) => s.stagedEdits.filter((e) => e.status === "pending").length);
+  const pendingPromptStagedEdit = useStudioStore((s) => s.stagedEdits.find((e) =>
+    e.status === "pending" && (e.fileType === "system_prompt" || e.fileType === "prompt" || e.filename === "SKILL.md") && e.diff?.length > 0
+  ));
   const syncGovernanceCards = useStudioStore((s) => s.syncGovernanceCards);
   const syncStagedEdits = useStudioStore((s) => s.syncStagedEdits);
   const preflightRefreshToken = useStudioStore((s) => s.preflightRefreshToken);
@@ -101,6 +133,9 @@ export function PromptEditor({
   const isLargeText = prompt.length > 50 * 1024;
   const preflightSource = skill ? `preflight:${skill.id}` : null;
   const handledPreflightRefreshRef = useRef(0);
+  const stagedPreviewPrompt = pendingPromptStagedEdit?.diff?.length
+    ? applyDiffOpsForPreview(prompt, pendingPromptStagedEdit.diff)
+    : null;
 
   function normalizeStagedEdit(raw: Record<string, unknown>): StagedEdit {
     return {
@@ -478,7 +513,14 @@ export function PromptEditor({
             文本超过 50KB（{Math.round(prompt.length / 1024)}KB），建议拆分为多个文件以提升编辑体验
           </div>
         )}
-        {showDiff && diffBase !== null ? (
+        {stagedPreviewPrompt !== null && stagedPreviewPrompt !== prompt && (
+          <div className="px-2 py-1 bg-[#F0FFF9] border border-[#00CC99]/40 text-[8px] font-mono text-[#007A5E] mb-1 flex-shrink-0">
+            待确认治理修改：{pendingPromptStagedEdit?.changeNote || "查看下方 diff 后在治理卡片中采纳或拒绝"}
+          </div>
+        )}
+        {stagedPreviewPrompt !== null && stagedPreviewPrompt !== prompt ? (
+          <DiffViewer oldText={prompt} newText={stagedPreviewPrompt} />
+        ) : showDiff && diffBase !== null ? (
           <DiffViewer oldText={diffBase} newText={deferredPrompt} />
         ) : (
           <LineNumberedEditor

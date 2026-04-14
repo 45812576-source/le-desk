@@ -29,6 +29,7 @@ import type {
   AuditResult,
   GovernanceActionCard,
   GovernanceCardData,
+  GovernanceAction,
   PhaseProgress,
   StagedEdit,
   ArchitectPhaseStatus,
@@ -98,6 +99,7 @@ export function StudioChat({
   const [input, setInput] = useState("");
   const [streaming, setStreaming] = useState(false);
   const [streamStage, setStreamStage] = useState<string | null>(null);
+  const [activeRunId, setActiveRunId] = useState<string | null>(null);
   const [pendingDraft, setPendingDraft] = useState<StudioDraft | null>(null);
   const [pendingSummary, setPendingSummary] = useState<StudioSummary | null>(null);
   const [pendingToolSuggestion, setPendingToolSuggestion] = useState<StudioToolSuggestion | null>(null);
@@ -238,12 +240,13 @@ export function StudioChat({
     }
   }
 
-  async function handlePreflightCardAction(card: GovernanceCardData) {
+  async function handlePreflightCardAction(card: GovernanceCardData, actionOverride?: GovernanceAction) {
     if (!skillId) return false;
     const preflightAction = typeof card.content.preflight_action === "string" ? card.content.preflight_action : null;
-    const payload = typeof card.content.action_payload === "object" && card.content.action_payload
+    const basePayload = typeof card.content.action_payload === "object" && card.content.action_payload
       ? card.content.action_payload as Record<string, unknown>
       : {};
+    const payload = { ...basePayload, ...(actionOverride?.payload || {}) };
     if (!preflightAction) return false;
 
     try {
@@ -272,6 +275,61 @@ export function StudioChat({
           : (preflightAction === "navigate_data_assets" ? "/data" : "/skills");
         window.open(targetUrl, "_blank", "noopener,noreferrer");
         setMessages((prev) => [...prev, { role: "assistant", text: `已打开处理页面：${targetUrl}`, loading: false }]);
+        return true;
+      }
+      if (preflightAction === "bind_sandbox_tools" || preflightAction === "bind_knowledge_references" || preflightAction === "bind_permission_tables") {
+        const sourceReportId = Number(payload.source_report_id || sandboxReportId);
+        if (!Number.isFinite(sourceReportId) || sourceReportId <= 0) {
+          setMessages((prev) => [...prev, { role: "assistant", text: "无法执行：缺少沙盒报告 ID。", loading: false }]);
+          return false;
+        }
+        const result = await apiFetch<{ ok: boolean; bound?: number; skipped?: number; bound_queries?: number; bound_bindings?: number }>(
+          `/sandbox/interactive/by-report/${sourceReportId}/apply-action`,
+          {
+            method: "POST",
+            body: JSON.stringify({ action: preflightAction, payload }),
+          }
+        );
+        onRefreshSkill();
+        requestPreflightRefresh();
+        const label = preflightAction === "bind_sandbox_tools"
+          ? "工具绑定"
+          : preflightAction === "bind_permission_tables"
+            ? "数据表绑定"
+            : "知识引用";
+        const detail = preflightAction === "bind_permission_tables"
+          ? `新增查询 ${result.bound_queries ?? 0}，新增运行绑定 ${result.bound_bindings ?? 0}，跳过 ${result.skipped ?? 0}`
+          : `新增 ${result.bound ?? 0}，跳过 ${result.skipped ?? 0}`;
+        setMessages((prev) => [...prev, {
+          role: "assistant",
+          text: `${label}已处理：${detail}。`,
+          loading: false,
+        }]);
+        return true;
+      }
+      if (preflightAction === "binding_action") {
+        const action = typeof payload.action === "string" ? payload.action : "";
+        const targetId = Number(payload.target_id);
+        if (!action || !Number.isFinite(targetId) || targetId <= 0) {
+          setMessages((prev) => [...prev, { role: "assistant", text: "无法执行：绑定动作缺少目标资源。", loading: false }]);
+          return false;
+        }
+        const result = await apiFetch<{ ok: boolean; action: string; changed: boolean; target: string }>(
+          `/skills/${skillId}/binding-actions/execute`,
+          {
+            method: "POST",
+            body: JSON.stringify({ action, target_id: targetId }),
+          }
+        );
+        onRefreshSkill();
+        requestPreflightRefresh();
+        const verb = result.action === "unbind_tool" || result.action === "unbind_table" ? "解绑" : "绑定";
+        const kind = result.action.endsWith("_table") ? "数据表" : "工具";
+        setMessages((prev) => [...prev, {
+          role: "assistant",
+          text: `${kind}${verb}已处理：${result.target}${result.changed ? "" : "（无变化）"}。`,
+          loading: false,
+        }]);
         return true;
       }
     } catch (err) {
@@ -339,7 +397,118 @@ export function StudioChat({
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const runAccTextRef = useRef("");
   const inputRef = useRef<HTMLTextAreaElement>(null);
+
+  function updateLastStreamingMessage(text: string, loading = true) {
+    setMessages((prev) => {
+      const idx = [...prev].reverse().findIndex((m) => m.role === "assistant" && m.loading);
+      if (idx < 0) return [...prev, { role: "assistant", text, loading }];
+      const realIdx = prev.length - 1 - idx;
+      return prev.map((m, i) => i === realIdx ? { ...m, text, loading } : m);
+    });
+  }
+
+  function normalizeBackendStagedEdit(raw: Record<string, unknown>): StagedEdit {
+    if (raw.fileType || raw.diff) {
+      return {
+        id: String(raw.id ?? Date.now()),
+        fileType: (raw.fileType as string) || "prompt",
+        filename: (raw.filename as string) || "",
+        diff: (raw.diff as DiffOp[]) || [],
+        changeNote: (raw.changeNote as string) || (raw.change_note as string),
+        status: (raw.status as StagedEdit["status"]) || "pending",
+        source: studioChatSource,
+      };
+    }
+    return {
+      id: String(raw.id ?? Date.now()),
+      fileType: (raw.target_type as string) || "system_prompt",
+      filename: (raw.target_key as string) || "",
+      diff: ((raw.diff_ops as DiffOp[]) || []).map((op) => ({
+        type: (op as unknown as { op?: string }).op === "replace" ? "replace" : (op as unknown as { op?: string }).op === "insert" ? "insert_after" : "delete",
+        old: op.old,
+        new: op.new || op.content,
+      } as DiffOp)),
+      changeNote: raw.summary as string,
+      status: (raw.status as StagedEdit["status"]) || "pending",
+      source: studioChatSource,
+    };
+  }
+
+  function handleRunEvent(eventName: string, data: Record<string, unknown>) {
+    if (eventName === "studio_run" && typeof data.id === "string") {
+      setActiveRunId(data.id);
+      setStreaming(data.status === "queued" || data.status === "running");
+      return;
+    }
+    if (eventName === "status" && data.stage) {
+      setStreamStage(data.stage as string);
+      return;
+    }
+    if (eventName === "governance_card") {
+      const raw = data;
+      if (raw.id && raw.type && raw.actions) {
+        addGovernanceCard({ ...(raw as unknown as GovernanceCardData), source: studioChatSource });
+      } else {
+        addGovernanceCard({
+          id: `gov-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+          source: studioChatSource,
+          type: raw.suggested_action === "staged_edit" ? "staged_edit" : "followup_prompt",
+          title: (raw.title as string) || "治理建议",
+          content: { description: raw.description, severity: raw.severity, category: raw.category },
+          status: "pending",
+          actions: raw.suggested_action === "staged_edit"
+            ? [{ label: "查看修改", type: "view_diff" as const }, { label: "采纳", type: "adopt" as const }]
+            : [{ label: "查看", type: "view_diff" as const }, { label: "忽略", type: "reject" as const }],
+        });
+      }
+      return;
+    }
+    if (eventName === "staged_edit_notice") {
+      addStagedEdit(normalizeBackendStagedEdit(data));
+      onExpandEditor?.();
+      return;
+    }
+    if (eventName === "route_status") {
+      const rs = data as unknown as StudioRouteInfo & { workflow_mode?: string; initial_phase?: string };
+      setRouteInfo(rs);
+      const mode = rs.session_mode;
+      setStoreSessionMode(mode === "create_new_skill" ? "create" : mode === "optimize_existing_skill" ? "optimize" : mode === "audit_imported_skill" ? "audit" : null);
+      return;
+    }
+    if (eventName === "assist_skills_status") {
+      const rawSkills = (data as { skills?: unknown[] }).skills || [];
+      setActiveAssistSkills(rawSkills.map((s, i) =>
+        typeof s === "string" ? { id: i, name: s, status: "active" } : (s as { id: number; name: string; status: string })
+      ));
+      return;
+    }
+    if ((eventName === "delta" || eventName === "content_block_delta") && typeof data.text === "string") {
+      runAccTextRef.current += data.text;
+      setStreamStage("generating");
+      updateLastStreamingMessage(parseStructuredStudioMessage(runAccTextRef.current).cleanText);
+      return;
+    }
+    if (eventName === "replace" && typeof data.text === "string") {
+      runAccTextRef.current = data.text;
+      updateLastStreamingMessage(parseStructuredStudioMessage(runAccTextRef.current).cleanText);
+      return;
+    }
+    if (eventName === "error") {
+      updateLastStreamingMessage(String(data.message || "服务端错误"), false);
+      setStreaming(false);
+      setActiveRunId(null);
+      setStreamStage(null);
+      return;
+    }
+    if (eventName === "done") {
+      updateLastStreamingMessage(parseStructuredStudioMessage(runAccTextRef.current).cleanText, false);
+      setStreaming(false);
+      setActiveRunId(null);
+      setStreamStage(null);
+    }
+  }
 
   useEffect(() => {
     if (clearRef) {
@@ -384,6 +553,68 @@ export function StudioChat({
     }
     return () => { if (setInputRef) setInputRef.current = null; };
   }, [setInputRef]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const ctrl = new AbortController();
+
+    async function attachActiveRun() {
+      try {
+        const active = await apiFetch<{ run: { id: string; status: string; latest_event_offset?: number } | null }>(
+          `/conversations/${convId}/studio-runs/active`
+        );
+        if (cancelled || !active.run || !["queued", "running"].includes(active.run.status)) return;
+        setActiveRunId(active.run.id);
+        setStreaming(true);
+        setStreamStage("reconnecting");
+        runAccTextRef.current = "";
+        setMessages((prev) => {
+          const hasLoading = prev.some((m) => m.role === "assistant" && m.loading);
+          return hasLoading ? prev : [...prev, { role: "assistant", text: "正在恢复后台运行…", loading: true }];
+        });
+
+        const token = getToken();
+        const resp = await fetch(`/api/proxy/conversations/${convId}/studio-runs/${active.run.id}/events`, {
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+          signal: ctrl.signal,
+        });
+        if (!resp.ok || !resp.body) return;
+        const reader = resp.body.getReader();
+        const decoder = new TextDecoder();
+        let buf = "";
+        let curEvt = "delta";
+        while (!cancelled) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buf += decoder.decode(value, { stream: true });
+          const lines = buf.split("\n");
+          buf = lines.pop() || "";
+          for (const line of lines) {
+            if (line.startsWith("event: ")) {
+              curEvt = line.slice(7).trim();
+            } else if (line.startsWith("data: ")) {
+              try {
+                handleRunEvent(curEvt, JSON.parse(line.slice(6)));
+              } catch { /* ignore malformed event */ }
+              curEvt = "delta";
+            }
+          }
+        }
+      } catch (err) {
+        if (!cancelled && (err as Error).name !== "AbortError") {
+          setStreaming(false);
+          setStreamStage(null);
+        }
+      }
+    }
+
+    attachActiveRun();
+    return () => {
+      cancelled = true;
+      ctrl.abort();
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [convId]);
 
   // convId 切换时从后端加载历史
   useEffect(() => {
@@ -725,6 +956,63 @@ export function StudioChat({
       return ingestLongText(userText);
     }
 
+    const mayBeBindingRequest = /绑定|解绑|取消绑定|移除|挂载|接入|数据表|业务表|工具|tool|table|bind|unbind/i.test(userText);
+    if (skillId && mayBeBindingRequest) {
+      try {
+        const resolved = await apiFetch<{ actions: Array<Record<string, unknown>> }>(
+          `/skills/${skillId}/binding-actions/resolve`,
+          {
+            method: "POST",
+            body: JSON.stringify({ text: userText }),
+          }
+        );
+        if (resolved.actions.length > 0) {
+          setInput("");
+          setMessages((prev) => [
+            ...prev,
+            { role: "user", text: userText },
+            {
+              role: "assistant",
+              text: "我先生成了可确认的绑定动作。确认后再真正修改 Skill 绑定。",
+              loading: false,
+            },
+          ]);
+          for (const action of resolved.actions) {
+            const actionName = String(action.action || "");
+            const targetKind = String(action.target_kind || "");
+            const displayName = String(action.display_name || action.target_name || "目标资源");
+            const isUnbind = actionName === "unbind_tool" || actionName === "unbind_table";
+            const isTable = targetKind === "table" || actionName.endsWith("_table");
+            const title = `${isUnbind ? "解绑" : "绑定"}${isTable ? "数据表" : "工具"}：${displayName}`;
+            const ambiguous = Boolean(action.ambiguous);
+            addGovernanceCard({
+              id: `binding-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+              source: studioChatSource,
+              type: "followup_prompt",
+              title,
+              content: {
+                summary: ambiguous ? "匹配到多个相近资源，请确认候选后再执行。" : "已按资源名称匹配到候选动作。",
+                reason: `来自用户输入：${userText}`,
+                preflight_action: "binding_action",
+                action_payload: {
+                  ...action,
+                  action: actionName,
+                },
+              },
+              status: "pending",
+              actions: [
+                { label: "确认执行", type: "adopt" },
+                { label: "不执行", type: "reject" },
+              ],
+            });
+          }
+          return;
+        }
+      } catch {
+        // 解析失败不阻塞原本的 LLM 对话流
+      }
+    }
+
     let msgIdx = -1;
     setMessages((prev) => {
       msgIdx = prev.length + 1;
@@ -756,7 +1044,6 @@ export function StudioChat({
     };
 
     setStreamStage("connecting");
-    const timeout = setTimeout(() => ctrl.abort(), 30_000);
 
     try {
       const resp = await fetch(`/api/proxy/conversations/${convId}/messages/stream`, {
@@ -771,7 +1058,8 @@ export function StudioChat({
         }),
         signal: ctrl.signal,
       });
-      clearTimeout(timeout);
+      const responseRunId = resp.headers.get("X-Studio-Run-Id");
+      if (responseRunId) setActiveRunId(responseRunId);
       if (!resp.ok) {
         if (resp.status === 401) {
           dispatchAuthExpired();
@@ -811,7 +1099,10 @@ export function StudioChat({
           else if (line.startsWith("data: ")) {
             try {
               const data = JSON.parse(line.slice(6));
-              if (curEvt === "status" && data.stage) {
+              if (curEvt === "studio_run" && data.id) {
+                setActiveRunId(String(data.id));
+                setStreaming(data.status === "queued" || data.status === "running");
+              } else if (curEvt === "status" && data.stage) {
                 setStreamStage(data.stage as string);
               } else if (curEvt === "studio_summary") {
                 setPendingSummary(data as StudioSummary);
@@ -1057,11 +1348,13 @@ export function StudioChat({
                   i === msgIdx ? { ...m, text: errMsg, loading: false } : m
                 ));
                 setStreamStage(null);
+                setActiveRunId(null);
               } else if (curEvt === "done") {
                 setMessages((prev) => prev.map((m, i) =>
                   i === msgIdx ? { ...m, text: syncStructuredMessage(accText), loading: false } : m
                 ));
                 setStreamStage(null);
+                setActiveRunId(null);
               } else if ((curEvt === "delta" || curEvt === "content_block_delta") && data.text) {
                 accText += data.text;
                 setStreamStage("generating");
@@ -1096,9 +1389,27 @@ export function StudioChat({
         ));
       }
     } finally {
-      clearTimeout(timeout);
       setStreaming(false);
       setStreamStage(null);
+    }
+  }
+
+  async function cancelActiveRun() {
+    if (!activeRunId) {
+      abortRef.current?.abort();
+      return;
+    }
+    try {
+      await apiFetch(`/conversations/${convId}/studio-runs/${activeRunId}/cancel`, { method: "POST" });
+      abortRef.current?.abort();
+      setActiveRunId(null);
+      setStreaming(false);
+      setStreamStage(null);
+      setMessages((prev) => prev.map((m) =>
+        m.loading ? { ...m, text: m.text || "已取消后台运行", loading: false } : m
+      ));
+    } catch (err) {
+      setMessages((prev) => [...prev, { role: "assistant", text: `取消失败：${err instanceof Error ? err.message : "未知错误"}`, loading: false }]);
     }
   }
 
@@ -1159,7 +1470,21 @@ export function StudioChat({
         {/* Header */}
         <div className="px-3 py-2.5 border-b-2 border-[#1A202C] flex items-center gap-2 flex-shrink-0 bg-[#EBF4F7]">
           <span className="text-[9px] font-bold uppercase tracking-widest text-[#00A3C4]">Studio Chat</span>
+          {streaming && (
+            <span className="text-[9px] px-1.5 py-0.5 border border-[#1A202C] bg-white text-[#1A202C]">
+              {streamStage || "running"}
+            </span>
+          )}
           <span className="flex-1" />
+          {streaming && (
+            <button
+              onClick={cancelActiveRun}
+              className="text-[9px] px-2 py-1 border border-[#E53E3E] text-[#E53E3E] bg-white hover:bg-[#FFF5F5]"
+              title="主动取消后台运行"
+            >
+              取消运行
+            </button>
+          )}
           {messages.length > 0 && (
             <button
               onClick={() => {
@@ -1373,7 +1698,7 @@ export function StudioChat({
                   updateCardStatus(card.id, "adopted");
                   handleAdoptStagedEdit(stagedEditId);
                 } else {
-                  void handlePreflightCardAction(card).then((handled) => {
+                  void handlePreflightCardAction(card, action).then((handled) => {
                     if (handled) updateCardStatus(card.id, "adopted");
                   });
                 }

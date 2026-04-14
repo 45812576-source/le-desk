@@ -129,6 +129,7 @@ export interface V2SessionState {
 export interface GovernanceAction {
   label: string;
   type: "adopt" | "reject" | "view_diff" | "refine";
+  payload?: Record<string, unknown>;
 }
 
 export interface GovernanceCardData {

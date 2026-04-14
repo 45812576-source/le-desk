@@ -52,6 +52,7 @@ export function SandboxTestModal({
   const [wizardStep, setWizardStep] = useState<WizardStep>(0);
   const [precheck, setPrecheck] = useState<SkillPublishPrecheck | null>(null);
   const [approvalInfo, setApprovalInfo] = useState<string | null>(null);
+  const [importToast, setImportToast] = useState<string | null>(null);
 
   // ── Resume 已有会话（从沙盒报告跳转进来） ──
   useEffect(() => {
@@ -351,6 +352,26 @@ export function SandboxTestModal({
                 // 内建跳转是主路径，外部回调只做附加动作（如关闭弹窗）
                 try {
                   setLoading(true);
+                  if (report?.report_id) {
+                    const remediation = await apiFetch<{ cards: unknown[]; staged_edits: unknown[] }>(
+                      `/sandbox/interactive/by-report/${report.report_id}/remediation-actions`,
+                      { method: "POST" }
+                    );
+                    const cards = (remediation.cards || []) as Array<{ content?: Record<string, unknown> }>;
+                    const actionCounts = cards.reduce<Record<string, number>>((acc, card) => {
+                      const action = typeof card.content?.preflight_action === "string" ? card.content.preflight_action : "staged_edit";
+                      acc[action] = (acc[action] || 0) + 1;
+                      return acc;
+                    }, {});
+                    const parts = [
+                      `${remediation.cards?.length || 0} 张治理卡片`,
+                      `${remediation.staged_edits?.length || 0} 个待确认修改`,
+                    ];
+                    if (actionCounts.bind_sandbox_tools) parts.push(`${actionCounts.bind_sandbox_tools} 个工具动作`);
+                    if (actionCounts.bind_permission_tables) parts.push(`${actionCounts.bind_permission_tables} 个数据表动作`);
+                    if (actionCounts.bind_knowledge_references) parts.push(`${actionCounts.bind_knowledge_references} 个知识动作`);
+                    setImportToast(`已导入 ${parts.join(" / ")}`);
+                  }
                   const entry = await apiFetch<{ conversation_id: number }>(
                     `/conversations/studio-entry?type=skill_studio&skill_id=${id}`
                   );
@@ -363,7 +384,9 @@ export function SandboxTestModal({
                   });
                   // 先执行路由跳转，再 fire-and-forget 外部回调
                   // 避免外部回调导致组件卸载使 router.push 不执行
-                  router.push(`/chat/${entry.conversation_id}?${params.toString()}`);
+                  setTimeout(() => {
+                    router.push(`/chat/${entry.conversation_id}?${params.toString()}`);
+                  }, 350);
                   onImportToStudioProp?.();
                 } catch (err) {
                   setError(err instanceof Error ? err.message : "跳转 Skill Studio 失败");
@@ -407,6 +430,8 @@ export function SandboxTestModal({
                   setLoading(false);
                 }
               }}
+              importToast={importToast}
+              onDismissImportToast={() => setImportToast(null)}
               loading={loading}
             />
           )}
@@ -1252,6 +1277,8 @@ function Step5Report({
   onImportToStudio,
   onTargetedRerun,
   onRetryMemoSync,
+  importToast,
+  onDismissImportToast,
   loading,
   passedLabel,
 }: {
@@ -1261,9 +1288,20 @@ function Step5Report({
   onImportToStudio?: () => void;
   onTargetedRerun?: (fixPlanItemIds?: string[]) => void;
   onRetryMemoSync?: () => void;
+  importToast?: string | null;
+  onDismissImportToast?: () => void;
   loading: boolean;
   passedLabel: string;
 }) {
+  const targetKindLabel: Record<string, string> = {
+    skill_prompt: "Prompt",
+    source_file: "附属文件",
+    tool_binding: "工具",
+    knowledge_reference: "知识",
+    permission_config: "数据表",
+    input_slot_definition: "输入槽位",
+    unknown: "其他",
+  };
   const p3 = report.part3_evaluation as {
     quality?: {
       passed: boolean;
@@ -1310,6 +1348,11 @@ function Step5Report({
   const fixPlan = (p3.fix_plan_structured || []) as SandboxFixPlanItem[];
   const memoSyncStatus = session.step_statuses?.memo_sync as SandboxStepStatus | undefined;
   const memoSyncFailed = memoSyncStatus?.status === "failed";
+  const fixPlanSummary = fixPlan.reduce<Record<string, number>>((acc, item) => {
+    const key = item.target_kind || "unknown";
+    acc[key] = (acc[key] || 0) + 1;
+    return acc;
+  }, {});
 
   const p2 = report.part2_test_matrix as {
     theoretical_combo_count?: number;
@@ -1708,6 +1751,15 @@ function Step5Report({
           共 {fixPlan.length} 项整改任务待完成，完成后才能提交审批
         </div>
       )}
+      {fixPlan.length > 0 && (
+        <div className="flex items-center gap-1.5 flex-wrap text-[7px]">
+          {Object.entries(fixPlanSummary).map(([key, count]) => (
+            <span key={key} className="px-1.5 py-0.5 border border-[#1A202C]/15 bg-[#F8FAFB] text-gray-600 font-bold">
+              {(targetKindLabel[key] || key)} × {count}
+            </span>
+          ))}
+        </div>
+      )}
       <div className="flex items-center gap-2 pt-2 flex-wrap">
         {session.approval_eligible && (
           <PixelButton onClick={onSubmitApproval} disabled={loading}>
@@ -1716,7 +1768,7 @@ function Step5Report({
         )}
         {!session.approval_eligible && issues.length > 0 && onImportToStudio && (
           <PixelButton variant="secondary" onClick={onImportToStudio} disabled={loading}>
-            导入 Skill Studio 整改
+            导入 Skill Studio（生成治理卡片）
           </PixelButton>
         )}
         {!session.approval_eligible && fixPlan.length > 0 && onTargetedRerun && (
@@ -1737,6 +1789,12 @@ function Step5Report({
           导出 CSV
         </button>
       </div>
+      {importToast && (
+        <div className="mt-2 border border-[#00CC99] bg-[#F0FFF9] px-3 py-2 text-[8px] text-[#007A5E] font-bold flex items-center justify-between">
+          <span>{importToast}</span>
+          <button onClick={onDismissImportToast} className="ml-3 text-[9px] hover:text-[#005F46]">✕</button>
+        </div>
+      )}
     </div>
   );
 }

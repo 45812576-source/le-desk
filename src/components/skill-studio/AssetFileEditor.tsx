@@ -5,8 +5,34 @@ import { FileCode } from "lucide-react";
 import { PixelButton } from "@/components/pixel/PixelButton";
 import { apiFetch } from "@/lib/api";
 import type { SkillDetail } from "@/lib/types";
+import { useStudioStore } from "@/lib/studio-store";
+import type { DiffOp } from "./types";
 import { DiffViewer, LineNumberedEditor } from "./DiffViewer";
 import { isTextFile, getFileCategory, inferCategory, CATEGORY_CONFIG } from "./utils";
+
+function applyDiffOpsForPreview(text: string, ops: DiffOp[]) {
+  let next = text;
+  for (const op of ops) {
+    if (op.type === "replace" && op.old) next = next.replace(op.old, op.new || "");
+    else if (op.type === "delete" && op.old) next = next.replace(op.old, "");
+    else if (op.type === "append") next += op.content || op.new || "";
+    else if (op.type === "insert_after") {
+      const anchor = op.anchor || op.old || "";
+      const insert = op.content || op.new || "";
+      if (anchor && next.includes(anchor)) {
+        const idx = next.indexOf(anchor) + anchor.length;
+        next = next.slice(0, idx) + insert + next.slice(idx);
+      } else {
+        next += `\n${insert}`;
+      }
+    } else if (op.type === "insert_before") {
+      const anchor = op.anchor || op.old || "";
+      const insert = op.content || op.new || "";
+      next = anchor && next.includes(anchor) ? next.replace(anchor, `${insert}${anchor}`) : `${insert}\n${next}`;
+    }
+  }
+  return next;
+}
 
 export function AssetFileEditor({
   skill,
@@ -29,6 +55,12 @@ export function AssetFileEditor({
   const isReadOnly = skill.status === "published" || skill.status === "archived";
   const isText = isTextFile(filename);
   const hasDiff = diffBase !== null && diffBase !== content;
+  const pendingFileStagedEdit = useStudioStore((s) => s.stagedEdits.find((e) =>
+    e.status === "pending" && e.fileType === "source_file" && e.filename === filename && e.diff?.length > 0
+  ));
+  const stagedPreviewContent = pendingFileStagedEdit?.diff?.length
+    ? applyDiffOpsForPreview(content, pendingFileStagedEdit.diff)
+    : null;
 
   useEffect(() => {
     setLoading(true);
@@ -134,6 +166,13 @@ export function AssetFileEditor({
               </a>
             )}
           </div>
+        ) : stagedPreviewContent !== null && stagedPreviewContent !== content ? (
+          <>
+            <div className="px-2 py-1 bg-[#F0FFF9] border border-[#00CC99]/40 text-[8px] font-mono text-[#007A5E] mb-1 flex-shrink-0">
+              待确认治理修改：{pendingFileStagedEdit?.changeNote || "查看 diff 后在治理卡片中采纳或拒绝"}
+            </div>
+            <DiffViewer oldText={content} newText={stagedPreviewContent} />
+          </>
         ) : showDiff && diffBase !== null ? (
           <DiffViewer oldText={diffBase} newText={content} />
         ) : (
