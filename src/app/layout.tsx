@@ -1,11 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
-import { Geist, Roboto_Mono } from "next/font/google";
-import { cn } from "@/lib/utils";
 import { ThemeProvider } from "@/lib/theme";
-
-const geist = Geist({ subsets: ["latin"], variable: "--font-geist" });
-const robotoMono = Roboto_Mono({ subsets: ["latin"], weight: ["400", "700"], variable: "--font-roboto-mono" });
 
 export const metadata: Metadata = {
   title: "Le Desk",
@@ -30,7 +25,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="zh-CN" suppressHydrationWarning className={cn(geist.variable, robotoMono.variable)}>
+    <html lang="zh-CN" suppressHydrationWarning>
       <head>
         <script dangerouslySetInnerHTML={{ __html: themeScript }} />
       </head>
