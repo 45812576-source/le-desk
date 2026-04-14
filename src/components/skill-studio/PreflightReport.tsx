@@ -1,7 +1,34 @@
 "use client";
 
 import { PixelButton } from "@/components/pixel/PixelButton";
-import type { PreflightResult, PreflightGate } from "./types";
+import type { PreflightResult, PreflightGate, PreflightTestResult } from "./types";
+
+function ScoreBadge({ label, score }: { label: string; score?: number }) {
+  const val = typeof score === "number" ? score : null;
+  const tone = val == null
+    ? "border-gray-200 text-gray-400 bg-gray-50"
+    : val >= 70
+      ? "border-[#00CC99] text-[#00CC99] bg-[#00CC99]/5"
+      : val >= 60
+        ? "border-amber-300 text-amber-600 bg-amber-50"
+        : "border-red-300 text-red-500 bg-red-50";
+
+  return (
+    <span className={`inline-flex items-center gap-1 px-2 py-0.5 border text-[8px] font-bold ${tone}`}>
+      <span>{label}</span>
+      <span>{val ?? "N/A"}</span>
+    </span>
+  );
+}
+
+function deductionText(test: PreflightTestResult) {
+  const deductions = test.detail.deductions || [];
+  if (deductions.length === 0) return test.detail.reason || "";
+  const first = deductions[0];
+  if (!first) return test.detail.reason || "";
+  const suffix = first.fix_suggestion ? ` → ${first.fix_suggestion}` : "";
+  return `[${first.dimension || "quality"}] ${first.reason || test.detail.reason || ""}${suffix}`;
+}
 
 export function PreflightReport({
   result,
@@ -25,7 +52,7 @@ export function PreflightReport({
       {/* Header */}
       <div className="flex items-center gap-2">
         <span className="text-[9px] font-bold uppercase tracking-widest text-[#6B46C1]">
-          {running ? "质量检测中..." : "质量检测"}
+          {running ? "质量检测中..." : "质量检测（沙盒标准）"}
         </span>
         {result && !running && (
           <>
@@ -42,6 +69,28 @@ export function PreflightReport({
       {/* Running stage */}
       {running && stage && (
         <div className="text-[9px] text-[#6B46C1] font-bold animate-pulse">{stage}</div>
+      )}
+
+      {result?.quality_detail && (
+        <div className="space-y-1">
+          <div className="text-[8px] font-bold uppercase tracking-widest text-gray-400">沙盒质量维度</div>
+          <div className="flex flex-wrap gap-2">
+            <ScoreBadge label="覆盖" score={result.quality_detail.avg_coverage} />
+            <ScoreBadge label="正确" score={result.quality_detail.avg_correctness} />
+            <ScoreBadge label="约束" score={result.quality_detail.avg_constraint} />
+            <ScoreBadge label="可行动" score={result.quality_detail.avg_actionability} />
+          </div>
+          {result.quality_detail.top_deductions && result.quality_detail.top_deductions.length > 0 && (
+            <div className="space-y-1">
+              {result.quality_detail.top_deductions.slice(0, 3).map((d, i) => (
+                <div key={i} className="text-[8px] text-red-600 bg-red-50 px-2 py-1 border border-red-100">
+                  [{d.dimension || "quality"}] {d.points ?? 0}分: {d.reason || "未达标"}
+                  {d.fix_suggestion ? <span className="text-amber-600"> → {d.fix_suggestion}</span> : null}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       )}
 
       {/* Gates */}
@@ -92,8 +141,14 @@ export function PreflightReport({
                 </span>
                 <span className="text-[8px] text-gray-500 flex-1 truncate">{t.test_input}</span>
               </div>
+              <div className="px-2 pt-1 flex flex-wrap gap-1">
+                <ScoreBadge label="覆盖" score={t.detail.coverage_score} />
+                <ScoreBadge label="正确" score={t.detail.correctness_score} />
+                <ScoreBadge label="约束" score={t.detail.constraint_score} />
+                <ScoreBadge label="可行动" score={t.detail.actionability_score} />
+              </div>
               <div className="px-2 py-1 text-[8px] text-gray-500">
-                {t.detail.reason || ""}
+                {deductionText(t)}
               </div>
             </div>
           ))}

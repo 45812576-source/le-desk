@@ -40,13 +40,19 @@ export interface StudioSessionState {
   // 治理卡片队列
   governanceCards: GovernanceCardData[];
   addGovernanceCard: (card: GovernanceCardData) => void;
+  syncGovernanceCards: (source: string, cards: GovernanceCardData[]) => void;
   updateCardStatus: (id: string, status: GovernanceCardData["status"]) => void;
 
   // Staged edits
   stagedEdits: StagedEdit[];
   addStagedEdit: (edit: StagedEdit) => void;
+  syncStagedEdits: (source: string, edits: StagedEdit[]) => void;
   adoptStagedEdit: (id: string) => void;
   rejectStagedEdit: (id: string) => void;
+
+  // Preflight re-run trigger
+  preflightRefreshToken: number;
+  requestPreflightRefresh: () => void;
 
   // 现有状态迁移（保持向后兼容）
   pendingDraft: StudioDraft | null;
@@ -75,6 +81,7 @@ const initialState = {
   activeAssistSkills: [] as { id: number; name: string; status: string }[],
   governanceCards: [] as GovernanceCardData[],
   stagedEdits: [] as StagedEdit[],
+  preflightRefreshToken: 0,
   pendingDraft: null as StudioDraft | null,
   pendingSummary: null as StudioSummary | null,
   pendingToolSuggestion: null as StudioToolSuggestion | null,
@@ -92,7 +99,18 @@ export const useStudioStore = create<StudioSessionState>((set) => ({
   setActiveAssistSkills: (skills) => set({ activeAssistSkills: skills }),
 
   addGovernanceCard: (card) =>
-    set((s) => ({ governanceCards: [...s.governanceCards, card] })),
+    set((s) => ({
+      governanceCards: s.governanceCards.some((existing) => existing.id === card.id)
+        ? s.governanceCards.map((existing) => existing.id === card.id ? card : existing)
+        : [...s.governanceCards, card],
+    })),
+  syncGovernanceCards: (source, cards) =>
+    set((s) => ({
+      governanceCards: [
+        ...s.governanceCards.filter((card) => card.source !== source),
+        ...cards.map((card) => ({ ...card, source })),
+      ],
+    })),
   updateCardStatus: (id, status) =>
     set((s) => ({
       governanceCards: s.governanceCards.map((c) =>
@@ -101,7 +119,18 @@ export const useStudioStore = create<StudioSessionState>((set) => ({
     })),
 
   addStagedEdit: (edit) =>
-    set((s) => ({ stagedEdits: [...s.stagedEdits, edit] })),
+    set((s) => ({
+      stagedEdits: s.stagedEdits.some((existing) => existing.id === edit.id)
+        ? s.stagedEdits.map((existing) => existing.id === edit.id ? edit : existing)
+        : [...s.stagedEdits, edit],
+    })),
+  syncStagedEdits: (source, edits) =>
+    set((s) => ({
+      stagedEdits: [
+        ...s.stagedEdits.filter((edit) => edit.source !== source),
+        ...edits.map((edit) => ({ ...edit, source })),
+      ],
+    })),
   adoptStagedEdit: (id) =>
     set((s) => ({
       stagedEdits: s.stagedEdits.map((e) =>
@@ -114,6 +143,9 @@ export const useStudioStore = create<StudioSessionState>((set) => ({
         e.id === id ? { ...e, status: "rejected" as const } : e
       ),
     })),
+
+  requestPreflightRefresh: () =>
+    set((s) => ({ preflightRefreshToken: s.preflightRefreshToken + 1 })),
 
   setPendingDraft: (draft) => set({ pendingDraft: draft }),
   setPendingSummary: (summary) => set({ pendingSummary: summary }),

@@ -103,6 +103,7 @@ export function StudioChat({
   fromSandbox,
   onExpandEditor,
   editorExpanded,
+  onRefreshSkill,
 }: {
   convId: number;
   skillId: number | null;
@@ -126,6 +127,7 @@ export function StudioChat({
   fromSandbox?: boolean;
   onExpandEditor?: () => void;
   editorExpanded?: boolean;
+  onRefreshSkill: () => void;
 }) {
   const _storageKey = `studio_msgs_${convId}`;
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -238,20 +240,25 @@ export function StudioChat({
   const setActiveAssistSkills = useStudioStore((s) => s.setActiveAssistSkills);
   const setEditorVisibility = useStudioStore((s) => s.setEditorVisibility);
   const setEditorManuallyCollapsed = useStudioStore((s) => s.setEditorManuallyCollapsed);
+  const requestPreflightRefresh = useStudioStore((s) => s.requestPreflightRefresh);
 
   // ── Staged edit adopt/reject handlers ──
 
   async function handleAdoptStagedEdit(editId: string) {
     if (!skillId) return;
     try {
-      await apiFetch(`/skills/${skillId}/studio/staged-edits/${editId}/adopt`, { method: "POST" });
+      const result = await apiFetch<{ target_type?: string }>(`/skills/${skillId}/studio/staged-edits/${editId}/adopt`, { method: "POST" });
       adoptStagedEdit(editId);
       // Apply diff ops to prompt
       const edit = storeStagedEdits.find((e) => e.id === editId);
-      if (edit?.diff && edit.diff.length > 0) {
+      if (edit?.fileType === "system_prompt" && edit.diff && edit.diff.length > 0) {
         const newPrompt = applyOps(currentPrompt, edit.diff);
         onApplyDraft({ system_prompt: newPrompt, change_note: edit.changeNote || "采纳编辑" });
       }
+      if (result?.target_type && result.target_type !== "system_prompt") {
+        onRefreshSkill();
+      }
+      requestPreflightRefresh();
       // Auto-collapse if no more pending staged edits
       const remaining = storeStagedEdits.filter((e) => e.id !== editId && e.status === "pending");
       if (remaining.length === 0) {
@@ -264,6 +271,49 @@ export function StudioChat({
         { role: "assistant", text: `采纳失败：${err instanceof Error ? err.message : "未知错误"}`, loading: false },
       ]);
     }
+  }
+
+  async function handlePreflightCardAction(card: GovernanceCardData) {
+    if (!skillId) return false;
+    const preflightAction = typeof card.content.preflight_action === "string" ? card.content.preflight_action : null;
+    const payload = typeof card.content.action_payload === "object" && card.content.action_payload
+      ? card.content.action_payload as Record<string, unknown>
+      : {};
+    if (!preflightAction) return false;
+
+    try {
+      if (preflightAction === "confirm_archive") {
+        await apiFetch(`/sandbox/preflight/${skillId}/knowledge-confirm`, {
+          method: "POST",
+          body: JSON.stringify(payload),
+        });
+        onRefreshSkill();
+        requestPreflightRefresh();
+        setMessages((prev) => [...prev, { role: "assistant", text: "已按默认路径归档知识文件，正在重新执行质量检测。", loading: false }]);
+        return true;
+      }
+      if (preflightAction === "reindex_knowledge") {
+        await apiFetch(`/sandbox/preflight/${skillId}/knowledge-reindex`, {
+          method: "POST",
+          body: JSON.stringify({ knowledge_ids: payload.knowledge_ids || [] }),
+        });
+        requestPreflightRefresh();
+        setMessages((prev) => [...prev, { role: "assistant", text: "已重建向量索引，正在重新执行质量检测。", loading: false }]);
+        return true;
+      }
+      if (preflightAction === "navigate_tools" || preflightAction === "navigate_data_assets") {
+        const targetUrl = typeof payload.target_url === "string"
+          ? payload.target_url
+          : (preflightAction === "navigate_data_assets" ? "/data" : "/skills");
+        window.open(targetUrl, "_blank", "noopener,noreferrer");
+        setMessages((prev) => [...prev, { role: "assistant", text: `已打开处理页面：${targetUrl}`, loading: false }]);
+        return true;
+      }
+    } catch (err) {
+      setMessages((prev) => [...prev, { role: "assistant", text: `执行失败：${err instanceof Error ? err.message : "未知错误"}`, loading: false }]);
+      return false;
+    }
+    return false;
   }
 
   async function handleRejectStagedEdit(editId: string) {
@@ -1245,8 +1295,14 @@ export function StudioChat({
                 && pendingGovernanceActions.length === 0
                 && !auditResult;
               if (action.type === "adopt") {
-                updateCardStatus(card.id, "adopted");
-                if (stagedEditId) handleAdoptStagedEdit(stagedEditId);
+                if (stagedEditId) {
+                  updateCardStatus(card.id, "adopted");
+                  handleAdoptStagedEdit(stagedEditId);
+                } else {
+                  void handlePreflightCardAction(card).then((handled) => {
+                    if (handled) updateCardStatus(card.id, "adopted");
+                  });
+                }
               } else if (action.type === "reject") {
                 updateCardStatus(card.id, "rejected");
                 if (stagedEditId) handleRejectStagedEdit(stagedEditId);
@@ -1256,7 +1312,7 @@ export function StudioChat({
                 setInput(String(card.content.summary || card.title));
                 setTimeout(() => inputRef.current?.focus(), 50);
               }
-              if (willCompleteGovernance && (action.type === "adopt" || action.type === "reject")) {
+              if (willCompleteGovernance && (action.type === "reject" || (action.type === "adopt" && Boolean(stagedEditId)))) {
                 setMessages((prev) => [
                   ...prev,
                   {

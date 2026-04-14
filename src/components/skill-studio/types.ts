@@ -81,13 +81,30 @@ export interface PreflightTestResult {
   test_input: string;
   response: string;
   score: number;
-  detail: { score?: number; coverage?: number; completeness?: number; professionalism?: number; reason?: string };
+  detail: {
+    score?: number;
+    coverage_score?: number;
+    correctness_score?: number;
+    constraint_score?: number;
+    actionability_score?: number;
+    deductions?: { dimension?: string; points?: number; reason?: string; fix_suggestion?: string; status?: string }[];
+    reason?: string;
+    fix_suggestion?: string;
+  };
 }
 
 export interface PreflightResult {
   passed: boolean;
   blocked_by?: string;
   score?: number;
+  quality_detail?: {
+    avg_score?: number;
+    avg_coverage?: number;
+    avg_correctness?: number;
+    avg_constraint?: number;
+    avg_actionability?: number;
+    top_deductions?: { dimension?: string; points?: number; reason?: string; fix_suggestion?: string; status?: string }[];
+  };
   gates: PreflightGate[];
   tests?: PreflightTestResult[];
 }
@@ -116,6 +133,7 @@ export interface GovernanceAction {
 
 export interface GovernanceCardData {
   id: string;
+  source?: string;
   type: "route_status" | "assist_skills_status" | "staged_edit" | "adoption_prompt" | "followup_prompt";
   title: string;
   content: Record<string, unknown>;
@@ -225,6 +243,7 @@ export interface ArchitectPhaseStatus {
 
 export interface StagedEdit {
   id: string;
+  source?: string;
   fileType: string;
   filename: string;
   diff: DiffOp[];

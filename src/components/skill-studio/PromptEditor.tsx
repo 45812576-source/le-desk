@@ -1,6 +1,6 @@
 "use client";
 
-import { useDeferredValue, useEffect, useState } from "react";
+import { useDeferredValue, useEffect, useRef, useState } from "react";
 import { Zap, Download, Search } from "lucide-react";
 import { PixelButton } from "@/components/pixel/PixelButton";
 import { apiFetch, getToken } from "@/lib/api";
@@ -11,7 +11,7 @@ import { ICONS, PixelIcon } from "@/components/pixel";
 import { DiffViewer, LineNumberedEditor } from "./DiffViewer";
 import { PreflightReport } from "./PreflightReport";
 import { KnowledgeConfirmModal } from "./KnowledgeConfirmModal";
-import type { PreflightResult, PreflightGate } from "./types";
+import type { GovernanceCardData, PreflightResult, PreflightGate, StagedEdit, DiffOp } from "./types";
 
 function SkillIcon({ size }: { size: number }) {
   const { theme } = useTheme();
@@ -94,8 +94,32 @@ export function PromptEditor({
   const isReadOnly = skill?.status === "published" || skill?.status === "archived";
   const hasDiff = diffBase !== null && diffBase !== prompt;
   const pendingStagedEditCount = useStudioStore((s) => s.stagedEdits.filter((e) => e.status === "pending").length);
+  const syncGovernanceCards = useStudioStore((s) => s.syncGovernanceCards);
+  const syncStagedEdits = useStudioStore((s) => s.syncStagedEdits);
+  const preflightRefreshToken = useStudioStore((s) => s.preflightRefreshToken);
   const deferredPrompt = useDeferredValue(prompt);
   const isLargeText = prompt.length > 50 * 1024;
+  const preflightSource = skill ? `preflight:${skill.id}` : null;
+  const handledPreflightRefreshRef = useRef(0);
+
+  function normalizeStagedEdit(raw: Record<string, unknown>): StagedEdit {
+    return {
+      id: String(raw.id ?? Date.now()),
+      fileType: (raw.target_type as string) || "system_prompt",
+      filename: raw.target_key ? String(raw.target_key) : ((raw.target_type as string) === "system_prompt" ? "SKILL.md" : ""),
+      diff: (((raw.diff_ops as DiffOp[]) || []).map((op) => ({
+        type: (op as unknown as { op?: string }).op === "replace"
+          ? "replace"
+          : (op as unknown as { op?: string }).op === "insert"
+            ? "insert_after"
+            : "delete",
+        old: op.old,
+        new: op.new || op.content,
+      })) as DiffOp[]),
+      changeNote: raw.summary as string,
+      status: (raw.status as StagedEdit["status"]) || "pending",
+    };
+  }
 
   useEffect(() => {
     if (!skill) {
@@ -292,8 +316,29 @@ export function PromptEditor({
                   tests: [...(prev?.tests || []), data],
                 }));
               } else if (curEvent === "done") {
-                setPreflightResult(data as PreflightResult);
+                const finalResult = data as PreflightResult;
+                setPreflightResult(finalResult);
                 setPreflightStage(null);
+                if (preflightSource) {
+                  if (finalResult.passed && !finalResult.blocked_by) {
+                    syncGovernanceCards(preflightSource, []);
+                    syncStagedEdits(preflightSource, []);
+                  } else {
+                    try {
+                      const remediation = await apiFetch<{ cards: GovernanceCardData[]; staged_edits: Record<string, unknown>[] }>(
+                        `/sandbox/preflight/${skill.id}/remediation-actions`,
+                        {
+                          method: "POST",
+                          body: JSON.stringify({ result: finalResult }),
+                        }
+                      );
+                      syncGovernanceCards(preflightSource, remediation.cards || []);
+                      syncStagedEdits(preflightSource, (remediation.staged_edits || []).map(normalizeStagedEdit));
+                    } catch (remediationErr) {
+                      console.error("Preflight remediation sync failed", remediationErr);
+                    }
+                  }
+                }
               }
             } catch { /* ignore parse error */ }
           }
@@ -306,6 +351,13 @@ export function PromptEditor({
       setPreflightRunning(false);
     }
   }
+
+  useEffect(() => {
+    if (!skill || preflightRefreshToken <= 0 || handledPreflightRefreshRef.current === preflightRefreshToken) return;
+    handledPreflightRefreshRef.current = preflightRefreshToken;
+    runPreflight();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [preflightRefreshToken, skill?.id]);
 
   async function handleSubmitReview() {
     if (!skill) return;

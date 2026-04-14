@@ -514,6 +514,7 @@ export function SkillStudio({
           onViewReport={selectedFile?.skillId ? () => setShowSandbox(selectedFile.skillId) : undefined}
           sandboxReportId={fromSandbox ? sandboxReportId : undefined}
           fromSandbox={fromSandbox}
+          onRefreshSkill={() => { if (selectedSkill) refreshSkill(selectedSkill.id); }}
           onExpandEditor={() => {
             if (editorVisibility === "collapsed" && !editorManuallyCollapsed) {
               setEditorVisibility("auto_expanded");
