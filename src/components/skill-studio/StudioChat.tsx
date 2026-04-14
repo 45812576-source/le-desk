@@ -494,21 +494,23 @@ export function StudioChat({
         setOodaDecisions(nextOodaDecisions);
         setPendingPhaseSummary(latestPendingPhaseSummary);
         setArchitectReady(latestArchitectReady);
+        const pendingPhaseSummary = latestPendingPhaseSummary;
+        const latestQuestion = latestArchitectQuestion;
         if (latestArchitectReady) {
           setArchitectPhase({
             phase: "ready_for_draft",
             mode_source: "create_new_skill",
             ooda_round: nextOodaDecisions[nextOodaDecisions.length - 1]?.ooda_round || 0,
           });
-        } else if (latestPendingPhaseSummary) {
+        } else if (pendingPhaseSummary) {
           setArchitectPhase({
-            phase: latestPendingPhaseSummary.phase,
+            phase: pendingPhaseSummary.phase,
             mode_source: "create_new_skill",
             ooda_round: nextOodaDecisions[nextOodaDecisions.length - 1]?.ooda_round || 0,
           });
-        } else if (latestArchitectQuestion) {
+        } else if (latestQuestion) {
           setArchitectPhase({
-            phase: latestArchitectQuestion.phase,
+            phase: latestQuestion.phase,
             mode_source: "create_new_skill",
             ooda_round: nextOodaDecisions[nextOodaDecisions.length - 1]?.ooda_round || 0,
           });
