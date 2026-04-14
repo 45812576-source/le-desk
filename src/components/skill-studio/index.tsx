@@ -64,6 +64,7 @@ export function SkillStudio({
   const [prompt, setPrompt] = useState("");
   const [savedPrompt, setSavedPrompt] = useState("");  // last persisted version for dirty tracking
   const [externalName, setExternalName] = useState<string | null>(null);
+  const [externalDescription, setExternalDescription] = useState<string | null>(null);
   const [pendingDiffBase, setPendingDiffBase] = useState<string | null>(null);
   const editorSaveRef = useRef<(() => void) | null>(null);
   const clearChatRef = useRef<(() => void) | null>(null);
@@ -406,6 +407,7 @@ export function SkillStudio({
     setPendingDiffBase(prompt);
     setPrompt(draft.system_prompt);
     if (draft.name) setExternalName(draft.name);
+    if (draft.description !== undefined) setExternalDescription(draft.description);
   }
 
   function handleNewSession() {
@@ -636,6 +638,7 @@ export function SkillStudio({
                   isNew={isNew}
                   prompt={prompt}
                   externalName={externalName}
+                  externalDescription={externalDescription}
                   pendingDiffBase={pendingDiffBase}
                   saveRef={editorSaveRef}
                   onPromptChange={setPrompt}

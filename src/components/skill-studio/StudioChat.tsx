@@ -440,7 +440,11 @@ export function StudioChat({
             summary: raw.summary,
             severity: raw.severity,
             category: raw.category,
-            staged_edit_id: raw.staged_edit_id || raw.id,
+            staged_edit_id: raw.staged_edit_id != null
+              ? String(raw.staged_edit_id)
+              : raw.id != null
+                ? String(raw.id)
+                : undefined,
           },
           status: "pending",
           actions: raw.suggested_action === "staged_edit"
@@ -1149,7 +1153,11 @@ export function StudioChat({
                       summary: raw.summary,
                       severity: raw.severity,
                       category: raw.category,
-                      staged_edit_id: raw.staged_edit_id || raw.id,
+                      staged_edit_id: raw.staged_edit_id != null
+                        ? String(raw.staged_edit_id)
+                        : raw.id != null
+                          ? String(raw.id)
+                          : undefined,
                     },
                     status: "pending",
                     actions: raw.suggested_action === "staged_edit"
