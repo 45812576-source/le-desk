@@ -11,7 +11,7 @@ import { SandboxTestModal } from "@/components/skill/SandboxTestModal";
 import { isEditableSkillStatus, isPublishedSkillStatus } from "@/lib/skill-status";
 import { useStudioStore } from "@/lib/studio-store";
 
-import type { ChatMessage, SelectedFile, StudioDraft } from "./types";
+import type { ChatMessage, SelectedFile, StudioDraft, DiffOp, StagedEdit, GovernanceCardData } from "./types";
 import { SkillList, SkillIcon } from "./SkillList";
 import { PromptEditor } from "./PromptEditor";
 import { StudioChat } from "./StudioChat";
@@ -57,6 +57,7 @@ export function SkillStudio({
   const [memoSyncError, setMemoSyncError] = useState<string | null>(null);
   const [retryingMemoSync, setRetryingMemoSync] = useState(false);
   const [activeSandboxReport, setActiveSandboxReport] = useState<SandboxReport | null>(null);
+  const [sandboxRemediationSummary, setSandboxRemediationSummary] = useState<{ cards: number; stagedEdits: number } | null>(null);
 
   const [prompt, setPrompt] = useState("");
   const [savedPrompt, setSavedPrompt] = useState("");  // last persisted version for dirty tracking
@@ -73,6 +74,8 @@ export function SkillStudio({
   const setEditorVisibility = useStudioStore((s) => s.setEditorVisibility);
   const editorManuallyCollapsed = useStudioStore((s) => s.editorManuallyCollapsed);
   const setEditorManuallyCollapsed = useStudioStore((s) => s.setEditorManuallyCollapsed);
+  const syncGovernanceCards = useStudioStore((s) => s.syncGovernanceCards);
+  const syncStagedEdits = useStudioStore((s) => s.syncStagedEdits);
   const editorExpanded = editorVisibility !== "collapsed";
 
   // Auto-expand editor when selecting a file to edit
@@ -160,18 +163,43 @@ export function SkillStudio({
     if (!fromSandbox || sandboxEntryHandled || !initialSkillId) return;
     setSandboxEntryHandled(true);
     setMemoSyncError(null);
+    let cancelled = false;
+    (async () => {
+      try {
+        const [memoData, reportData] = await Promise.all([
+          apiFetch<SkillMemo>(`/skills/${initialSkillId}/memo`),
+          (sandboxSessionId
+            ? apiFetch<SandboxReport>(`/sandbox/interactive/${sandboxSessionId}/report`).catch(() => null)
+            : Promise.resolve(null)),
+        ]);
+        if (cancelled) return;
 
-    // 并行：刷新 memo + 拉取沙盒报告
-    const memoPromise = apiFetch<SkillMemo>(`/skills/${initialSkillId}/memo`);
-    const reportPromise = sandboxSessionId
-      ? apiFetch<SandboxReport>(`/sandbox/interactive/${sandboxSessionId}/report`).catch(() => null)
-      : Promise.resolve(null);
-
-    Promise.all([memoPromise, reportPromise])
-      .then(([memoData, reportData]) => {
-        // 绑定报告上下文
+        const reportIdForRemediation = reportData?.report_id ?? (sandboxReportId ? Number(sandboxReportId) : NaN);
         if (reportData) {
           setActiveSandboxReport(reportData);
+        }
+        if (Number.isFinite(reportIdForRemediation) && reportIdForRemediation > 0) {
+          try {
+            const remediation = await apiFetch<{ cards: GovernanceCardData[]; staged_edits: Record<string, unknown>[] }>(
+              `/sandbox/interactive/by-report/${reportIdForRemediation}/remediation-actions`,
+              { method: "POST" }
+            );
+            if (!cancelled) {
+              const source = `sandbox-report:${reportIdForRemediation}`;
+              syncGovernanceCards(source, remediation.cards || []);
+              syncStagedEdits(source, (remediation.staged_edits || []).map(normalizeStagedEdit));
+              setSandboxRemediationSummary({
+                cards: remediation.cards?.length || 0,
+                stagedEdits: remediation.staged_edits?.length || 0,
+              });
+              if ((remediation.cards?.length || 0) > 0 || (remediation.staged_edits?.length || 0) > 0) {
+                setEditorManuallyCollapsed(false);
+                setEditorVisibility("auto_expanded");
+              }
+            }
+          } catch {
+            // best effort: remediation actions might not be available for older backend
+          }
         }
 
         if (memoData && memoData.lifecycle_stage) {
@@ -182,12 +210,13 @@ export function SkillStudio({
         } else {
           setMemoSyncError("整改计划未导入 — Memo 不存在");
         }
-      })
-      .catch(() => {
-        setMemoSyncError("整改任务尚未同步到 Memo");
-      });
+      } catch {
+        if (!cancelled) setMemoSyncError("整改任务尚未同步到 Memo");
+      }
+    })();
+    return () => { cancelled = true; };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fromSandbox, initialSkillId]);
+  }, [fromSandbox, initialSkillId, sandboxReportId]);
 
   const handleRetryMemoSync = async () => {
     if (!sandboxSessionId || retryingMemoSync) return;
@@ -466,6 +495,11 @@ export function SkillStudio({
           {!memoSyncError && memo?.lifecycle_stage === "fixing" && (
             <span className="text-[#00CC99] font-bold ml-2">已进入整改模式</span>
           )}
+          {sandboxRemediationSummary && (
+            <span className="text-[#00A3C4] font-bold ml-2">
+              已生成 {sandboxRemediationSummary.cards} 张治理卡片 / {sandboxRemediationSummary.stagedEdits} 个待确认修改
+            </span>
+          )}
           {sandboxVersionMismatchMessage && (
             <div className="basis-full text-red-600 font-bold border border-red-300 bg-red-50 px-2 py-1 mt-1">
               {sandboxVersionMismatchMessage}
@@ -658,3 +692,23 @@ export function SkillStudio({
     </div>
   );
 }
+  function normalizeStagedEdit(raw: Record<string, unknown>): StagedEdit {
+    return {
+      id: String(raw.id ?? Date.now()),
+      fileType: (raw.target_type as string) || "system_prompt",
+      filename: raw.target_key
+        ? String(raw.target_key)
+        : ((raw.target_type as string) === "system_prompt" ? "SKILL.md" : ""),
+      diff: (((raw.diff_ops as DiffOp[]) || []).map((op) => ({
+        type: (op as unknown as { op?: string }).op === "replace"
+          ? "replace"
+          : (op as unknown as { op?: string }).op === "insert"
+            ? "insert_after"
+            : "delete",
+        old: op.old,
+        new: op.new || op.content,
+      })) as DiffOp[]),
+      changeNote: raw.summary as string,
+      status: (raw.status as StagedEdit["status"]) || "pending",
+    };
+  }
