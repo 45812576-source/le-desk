@@ -9,7 +9,6 @@ import { PendingChangeBadge } from "./PendingChangeBadge";
 import { ConfirmChangeDialog } from "./ConfirmChangeDialog";
 import {
   FEATURE_LABELS,
-  FEATURE_RISK_LEVEL,
   HIGH_RISK_FLAGS,
   type FeatureFlags,
 } from "../constants";

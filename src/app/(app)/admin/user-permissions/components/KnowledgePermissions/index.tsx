@@ -30,7 +30,10 @@ export function ApprovalCapabilitiesSection({ userId }: ApprovalCapabilitiesSect
   }, [userId]);
 
   useEffect(() => {
-    fetchGrants();
+    const timer = window.setTimeout(() => {
+      fetchGrants();
+    }, 0);
+    return () => window.clearTimeout(timer);
   }, [fetchGrants]);
 
   const reviewGrants = grants.filter((g) => REVIEW_ACTION_SET.has(g.action));

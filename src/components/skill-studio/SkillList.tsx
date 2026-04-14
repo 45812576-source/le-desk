@@ -106,7 +106,6 @@ export function SkillList({
   skills,
   loading,
   selectedFile,
-  refreshCounter,
   onSelectFile,
   onNew,
   onImport,
@@ -184,7 +183,7 @@ export function SkillList({
       apiFetch<BoundTool[]>(`/skills/${skill.id}/bound-tools`)
         .then((data) => setBoundTools(Array.isArray(data) ? data : []))
         .catch(() => setBoundTools([]));
-    }, [isOpen, skill.id, refreshCounter]);
+    }, [isOpen, skill.id]);
 
     async function handleUnbind(toolId: number, e: React.MouseEvent) {
       e.stopPropagation();

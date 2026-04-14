@@ -30,8 +30,6 @@ import {
   Pencil,
   AlertTriangle,
   RefreshCw,
-  Trash2,
-  MoveRight,
 } from "lucide-react";
 
 // ── 目录树节点 ──────────────────────────────────────────────────────────────
@@ -177,7 +175,7 @@ function FolderInfoPanel({ folderId, folderName, isSuperAdmin, onRefreshTree }: 
 
 // ── 通用资产信息面板（中栏） ────────────────────────────────────────────────
 
-function GenericInfoPanel({ assetType, assetId, assetName }: { assetType: AssetType; assetId: number; assetName: string }) {
+function GenericInfoPanel({ assetId, assetName }: { assetId: number; assetName: string }) {
   return (
     <div className="space-y-4">
       <section>
@@ -290,7 +288,12 @@ function PermissionsPanel({ assetType, assetId, assetName }: { assetType: AssetT
       .finally(() => setLoading(false));
   }, [assetType, assetId]);
 
-  useEffect(() => { loadGrants(); }, [loadGrants]);
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      loadGrants();
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [loadGrants]);
 
   async function handleRevoke(grantId: number) {
     if (!confirm("确认回收此权限？")) return;
@@ -376,8 +379,11 @@ export default function AssetObjectTab({ assetType, isSuperAdmin }: AssetObjectT
 
   // 重置选择
   useEffect(() => {
-    setSelectedId(null);
-    setSelectedName("");
+    const timer = window.setTimeout(() => {
+      setSelectedId(null);
+      setSelectedName("");
+    }, 0);
+    return () => window.clearTimeout(timer);
   }, [assetType]);
 
   const loadList = useCallback(() => {
@@ -396,7 +402,12 @@ export default function AssetObjectTab({ assetType, isSuperAdmin }: AssetObjectT
     }
   }, [assetType]);
 
-  useEffect(() => { loadList(); }, [loadList]);
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      loadList();
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [loadList]);
 
   function select(id: number, name: string) { setSelectedId(id); setSelectedName(name); }
 
@@ -442,7 +453,7 @@ export default function AssetObjectTab({ assetType, isSuperAdmin }: AssetObjectT
           assetType === "knowledge_folder" ? (
             <FolderInfoPanel folderId={selectedId} folderName={selectedName} isSuperAdmin={isSuperAdmin} onRefreshTree={loadList} />
           ) : (
-            <GenericInfoPanel assetType={assetType} assetId={selectedId} assetName={selectedName} />
+            <GenericInfoPanel assetId={selectedId} assetName={selectedName} />
           )
         ) : (
           <div className="flex items-center justify-center h-full text-muted-foreground text-sm">

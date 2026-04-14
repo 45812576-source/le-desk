@@ -1,7 +1,7 @@
 "use client";
 
 import React from "react";
-import type { TableDetail, RiskLevel, TableDetailV2 } from "../shared/types";
+import type { TableDetail, TableDetailV2 } from "../shared/types";
 import { RISK_LEVEL_LABELS, RISK_LEVEL_COLORS } from "../shared/types";
 
 interface Props {

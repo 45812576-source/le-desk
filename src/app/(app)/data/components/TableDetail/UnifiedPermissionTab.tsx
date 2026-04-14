@@ -4,10 +4,8 @@ import React, { useState, useMemo } from "react";
 import { PixelButton } from "@/components/pixel/PixelButton";
 import { PixelBadge } from "@/components/pixel/PixelBadge";
 import { apiFetch } from "@/lib/api";
-import { useAuth } from "@/lib/auth";
 import type {
   TableDetail,
-  TableDetailV2,
   TableRoleGroup,
   TablePermissionPolicy,
   SkillBindingDetail,
@@ -20,12 +18,6 @@ import { DISCLOSURE_LABELS } from "../shared/types";
 import MemberEditor from "./permissions/MemberEditor";
 import SkillBindingCreator from "./permissions/SkillBindingCreator";
 import PermissionPreview from "./permissions/PermissionPreview";
-import AccessSimulator from "./security/AccessSimulator";
-import PermissionWizard from "./security/PermissionWizard";
-import PermissionResultCard from "./security/PermissionResultCard";
-import SmallSampleProtection from "./security/SmallSampleProtection";
-import PolicyVersionPanel from "./security/PolicyVersionPanel";
-import InlineAuditPanel from "./security/InlineAuditPanel";
 
 // ── 类型定义 ──
 
@@ -70,9 +62,6 @@ interface Props {
 }
 
 export default function UnifiedPermissionTab({ detail, onRefresh }: Props) {
-  const { user } = useAuth();
-  const isAdmin = user?.role === "super_admin" || user?.role === "dept_admin";
-
   const [selection, setSelection] = useState<Selection | null>(null);
   const [showBindingCreator, setShowBindingCreator] = useState(false);
   const [creatingRoleGroupForSkill, setCreatingRoleGroupForSkill] = useState<number | null>(null);
@@ -82,7 +71,6 @@ export default function UnifiedPermissionTab({ detail, onRefresh }: Props) {
   // 构建 Skill 树
   const { skillNodes, orphanRoleGroups } = useMemo(() => {
     const nodes: SkillNode[] = [];
-    const boundSkillIds = new Set<number>();
     const assignedRoleGroupIds = new Set<number>();
 
     // 按 skill 聚合 bindings
@@ -98,23 +86,14 @@ export default function UnifiedPermissionTab({ detail, onRefresh }: Props) {
           roleGroups: [],
         });
       }
-      boundSkillIds.add(b.skill_id);
     }
 
     // 分配角色组到 Skill（通过 skill_ids 字段）
     for (const rg of detail.role_groups) {
-      let assigned = false;
       for (const sid of (rg.skill_ids || [])) {
         if (skillMap.has(sid)) {
           skillMap.get(sid)!.roleGroups.push(rg);
           assignedRoleGroupIds.add(rg.id);
-          assigned = true;
-        }
-      }
-      // skill_role 类型但无具体 skill_ids 的，尝试匹配
-      if (!assigned && rg.group_type === "skill_role") {
-        for (const [, node] of skillMap) {
-          // 暂不强制匹配
         }
       }
     }
@@ -325,7 +304,6 @@ export default function UnifiedPermissionTab({ detail, onRefresh }: Props) {
         ) : selection.type === "skill" && selectedSkillNode ? (
           <SkillDetailPanel
             node={selectedSkillNode}
-            detail={detail}
             onDeleteBinding={handleDeleteBinding}
           />
         ) : selection.type === "role_group" && selectedRoleGroup ? (
@@ -333,7 +311,6 @@ export default function UnifiedPermissionTab({ detail, onRefresh }: Props) {
             roleGroup={selectedRoleGroup}
             policy={selectedPolicy || null}
             detail={detail}
-            isAdmin={isAdmin}
             onRefresh={onRefresh}
           />
         ) : (
@@ -352,11 +329,9 @@ export default function UnifiedPermissionTab({ detail, onRefresh }: Props) {
 
 function SkillDetailPanel({
   node,
-  detail,
   onDeleteBinding,
 }: {
   node: SkillNode;
-  detail: TableDetail;
   onDeleteBinding: (bindingId: number) => void;
 }) {
   return (
@@ -475,13 +450,11 @@ function RoleGroupDetailPanel({
   roleGroup,
   policy,
   detail,
-  isAdmin,
   onRefresh,
 }: {
   roleGroup: TableRoleGroup;
   policy: TablePermissionPolicy | null;
   detail: TableDetail;
-  isAdmin: boolean;
   onRefresh: () => void;
 }) {
   const typeInfo = GROUP_TYPE_LABELS[roleGroup.group_type] || GROUP_TYPE_LABELS.human_role;

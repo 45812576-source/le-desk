@@ -4,7 +4,7 @@ import React, { useState } from "react";
 import { PixelButton } from "@/components/pixel/PixelButton";
 import { useAuth } from "@/lib/auth";
 import { useV2DataAssets } from "../shared/feature-flags";
-import type { TableDetail, TableDetailV2, TablePermissionPolicy, TableRoleGroup } from "../shared/types";
+import type { TableDetail, TableDetailV2 } from "../shared/types";
 import RoleGroupPanel from "./permissions/RoleGroupPanel";
 import PermissionMatrix from "./permissions/PermissionMatrix";
 import PermissionPreview from "./permissions/PermissionPreview";

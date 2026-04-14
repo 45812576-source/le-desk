@@ -4,7 +4,7 @@ import React, { useState, useEffect, useCallback } from "react";
 import { PixelButton } from "@/components/pixel/PixelButton";
 import { apiFetch } from "@/lib/api";
 import { useV2DataAssets } from "../shared/feature-flags";
-import type { TableDetail, TableCapabilities } from "../shared/types";
+import type { TableDetail } from "../shared/types";
 import { getTableCapabilities } from "../shared/types";
 import HeaderBar from "./HeaderBar";
 import GovernancePanel from "./GovernancePanel";

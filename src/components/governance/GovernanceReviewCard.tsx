@@ -100,7 +100,6 @@ export default function GovernanceReviewCard({
   const suggestedLibrary = libraries.find((item) => item.id === pendingSuggestion?.resource_library_id) || null;
 
   const roots = ["company_common", "professional_capability", "outsource_intel", "business_line_execution"];
-  const objectCandidates = useMemo(() => [] as GovernanceObjectLite[], []);
 
   const [expanded, setExpanded] = useState(false);
 
@@ -326,7 +325,7 @@ function ObjectBindingPanel({
   const [loading, setLoading] = React.useState(false);
   const [creating, setCreating] = React.useState(false);
 
-  async function load(query = "") {
+  const load = React.useCallback(async (query = "") => {
     setLoading(true);
     try {
       const data = await apiFetch<GovernanceObjectLite[]>(
@@ -336,9 +335,9 @@ function ObjectBindingPanel({
     } finally {
       setLoading(false);
     }
-  }
+  }, [currentObjectTypeCode]);
 
-  React.useEffect(() => { void load(); }, [currentObjectTypeCode]);
+  React.useEffect(() => { void load(); }, [load]);
   React.useEffect(() => {
     if (!currentObjectId) {
       setDetail(null);

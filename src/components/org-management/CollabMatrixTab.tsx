@@ -51,7 +51,12 @@ export default function CollabMatrixTab() {
       .finally(() => setLoading(false));
   }, []);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      load();
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [load]);
 
   // 查找两个部门之间的协作链接
   function findLink(aId: number, bId: number): DeptCollabLink | undefined {

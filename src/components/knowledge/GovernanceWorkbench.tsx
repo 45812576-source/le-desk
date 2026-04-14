@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 
 import { apiFetch } from "@/lib/api";
 import type { User } from "@/lib/types";
@@ -29,7 +29,7 @@ export default function GovernanceWorkbench({ currentUser, selectedKnowledgeId, 
   const [collapsed, setCollapsed] = useState(true);
   const isAdmin = currentUser?.role === "super_admin" || currentUser?.role === "dept_admin";
 
-  async function load() {
+  const load = useCallback(async () => {
     if (!isAdmin) return;
     setLoading(true);
     try {
@@ -44,7 +44,7 @@ export default function GovernanceWorkbench({ currentUser, selectedKnowledgeId, 
     } finally {
       setLoading(false);
     }
-  }
+  }, [isAdmin]);
 
   async function handleGapAction(gap: GovernanceObjectGap, action: GovernanceObjectGap["recommended_actions"][number]) {
     setRepairingGapId(`${gap.object_id}:${action.action}`);
@@ -61,7 +61,7 @@ export default function GovernanceWorkbench({ currentUser, selectedKnowledgeId, 
     }
   }
 
-  useEffect(() => { void load(); }, [isAdmin]);
+  useEffect(() => { void load(); }, [load]);
 
   if (!isAdmin) return null;
 

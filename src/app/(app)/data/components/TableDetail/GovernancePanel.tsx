@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 
 import GovernanceReviewCard from "@/components/governance/GovernanceReviewCard";
 import { apiFetch } from "@/lib/api";
@@ -22,7 +22,7 @@ export default function GovernancePanel({ detail, onRefresh }: Props) {
   const [loading, setLoading] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
 
-  async function load() {
+  const load = useCallback(async () => {
     setLoading(true);
     try {
       const [bp, subject] = await Promise.all([
@@ -36,9 +36,9 @@ export default function GovernancePanel({ detail, onRefresh }: Props) {
     } finally {
       setLoading(false);
     }
-  }
+  }, [detail.id]);
 
-  useEffect(() => { void load(); }, [detail.id]);
+  useEffect(() => { void load(); }, [load]);
 
   return (
     <div className="p-4 border-b border-gray-200 bg-[#FAFCFE]">

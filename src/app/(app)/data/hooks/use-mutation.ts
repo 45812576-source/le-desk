@@ -43,7 +43,7 @@ export function useDataAssetMutation<TData, TResult = unknown>(
     } finally {
       setIsLoading(false);
     }
-  }, [config]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [config]);
 
   const reset = useCallback(() => {
     setError("");

@@ -141,10 +141,6 @@ function DeptReviewCard({
 
   const objective = objectives.find((x) => x.id === item.objective_id);
   const library = libraries.find((x) => x.id === item.resource_library_id);
-  const reinforcementMeta = item.suggested_payload?.reinforcement_meta as
-    | { strategy_group?: string; success_rate?: number | null; samples?: number }
-    | undefined;
-
   return (
     <div className="border border-border rounded bg-card px-4 py-3 space-y-2">
       <div className="flex items-center gap-2 text-[10px]">

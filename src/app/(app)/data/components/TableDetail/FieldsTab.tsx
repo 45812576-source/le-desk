@@ -1,7 +1,6 @@
 "use client";
 
 import React, { useState } from "react";
-import { PixelBadge } from "@/components/pixel/PixelBadge";
 import { PixelButton } from "@/components/pixel/PixelButton";
 import { apiFetch } from "@/lib/api";
 import { useV2DataAssets } from "../shared/feature-flags";
@@ -15,7 +14,6 @@ import {
   LIFECYCLE_STYLES,
   type SensitivityLevel,
   type TableFieldDetailV2,
-  type TableDetailV2,
 } from "../shared/types";
 import FieldImpactPanel from "./fields/FieldImpactPanel";
 

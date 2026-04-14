@@ -92,7 +92,7 @@ export default function UnfiledWorkbench({ folders, onClassified }: Props) {
         setSuggestions(map);
       })
       .catch(() => {});
-  }, [tables.length]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [tables.length]);
 
   // V2: 计算缺失项标签
   function getMissingTags(t: UnfiledTable): MissingTag[] {

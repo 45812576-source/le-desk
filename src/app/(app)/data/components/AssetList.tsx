@@ -1,7 +1,6 @@
 "use client";
 
 import React, { useMemo, useState } from "react";
-import { PixelBadge } from "@/components/pixel/PixelBadge";
 import type { DataAssetTable, DataAssetTableV2, RiskLevel } from "./shared/types";
 import { RISK_LEVEL_COLORS } from "./shared/types";
 import { useV2DataAssets } from "./shared/feature-flags";

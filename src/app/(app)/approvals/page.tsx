@@ -5,7 +5,7 @@ import { useCallback, useEffect, useState } from "react";
 import { apiFetch } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import type { ApprovalRequest } from "@/lib/types";
-import { Check, X, Clock, FileText, Send, Inbox, ChevronDown, ChevronRight, Play, Shield, AlertTriangle, Package, Users, FlaskConical, Database, Tag, Wrench, MessageSquare, ClipboardCheck, Info } from "lucide-react";
+import { Check, X, Clock, FileText, Send, Inbox, ChevronDown, ChevronRight, Play, Shield, AlertTriangle, Package, Database, Tag, Wrench, MessageSquare, ClipboardCheck, Info } from "lucide-react";
 import { SandboxTestModal } from "@/components/skill/SandboxTestModal";
 import type { ApprovalTemplate, EvidenceItem, ApprovalCondition, SkillEvidenceDetail, ToolEvidenceDetail, WebAppEvidenceDetail, KnowledgeReviewDetail, KnowledgeEditDetail } from "@/lib/approval-templates";
 
@@ -266,7 +266,6 @@ function DecisionPanel({
   requestType,
   evidenceComplete,
   approveBlocked,
-  isHighRisk,
   missingEvidence,
   onAction,
   acting,
@@ -277,7 +276,6 @@ function DecisionPanel({
   requestType: string;
   evidenceComplete: boolean;
   approveBlocked: boolean;
-  isHighRisk: boolean;
   missingEvidence: string[];
   onAction: (requestId: number, action: string, payload: Record<string, unknown>) => void;
   acting: boolean;
@@ -372,13 +370,13 @@ function DecisionPanel({
       {hasRejected && (
         <div className="flex items-center gap-1.5 px-2 py-1.5 rounded-md bg-red-50 border border-red-200 text-red-700 text-[10px] font-medium">
           <AlertTriangle size={12} />
-          清单有 {rejectedCount} 项未通过，只能选择"驳回"
+          清单有 {rejectedCount} 项未通过，只能选择“驳回”
         </div>
       )}
       {!hasRejected && hasNeedInfo && (
         <div className="flex items-center gap-1.5 px-2 py-1.5 rounded-md bg-amber-50 border border-amber-200 text-amber-700 text-[10px] font-medium">
           <AlertTriangle size={12} />
-          清单有 {needInfoCount} 项待补充，只能选择"驳回"或"要求补充"
+          清单有 {needInfoCount} 项待补充，只能选择“驳回”或“要求补充”
         </div>
       )}
 
@@ -407,7 +405,7 @@ function DecisionPanel({
         </div>
         {!canApprove && !approveBlocked && !hasRejected && !hasNeedInfo && !evidenceComplete && (
           <div className="text-[9px] text-red-500 mt-1">
-            证据包不完整，无法选择"通过"或"附条件通过"
+            证据包不完整，无法选择“通过”或“附条件通过”
           </div>
         )}
       </div>
@@ -668,7 +666,6 @@ function ApprovalWorkbench({
             requestType={request.request_type}
             evidenceComplete={request.evidence_complete}
             approveBlocked={request.approve_blocked}
-            isHighRisk={request.is_high_risk}
             missingEvidence={request.missing_evidence || []}
             onAction={(id, action, payload) => {
               // 附带 checklist_result

@@ -187,7 +187,6 @@ export function CollabEditor({
   knowledgeId,
   initialHtml,
   editable = true,
-  userName,
   onSave,
 }: CollabEditorProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -326,7 +325,7 @@ export function CollabEditor({
       }
       ydocRef.current?.destroy();
     };
-  }, [knowledgeId]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [knowledgeId]);
 
   const editor = useEditor({
     immediatelyRender: false,

@@ -26,27 +26,31 @@ export default function BitableResyncButton({ table, onDone }: { table: Business
 
   useEffect(() => {
     if (!jobStatus) return;
-    const label = STAGE_LABELS[jobStatus.stage || ""] || jobStatus.stage || "";
-    setSyncStage(label);
+    const timer = window.setTimeout(() => {
+      const label = STAGE_LABELS[jobStatus.stage || ""] || jobStatus.stage || "";
+      setSyncStage(label);
 
-    if (jobStatus.status === "success") {
-      setSyncing(false);
-      setSyncStage("");
-      const inserted = (jobStatus.stats as Record<string, unknown>)?.inserted ?? "?";
-      const degraded = (jobStatus.stats as Record<string, unknown>)?.degraded;
-      const pageSize = (jobStatus.stats as Record<string, unknown>)?.effective_page_size;
-      const degradedMsg = degraded ? `（降级到 ${pageSize}）` : "";
-      setMsg(`✓ ${inserted} 条${degradedMsg}`);
-      onDone();
-    } else if (jobStatus.status === "partial_success") {
-      setSyncing(false);
-      setSyncStage("");
-      setMsg("⚠ 部分同步成功，数据不完整，请重试");
-    } else if (jobStatus.status === "failed") {
-      setSyncing(false);
-      setSyncStage("");
-      setMsg(`${label || "同步"}失败: ${jobStatus.error || "未知错误"}`);
-    }
+      if (jobStatus.status === "success") {
+        setSyncing(false);
+        setSyncStage("");
+        const inserted = (jobStatus.stats as Record<string, unknown>)?.inserted ?? "?";
+        const degraded = (jobStatus.stats as Record<string, unknown>)?.degraded;
+        const pageSize = (jobStatus.stats as Record<string, unknown>)?.effective_page_size;
+        const degradedMsg = degraded ? `（降级到 ${pageSize}）` : "";
+        setMsg(`✓ ${inserted} 条${degradedMsg}`);
+        onDone();
+      } else if (jobStatus.status === "partial_success") {
+        setSyncing(false);
+        setSyncStage("");
+        setMsg("⚠ 部分同步成功，数据不完整，请重试");
+      } else if (jobStatus.status === "failed") {
+        setSyncing(false);
+        setSyncStage("");
+        setMsg(`${label || "同步"}失败: ${jobStatus.error || "未知错误"}`);
+      }
+    }, 0);
+
+    return () => window.clearTimeout(timer);
   }, [jobStatus, onDone]);
 
   async function handleResync() {

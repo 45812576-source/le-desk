@@ -411,7 +411,7 @@ export function StudioChat({
         setBackendFailed(true);
         setBackendLoaded(true);
       });
-  }, [convId, _storageKey]);
+  }, [convId, _storageKey, onExpandEditor]);
 
   useEffect(() => {
     if (!backendLoaded) return;
