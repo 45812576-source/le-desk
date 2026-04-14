@@ -48,6 +48,8 @@ export interface SessionListResponse {
 export interface SessionResumeResponse {
   ok: boolean;
   resumed_session_id: string | null;
+  route_path?: string | null;
+  port?: number | null;
   runtime_status: string;
   error_code: string | null;
   error_message: string | null;

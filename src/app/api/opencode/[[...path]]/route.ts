@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { NORMALIZE_SESSION_API_PATH_PATTERN } from "@/lib/opencode-session-routing";
 
 const OPENCODE_BASE_PORT = 17171;
 const BACKEND_URL = process.env.BACKEND_URL || "http://localhost:8000";
@@ -151,8 +152,10 @@ export async function GET(
 
   function _normalizeSessionApiPath(path) {
     if (!path || !path.startsWith("/")) return path;
-    // 匹配所有 /session/{id}[/{action}] 子路径，去掉 opencode SPA 可能注入的前缀
-    return path.replace(/^\\/[^/]+(\\/session\\/[^/]+(?:\\/[a-z][a-z0-9_-]*)?(?:[/?#].*)?)$/, "$1");
+    // 匹配所有 /<workspace-prefix>/session/{id}/... 子路径，保留完整尾巴。
+    // 历史会话详情页下，OpenCode 还会继续请求更深层的相对路径（如 /messages/...）。
+    // 如果这里只保留到 session/{id} 或最多一层 action，会把后续 API 打到错误路径上。
+    return path.replace(new RegExp(${JSON.stringify(NORMALIZE_SESSION_API_PATH_PATTERN)}), "$1");
   }
 
 
