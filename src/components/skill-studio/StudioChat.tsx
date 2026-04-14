@@ -15,6 +15,7 @@ import { GovernanceTimeline } from "./GovernanceTimeline";
 import { RouteStatusBar } from "./RouteStatusBar";
 import { AssistSkillsBar } from "./AssistSkillsBar";
 import { applyOps, estimateMessagesTokens, TOKEN_COMPRESS_THRESHOLD } from "./utils";
+import { parseStructuredStudioMessage } from "./message-parser";
 import type {
   ChatMessage,
   StudioDraft,
@@ -38,45 +39,6 @@ import type {
   ArchitectOodaDecision,
   ArchitectReadyForDraft,
 } from "./types";
-
-function extractEmbeddedStudioDraft(text: string): { cleanText: string; draft: StudioDraft | null } {
-  const pattern = /```studio_draft\s*([\s\S]*?)```/g;
-  let match: RegExpExecArray | null;
-  let draft: StudioDraft | null = null;
-
-  while ((match = pattern.exec(text)) !== null) {
-    const raw = match[1]?.trim();
-    if (!raw) continue;
-    try {
-      const parsed = JSON.parse(raw) as Partial<StudioDraft>;
-      if (typeof parsed.system_prompt === "string") {
-        draft = {
-          name: typeof parsed.name === "string" ? parsed.name : undefined,
-          system_prompt: parsed.system_prompt,
-          change_note: typeof parsed.change_note === "string" ? parsed.change_note : undefined,
-        };
-      }
-    } catch {
-      continue;
-    }
-  }
-
-  // 1) 移除 studio_draft blocks（已由上方 pattern 匹配）
-  let cleanText = text.replace(pattern, "");
-  // 2) 移除所有其他已闭合的 studio_*/architect_* fenced blocks
-  cleanText = cleanText.replace(/```(?:studio_\w+|architect_\w+)\s*[\s\S]*?```/g, "");
-  // 3) 移除末尾未闭合的结构化块（流式过程中）
-  cleanText = cleanText.replace(/```(?:studio_\w+|architect_\w+)\s*[\s\S]*$/, "");
-  // 4) 压缩多余空行
-  cleanText = cleanText.replace(/\n{3,}/g, "\n\n").trim();
-  // 5) 空文本占位
-  if (!cleanText) {
-    cleanText = draft
-      ? "草稿已生成，请在右侧草稿卡中查看并决定是否应用。"
-      : "治理建议已生成，请在下方卡片中查看并决定是否采纳。";
-  }
-  return { cleanText, draft };
-}
 
 // ─── StudioChat ───────────────────────────────────────────────────────────────
 
@@ -230,8 +192,10 @@ export function StudioChat({
   // Store-driven governance
   const storeGovernanceCards = useStudioStore((s) => s.governanceCards);
   const addGovernanceCard = useStudioStore((s) => s.addGovernanceCard);
+  const syncGovernanceCards = useStudioStore((s) => s.syncGovernanceCards);
   const updateCardStatus = useStudioStore((s) => s.updateCardStatus);
   const addStagedEdit = useStudioStore((s) => s.addStagedEdit);
+  const syncStagedEdits = useStudioStore((s) => s.syncStagedEdits);
   const storeStagedEdits = useStudioStore((s) => s.stagedEdits);
   const adoptStagedEdit = useStudioStore((s) => s.adoptStagedEdit);
   const rejectStagedEdit = useStudioStore((s) => s.rejectStagedEdit);
@@ -241,6 +205,7 @@ export function StudioChat({
   const setEditorVisibility = useStudioStore((s) => s.setEditorVisibility);
   const setEditorManuallyCollapsed = useStudioStore((s) => s.setEditorManuallyCollapsed);
   const requestPreflightRefresh = useStudioStore((s) => s.requestPreflightRefresh);
+  const studioChatSource = skillId ? `studio-chat:${skillId}:${convId}` : `studio-chat:${convId}`;
 
   // ── Staged edit adopt/reject handlers ──
 
@@ -383,8 +348,13 @@ export function StudioChat({
         setMessages([]);
         setStreaming(false);
         setStreamStage(null);
+        setSessionState(null);
+        setRouteInfo(null);
+        setAuditResult(null);
+        setPendingGovernanceActions([]);
         setPendingDraft(null);
         setPendingSummary(null);
+        setPendingToolSuggestion(null);
         setPendingFileSplit(null);
         setArchitectPhase(null);
         setArchitectQuestions([]);
@@ -396,12 +366,14 @@ export function StudioChat({
         setConfirmedPhases([]);
         setAnsweredQuestionIdx(-1);
         setPhaseProgress([]);
+        syncGovernanceCards(studioChatSource, []);
+        syncStagedEdits(studioChatSource, []);
         try { localStorage.removeItem(_storageKey); } catch { /* ignore */ }
         apiFetch(`/conversations/${convId}/messages`, { method: "DELETE" }).catch(() => {});
       };
     }
     return () => { if (clearRef) clearRef.current = null; };
-  }, [clearRef, _storageKey, convId]);
+  }, [clearRef, _storageKey, convId, studioChatSource, syncGovernanceCards, syncStagedEdits]);
 
   useEffect(() => {
     if (setInputRef) {
@@ -417,9 +389,26 @@ export function StudioChat({
   useEffect(() => {
     setBackendLoaded(false);
     setBackendFailed(false);
+    setSessionState(null);
+    setRouteInfo(null);
+    setAuditResult(null);
+    setPendingGovernanceActions([]);
     setPendingDraft(null);
     setPendingSummary(null);
+    setPendingToolSuggestion(null);
     setPendingFileSplit(null);
+    setArchitectPhase(null);
+    setArchitectQuestions([]);
+    setArchitectStructures([]);
+    setArchitectPriorities(null);
+    setOodaDecisions([]);
+    setArchitectReady(null);
+    setPendingPhaseSummary(null);
+    setConfirmedPhases([]);
+    setAnsweredQuestionIdx(-1);
+    setPhaseProgress([]);
+    syncGovernanceCards(studioChatSource, []);
+    syncStagedEdits(studioChatSource, []);
 
     try {
       const raw = localStorage.getItem(_storageKey);
@@ -431,14 +420,53 @@ export function StudioChat({
 
     apiFetch<{ id: number; role: string; content: string; metadata?: Record<string, unknown> }[]>(url)
       .then((dbMsgs) => {
+        let latestSummary: StudioSummary | null = null;
         let latestDraft: StudioDraft | null = null;
+        let latestToolSuggestion: StudioToolSuggestion | null = null;
+        let latestFileSplit: StudioFileSplit | null = null;
+        let latestAuditResult: AuditResult | null = null;
+        let latestPendingPhaseSummary: ArchitectPhaseSummary | null = null;
+        let latestArchitectReady: ArchitectReadyForDraft | null = null;
+        let latestArchitectQuestion: ArchitectQuestion | null = null;
+        const governanceActions: GovernanceActionCard[] = [];
+        const nextPhaseProgress: PhaseProgress[] = [];
+        const nextArchitectQuestions: ArchitectQuestion[] = [];
+        const nextArchitectStructures: ArchitectStructure[] = [];
+        const nextArchitectPriorities: ArchitectPriorityMatrix[] = [];
+        const nextOodaDecisions: ArchitectOodaDecision[] = [];
+
         const mapped: ChatMessage[] = dbMsgs.map((m) => {
           if (m.role === "assistant") {
-            const { cleanText, draft } = extractEmbeddedStudioDraft(m.content);
-            if (draft) latestDraft = draft;
+            const parsed = parseStructuredStudioMessage(m.content);
+            if (parsed.summary) latestSummary = parsed.summary;
+            if (parsed.draft) latestDraft = parsed.draft;
+            if (parsed.toolSuggestion) latestToolSuggestion = parsed.toolSuggestion;
+            if (parsed.fileSplit) latestFileSplit = parsed.fileSplit;
+            if (parsed.auditResult) latestAuditResult = parsed.auditResult;
+            if (parsed.pendingPhaseSummary) latestPendingPhaseSummary = parsed.pendingPhaseSummary;
+            if (parsed.architectReady) latestArchitectReady = parsed.architectReady;
+            if (parsed.architectQuestions.length > 0) {
+              latestArchitectQuestion = parsed.architectQuestions[parsed.architectQuestions.length - 1];
+              nextArchitectQuestions.push(...parsed.architectQuestions);
+            }
+            if (parsed.pendingGovernanceActions.length > 0) {
+              governanceActions.push(...parsed.pendingGovernanceActions);
+            }
+            if (parsed.phaseProgress.length > 0) {
+              nextPhaseProgress.push(...parsed.phaseProgress);
+            }
+            if (parsed.architectStructures.length > 0) {
+              nextArchitectStructures.push(...parsed.architectStructures);
+            }
+            if (parsed.architectPriorities.length > 0) {
+              nextArchitectPriorities.push(...parsed.architectPriorities);
+            }
+            if (parsed.oodaDecisions.length > 0) {
+              nextOodaDecisions.push(...parsed.oodaDecisions);
+            }
             return {
               role: m.role as "user" | "assistant",
-              text: cleanText,
+              text: parsed.cleanText,
               loading: false,
             };
           }
@@ -449,10 +477,41 @@ export function StudioChat({
           };
         });
         setMessages(mapped);
+        setPendingSummary(latestSummary);
         if (latestDraft) {
           setPendingDraft(latestDraft);
           setDrawerOpen(true);
           onExpandEditor?.();
+        }
+        setPendingToolSuggestion(latestToolSuggestion);
+        setPendingFileSplit(latestFileSplit);
+        setAuditResult(latestAuditResult);
+        setPendingGovernanceActions(governanceActions);
+        setPhaseProgress(nextPhaseProgress);
+        setArchitectQuestions(nextArchitectQuestions);
+        setArchitectStructures(nextArchitectStructures);
+        setArchitectPriorities(nextArchitectPriorities[nextArchitectPriorities.length - 1] || null);
+        setOodaDecisions(nextOodaDecisions);
+        setPendingPhaseSummary(latestPendingPhaseSummary);
+        setArchitectReady(latestArchitectReady);
+        if (latestArchitectReady) {
+          setArchitectPhase({
+            phase: "ready_for_draft",
+            mode_source: "create_new_skill",
+            ooda_round: nextOodaDecisions[nextOodaDecisions.length - 1]?.ooda_round || 0,
+          });
+        } else if (latestPendingPhaseSummary) {
+          setArchitectPhase({
+            phase: latestPendingPhaseSummary.phase,
+            mode_source: "create_new_skill",
+            ooda_round: nextOodaDecisions[nextOodaDecisions.length - 1]?.ooda_round || 0,
+          });
+        } else if (latestArchitectQuestion) {
+          setArchitectPhase({
+            phase: latestArchitectQuestion.phase,
+            mode_source: "create_new_skill",
+            ooda_round: nextOodaDecisions[nextOodaDecisions.length - 1]?.ooda_round || 0,
+          });
         }
         try { localStorage.setItem(_storageKey, JSON.stringify(mapped)); } catch { /* ignore */ }
         setBackendLoaded(true);
@@ -461,7 +520,7 @@ export function StudioChat({
         setBackendFailed(true);
         setBackendLoaded(true);
       });
-  }, [convId, _storageKey, onExpandEditor]);
+  }, [convId, _storageKey, onExpandEditor, studioChatSource, syncGovernanceCards, syncStagedEdits]);
 
   useEffect(() => {
     if (!backendLoaded) return;
@@ -682,14 +741,14 @@ export function StudioChat({
     abortRef.current = ctrl;
     const token = getToken();
     let accText = "";
-    const syncEmbeddedDraft = (rawText: string) => {
-      const { cleanText, draft } = extractEmbeddedStudioDraft(rawText);
-      if (draft) {
-        setPendingDraft(draft);
+    const syncStructuredMessage = (rawText: string) => {
+      const parsed = parseStructuredStudioMessage(rawText);
+      if (parsed.draft) {
+        setPendingDraft(parsed.draft);
         setDrawerOpen(true);
         onExpandEditor?.();
       }
-      return cleanText;
+      return parsed.cleanText;
     };
 
     setStreamStage("connecting");
@@ -798,10 +857,11 @@ export function StudioChat({
                 // 2) 简化格式 {title, description, severity, category, suggested_action}
                 const raw = data as Record<string, unknown>;
                 if (raw.id && raw.type && raw.actions) {
-                  addGovernanceCard(data as GovernanceCardData);
+                  addGovernanceCard({ ...(data as GovernanceCardData), source: studioChatSource });
                 } else {
                   const card: GovernanceCardData = {
                     id: `gov-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+                    source: studioChatSource,
                     type: raw.suggested_action === "staged_edit" ? "staged_edit" : "followup_prompt",
                     title: (raw.title as string) || "治理建议",
                     content: { description: raw.description, severity: raw.severity, category: raw.category },
@@ -827,6 +887,7 @@ export function StudioChat({
                     diff: (raw.diff as DiffOp[]) || [],
                     changeNote: (raw.changeNote as string) || (raw.change_note as string),
                     status: (raw.status as StagedEdit["status"]) || "pending",
+                    source: studioChatSource,
                   };
                 } else {
                   // 后端 snake_case 格式
@@ -841,6 +902,7 @@ export function StudioChat({
                     } as DiffOp)),
                     changeNote: raw.summary as string,
                     status: (raw.status as StagedEdit["status"]) || "pending",
+                    source: studioChatSource,
                   };
                 }
                 addStagedEdit(se);
@@ -983,7 +1045,7 @@ export function StudioChat({
               } else if (curEvt === "replace" && data.text !== undefined) {
                 accText = data.text;
                 setMessages((prev) => prev.map((m, i) =>
-                  i === msgIdx ? { ...m, text: syncEmbeddedDraft(accText) } : m
+                  i === msgIdx ? { ...m, text: syncStructuredMessage(accText) } : m
                 ));
               } else if (curEvt === "error") {
                 const errMsg = data.message || "服务端错误";
@@ -993,24 +1055,24 @@ export function StudioChat({
                 setStreamStage(null);
               } else if (curEvt === "done") {
                 setMessages((prev) => prev.map((m, i) =>
-                  i === msgIdx ? { ...m, text: syncEmbeddedDraft(accText), loading: false } : m
+                  i === msgIdx ? { ...m, text: syncStructuredMessage(accText), loading: false } : m
                 ));
                 setStreamStage(null);
               } else if ((curEvt === "delta" || curEvt === "content_block_delta") && data.text) {
                 accText += data.text;
                 setStreamStage("generating");
-                setMessages((prev) => prev.map((m, i) => i === msgIdx ? { ...m, text: syncEmbeddedDraft(accText) } : m));
+                setMessages((prev) => prev.map((m, i) => i === msgIdx ? { ...m, text: syncStructuredMessage(accText) } : m));
               }
             } catch { /* skip */ }
             curEvt = "delta";
           }
         }
       }
-      setMessages((prev) => prev.map((m, i) => i === msgIdx ? { ...m, text: syncEmbeddedDraft(accText), loading: false } : m));
+      setMessages((prev) => prev.map((m, i) => i === msgIdx ? { ...m, text: syncStructuredMessage(accText), loading: false } : m));
     } catch (err) {
       if ((err as Error).name !== "AbortError") {
         if (accText) {
-          const cleanText = syncEmbeddedDraft(accText);
+          const cleanText = syncStructuredMessage(accText);
           setMessages((prev) => prev.map((m, i) =>
             i === msgIdx ? { ...m, text: cleanText + "\n\n[连接中断，以上为已接收内容]", loading: false } : m
           ));
@@ -1020,7 +1082,7 @@ export function StudioChat({
           ));
         }
       } else if (accText) {
-        const cleanText = syncEmbeddedDraft(accText);
+        const cleanText = syncStructuredMessage(accText);
         setMessages((prev) => prev.map((m, i) =>
           i === msgIdx ? { ...m, text: cleanText, loading: false } : m
         ));
@@ -1100,8 +1162,14 @@ export function StudioChat({
                 abortRef.current?.abort();
                 setMessages([]);
                 setStreaming(false);
+                setSessionState(null);
                 setPendingDraft(null);
+                setPendingSummary(null);
+                setPendingToolSuggestion(null);
                 setPendingFileSplit(null);
+                setRouteInfo(null);
+                setAuditResult(null);
+                setPendingGovernanceActions([]);
                 setArchitectPhase(null);
                 setArchitectQuestions([]);
                 setArchitectStructures([]);
@@ -1112,6 +1180,8 @@ export function StudioChat({
                 setConfirmedPhases([]);
                 setAnsweredQuestionIdx(-1);
                 setPhaseProgress([]);
+                syncGovernanceCards(studioChatSource, []);
+                syncStagedEdits(studioChatSource, []);
               }}
               className="text-[8px] font-bold uppercase text-gray-400 hover:text-red-400 transition-colors"
             >
