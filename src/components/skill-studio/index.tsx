@@ -60,6 +60,7 @@ export function SkillStudio({
   const [retryingMemoSync, setRetryingMemoSync] = useState(false);
   const [activeSandboxReport, setActiveSandboxReport] = useState<SandboxReport | null>(null);
   const [sandboxRemediationSummary, setSandboxRemediationSummary] = useState<{ cards: number; stagedEdits: number } | null>(null);
+  const [sandboxRemediationLoading, setSandboxRemediationLoading] = useState(false);
 
   const [prompt, setPrompt] = useState("");
   const [savedPrompt, setSavedPrompt] = useState("");  // last persisted version for dirty tracking
@@ -183,6 +184,7 @@ export function SkillStudio({
         }
         if (Number.isFinite(reportIdForRemediation) && reportIdForRemediation > 0) {
           try {
+            if (!cancelled) setSandboxRemediationLoading(true);
             const remediation = await apiFetch<{ cards: GovernanceCardData[]; staged_edits: Record<string, unknown>[] }>(
               `/sandbox/interactive/by-report/${reportIdForRemediation}/remediation-actions`,
               { method: "POST" }
@@ -208,6 +210,8 @@ export function SkillStudio({
             }
           } catch {
             // best effort: remediation actions might not be available for older backend
+          } finally {
+            if (!cancelled) setSandboxRemediationLoading(false);
           }
         }
 
@@ -516,6 +520,9 @@ export function SkillStudio({
           )}
           {!memoSyncError && memo?.lifecycle_stage === "fixing" && (
             <span className="text-[#00CC99] font-bold ml-2">已进入整改模式</span>
+          )}
+          {sandboxRemediationLoading && (
+            <span className="text-[#F59E0B] font-bold ml-2">正在扫描 Skill 并生成治理卡片...</span>
           )}
           {sandboxRemediationSummary && (
             <span className="text-[#00A3C4] font-bold ml-2">
