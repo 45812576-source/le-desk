@@ -2,9 +2,15 @@
 
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { apiFetch } from "@/lib/api";
+import type { SkillDetail } from "@/lib/types";
 import { PixelButton } from "@/components/pixel/PixelButton";
 import { PixelBadge } from "@/components/pixel/PixelBadge";
 import { useTheme } from "@/lib/theme";
+import {
+  buildSkillStudioUrl,
+  findCreatedSkill,
+  resolveDevStudioSkillSaveInput,
+} from "@/lib/dev-studio-skill-save";
 import {
   mergeVisibleOutputFiles,
   type DevStudioVisibleFile,
@@ -321,7 +327,7 @@ function SaveModal({
   onCancel,
 }: {
   mode: SaveMode;
-  onSave: (data: { name: string; toolId?: number; boundSkillId?: number }) => void;
+  onSave: (data: { name: string; skillId?: number; toolId?: number; boundSkillId?: number }) => void;
   onCancel: () => void;
 }) {
   const [name, setName] = useState("");
@@ -459,16 +465,32 @@ function SaveModal({
         });
         onSave({ name: name.trim(), toolId: result.id, boundSkillId: bindSkillId! });
       } else {
+        const previousSkills = await apiFetch<SkillDetail[]>("/skills?mine=true").catch(() => []);
+        const previousSkillIds = new Set(previousSkills.map((skill) => skill.id));
+        const payload = await resolveDevStudioSkillSaveInput({
+          name,
+          description,
+          manualPrompt: systemPrompt,
+          selectedFiles,
+          readWorkspaceFile: async (path) => {
+            const data = await apiFetch<{ content: string }>(`/dev-studio/read-file?path=${encodeURIComponent(path)}`);
+            return data.content ?? "";
+          },
+        });
+
         await apiFetch("/dev-studio/save-skill", {
           method: "POST",
           body: JSON.stringify({
-            name: name.trim(),
-            description: description.trim(),
-            system_prompt: systemPrompt.trim(),
-            source_files: selectedFiles,
+            name: payload.name,
+            description: payload.description,
+            system_prompt: payload.system_prompt,
+            source_files: payload.source_files,
           }),
         });
-        onSave({ name: name.trim() });
+
+        const refreshedSkills = await apiFetch<SkillDetail[]>("/skills?mine=true").catch(() => []);
+        const createdSkill = findCreatedSkill(previousSkillIds, refreshedSkills, payload.name);
+        onSave({ name: payload.name, skillId: createdSkill?.id });
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "保存失败");
@@ -1973,8 +1995,17 @@ export function DevStudio({ workspaceId, fromSkillId, initialViewId }: { convId:
 
   const [boundToSkill, setBoundToSkill] = useState(false);
 
-  async function handleSaveSuccess(data: { name: string; toolId?: number; boundSkillId?: number }) {
+  async function handleSaveSuccess(data: { name: string; skillId?: number; toolId?: number; boundSkillId?: number }) {
     setSaveMode(null);
+    if (data.skillId) {
+      window.location.href = buildSkillStudioUrl(data.skillId);
+      return;
+    }
+    if (!data.toolId) {
+      window.location.href = "/skill-studio";
+      return;
+    }
+
     setSaveSuccess(`已保存：${data.name}`);
 
     // Tool 已在后端绑定 Skill，前端仅标记状态
@@ -2322,7 +2353,9 @@ export function DevStudio({ workspaceId, fromSkillId, initialViewId }: { convId:
             <>
               <span className="text-[9px] text-[#6B46C1] font-bold">· 已绑定到源 Skill</span>
               <button
-                onClick={() => window.location.href = "/skill-studio"}
+                onClick={() => {
+                  window.location.href = fromSkillId ? buildSkillStudioUrl(fromSkillId) : "/skill-studio";
+                }}
                 className="text-[8px] font-bold px-2 py-1 bg-[#6B46C1] text-white ml-2"
               >
                 返回 Skill Studio

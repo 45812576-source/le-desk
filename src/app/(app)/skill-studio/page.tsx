@@ -18,7 +18,9 @@ export default function SkillStudioEntryPage() {
           ? `/conversations/studio-entry?type=skill_studio&skill_id=${skillId}`
           : "/conversations/studio-entry?type=skill_studio";
         const entry = await apiFetch<StudioEntryResolution>(qs);
-        router.replace(`/chat/${entry.conversation_id}?ws=skill_studio`);
+        router.replace(
+          `/chat/${entry.conversation_id}?ws=skill_studio${skillId ? `&skill_id=${skillId}` : ""}`,
+        );
       } catch (e) {
         setError(e instanceof Error ? e.message : "启动失败");
       }
