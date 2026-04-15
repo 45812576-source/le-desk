@@ -5,13 +5,14 @@ import { useRouter } from "next/navigation";
 import { PixelBadge } from "@/components/pixel/PixelBadge";
 import { PixelButton } from "@/components/pixel/PixelButton";
 import { apiFetch } from "@/lib/api";
-import type { TableDetail, TableViewDetail, DisclosureLevel, ViewKind } from "../shared/types";
+import type { TableDetail, TableViewDetail, DisclosureLevel, ViewKind, TableCapabilities } from "../shared/types";
 import { DISCLOSURE_LABELS, VIEW_KIND_LABELS } from "../shared/types";
 import { useV2DataAssets } from "../shared/feature-flags";
 
 interface Props {
   detail: TableDetail;
   onRefresh: () => void;
+  capabilities?: TableCapabilities;
 }
 
 interface ViewForm {
@@ -239,7 +240,7 @@ function ViewProfileCard({ view, detail }: { view: TableViewDetail; detail: Tabl
   );
 }
 
-export default function ViewsTab({ detail, onRefresh }: Props) {
+export default function ViewsTab({ detail, onRefresh, capabilities }: Props) {
   const router = useRouter();
   const [creating, setCreating] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
@@ -247,7 +248,13 @@ export default function ViewsTab({ detail, onRefresh }: Props) {
   const [deleting, setDeleting] = useState<number | null>(null);
   const isV2 = useV2DataAssets();
 
+  const canManageViews = capabilities?.can_manage_views ?? false;
+
   async function handleCreate(form: ViewForm) {
+    if (!canManageViews) {
+      alert(detail.publish_status === "published" ? "已发布数据表的视图需由管理员维护" : "只有草稿表创建者可新建视图");
+      return;
+    }
     setSaving(true);
     try {
       await apiFetch(`/data-assets/tables/${detail.id}/views`, {
@@ -271,6 +278,10 @@ export default function ViewsTab({ detail, onRefresh }: Props) {
   }
 
   async function handleEdit(viewId: number, form: ViewForm) {
+    if (!canManageViews) {
+      alert(detail.publish_status === "published" ? "已发布数据表的视图需由管理员维护" : "只有草稿表创建者可编辑视图");
+      return;
+    }
     setSaving(true);
     try {
       await apiFetch(`/data-assets/views/${viewId}`, {
@@ -294,6 +305,10 @@ export default function ViewsTab({ detail, onRefresh }: Props) {
   }
 
   async function handleDelete(viewId: number) {
+    if (!canManageViews) {
+      alert(detail.publish_status === "published" ? "已发布数据表的视图需由管理员维护" : "只有草稿表创建者可删除视图");
+      return;
+    }
     setDeleting(viewId);
     try {
       const impact = await apiFetch<{ binding_count: number; grant_count: number; policy_count: number }>(
@@ -317,12 +332,20 @@ export default function ViewsTab({ detail, onRefresh }: Props) {
     <div>
       <div className="flex items-center justify-between px-4 py-2 border-b-2 border-[#1A202C] bg-[#EBF4F7]">
         <span className="text-[9px] font-bold uppercase tracking-widest text-[#00A3C4]">视图 ({detail.views.length})</span>
-        <PixelButton size="sm" onClick={() => setCreating(true)} disabled={creating}>
+        <PixelButton size="sm" onClick={() => setCreating(true)} disabled={creating || !canManageViews}>
           + 新建视图
         </PixelButton>
       </div>
 
-      {creating && (
+      {!canManageViews && (
+        <div className="px-4 py-2 text-[8px] text-yellow-700 bg-yellow-50 border-b border-yellow-200">
+          {detail.publish_status === "published"
+            ? "已发布数据表的视图调整需由管理员处理。"
+            : "只有该草稿表的创建者可以维护视图。"}
+        </div>
+      )}
+
+      {creating && canManageViews && (
         <div className="px-4 pt-2">
           <ViewFormPanel
             detail={detail}
@@ -409,7 +432,7 @@ export default function ViewsTab({ detail, onRefresh }: Props) {
                       >
                         在 OpenCode 中使用
                       </button>
-                      {!v.is_system && (
+                      {!v.is_system && canManageViews && (
                         <>
                           <button
                             onClick={() => setEditingId(v.id)}

@@ -17,7 +17,7 @@ export default function HeaderBar({ detail }: Props) {
     <div className="px-4 py-2 border-b-2 border-[#1A202C] flex-shrink-0">
       <div className="flex items-center gap-2 mb-1">
         <h2 className="text-sm font-bold truncate flex-1">{detail.display_name}</h2>
-        {(detail as unknown as Record<string, unknown>).publish_status === "published" ? (
+        {detail.publish_status === "published" ? (
           <span className="text-[7px] font-bold px-1.5 py-0.5 bg-green-50 text-green-600 border border-green-200 rounded">已发布</span>
         ) : (
           <span className="text-[7px] font-bold px-1.5 py-0.5 bg-gray-100 text-gray-500 border border-gray-200 rounded">草稿</span>

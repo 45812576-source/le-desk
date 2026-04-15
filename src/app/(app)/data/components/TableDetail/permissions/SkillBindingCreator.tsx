@@ -15,9 +15,10 @@ interface Props {
   views: TableViewDetail[];
   onCreated: () => void;
   onCancel: () => void;
+  disabledReason?: string | null;
 }
 
-export default function SkillBindingCreator({ tableId, views, onCreated, onCancel }: Props) {
+export default function SkillBindingCreator({ tableId, views, onCreated, onCancel, disabledReason }: Props) {
   const [skills, setSkills] = useState<SkillItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedSkillId, setSelectedSkillId] = useState<number | null>(null);
@@ -42,6 +43,10 @@ export default function SkillBindingCreator({ tableId, views, onCreated, onCance
   }, []);
 
   async function handleCreate() {
+    if (disabledReason) {
+      setError(disabledReason);
+      return;
+    }
     if (!selectedSkillId) return;
     setSaving(true);
     setError("");
@@ -76,6 +81,10 @@ export default function SkillBindingCreator({ tableId, views, onCreated, onCance
   return (
     <div className="p-3 border-2 border-[#00D1FF] bg-[#F0FBFF] space-y-2">
       <div className="text-[9px] font-bold uppercase tracking-widest text-[#00A3C4]">绑定新 Skill</div>
+
+      {disabledReason && (
+        <div className="text-[8px] text-yellow-700 bg-yellow-50 px-2 py-1 border border-yellow-200">{disabledReason}</div>
+      )}
 
       <div>
         <label className="text-[8px] text-gray-400 font-bold uppercase tracking-widest block mb-1">选择 Skill</label>

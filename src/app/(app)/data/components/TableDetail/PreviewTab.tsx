@@ -4,7 +4,7 @@ import React, { useState, useEffect, useCallback } from "react";
 import { PixelButton } from "@/components/pixel/PixelButton";
 import { apiFetch } from "@/lib/api";
 import { useV2DataAssets } from "../shared/feature-flags";
-import { fetchRows, createRow, deleteRow as apiDeleteRow, getExportUrl } from "../shared/api";
+import { fetchRows, createRow, deleteRow as apiDeleteRow } from "../shared/api";
 import type { TableDetail, TableDetailV2, TableCapabilities } from "../shared/types";
 import { formatCellValue, READONLY_COLS } from "../shared";
 import EditableCell from "../shared/EditableCell";
@@ -37,6 +37,7 @@ export default function PreviewTab({ detail, capabilities }: Props) {
   const [cols, setCols] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
   const [total, setTotal] = useState(0);
   const [strategy, setStrategy] = useState<SampleStrategy | null>(null);
 
@@ -49,39 +50,67 @@ export default function PreviewTab({ detail, capabilities }: Props) {
   const [newRowData, setNewRowData] = useState<Record<string, string>>({});
   const [addingRow, setAddingRow] = useState(false);
 
+  const fetchSampleData = useCallback(async () => {
+    const data = await apiFetch<SampleResponse>(`/data/${detail.table_name}/sample?max_rows=200`);
+    return {
+      columns: data.columns ?? [],
+      rows: data.rows ?? [],
+      total: data.total ?? 0,
+      sampleStrategy: data.sample_strategy ?? null,
+    };
+  }, [detail.table_name]);
+
   const loadSample = useCallback(async () => {
     setLoading(true);
     setError("");
+    setNotice("");
     try {
-      const data = await apiFetch<SampleResponse>(
-        `/data/${detail.table_name}/sample?max_rows=200`
-      );
-      setCols(data.columns ?? []);
-      setRows(data.rows ?? []);
-      setTotal(data.total ?? 0);
-      setStrategy(data.sample_strategy ?? null);
+      const data = await fetchSampleData();
+      setCols(data.columns);
+      setRows(data.rows);
+      setTotal(data.total);
+      setStrategy(data.sampleStrategy);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "加载失败");
     } finally {
       setLoading(false);
     }
-  }, [detail.table_name]);
+  }, [fetchSampleData]);
 
   const loadPaged = useCallback(async () => {
     setLoading(true);
     setError("");
+    setNotice("");
     try {
       const data = await fetchRows(detail.table_name, page, pageSize);
-      setCols(data.columns ?? []);
-      setRows(data.rows ?? []);
-      setTotal(data.total ?? 0);
+      const nextCols = data.columns ?? [];
+      const nextRows = data.rows ?? [];
+      const nextTotal = data.total ?? 0;
+      if (nextRows.length === 0 && nextTotal === 0 && (detail.record_count ?? 0) > 0) {
+        try {
+          const sample = await fetchSampleData();
+          if (sample.rows.length > 0) {
+            setCols(sample.columns);
+            setRows(sample.rows);
+            setTotal(detail.record_count ?? sample.total);
+            setStrategy(sample.sampleStrategy);
+            setNotice("分页接口未返回数据，已自动降级显示采样结果。");
+            return;
+          }
+        } catch {
+          setNotice("表内存在数据，但分页接口未返回结果；请检查后端数据读取链路。");
+        }
+      }
+      setCols(nextCols);
+      setRows(nextRows);
+      setTotal(nextTotal);
       setStrategy(null);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "加载失败");
     } finally {
       setLoading(false);
     }
-  }, [detail.table_name, page, pageSize]);
+  }, [detail.record_count, detail.table_name, fetchSampleData, page, pageSize]);
 
   useEffect(() => {
     if (mode === "sample") {
@@ -138,7 +167,22 @@ export default function PreviewTab({ detail, capabilities }: Props) {
       const headers: Record<string, string> = {};
       if (token) headers["Authorization"] = `Bearer ${token}`;
       const res = await fetch(`/api/proxy/data/${encodeURIComponent(detail.table_name)}/export?format=${format}`, { headers });
-      if (!res.ok) throw new Error(`导出失败 (${res.status})`);
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        let message = `导出失败 (${res.status})`;
+        if (text) {
+          try {
+            const json = JSON.parse(text) as { detail?: string; message?: string };
+            message = json.detail || json.message || message;
+          } catch {
+            message = text;
+          }
+        }
+        if (res.status === 401) {
+          throw new Error(message || "登录已过期或无导出权限");
+        }
+        throw new Error(message);
+      }
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
@@ -160,12 +204,13 @@ export default function PreviewTab({ detail, capabilities }: Props) {
     return <div className="flex items-center justify-center h-32 text-[10px] font-bold text-red-500">{error}</div>;
   }
 
-  // 无权限且非空表时显示拒绝提示
+  // 分页接口失效/未同步时显示更准确的提示
   if (rows.length === 0 && total === 0 && detail.record_count && detail.record_count > 0) {
     return (
       <div className="flex flex-col items-center justify-center h-32 gap-2">
-        <div className="text-[10px] font-bold text-red-500">您无权查看此表数据</div>
-        <div className="text-[8px] text-gray-400">表中有 {detail.record_count} 条记录，但当前权限不允许查看</div>
+        <div className="text-[10px] font-bold text-yellow-700">数据读取接口未返回结果</div>
+        <div className="text-[8px] text-gray-400">表中登记有 {detail.record_count} 条记录，但当前分页接口没有返回数据</div>
+        <div className="text-[8px] text-gray-400">如果这是刚导入的 CSV/Excel，请检查后端是否已将数据同步到 <code>/data/&#123;table_name&#125;</code> 链路</div>
       </div>
     );
   }
@@ -251,6 +296,12 @@ export default function PreviewTab({ detail, capabilities }: Props) {
           )}
         </div>
       </div>
+
+      {notice && (
+        <div className="px-3 py-1.5 text-[8px] text-yellow-700 bg-yellow-50 border-b border-yellow-200">
+          {notice}
+        </div>
+      )}
 
       {/* 新增行表单 */}
       {showAddRow && (

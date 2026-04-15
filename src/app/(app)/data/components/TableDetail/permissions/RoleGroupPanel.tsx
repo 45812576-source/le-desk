@@ -16,9 +16,11 @@ interface Props {
   tableId: number;
   roleGroups: TableRoleGroup[];
   onRefresh: () => void;
+  canManage?: boolean;
+  published?: boolean;
 }
 
-export default function RoleGroupPanel({ tableId, roleGroups, onRefresh }: Props) {
+export default function RoleGroupPanel({ tableId, roleGroups, onRefresh, canManage = true, published = false }: Props) {
   const [creating, setCreating] = useState(false);
   const [name, setName] = useState("");
   const [groupType, setGroupType] = useState("human_role");
@@ -27,6 +29,10 @@ export default function RoleGroupPanel({ tableId, roleGroups, onRefresh }: Props
 
   async function handleCreate() {
     if (!name.trim()) return;
+    if (!canManage) {
+      alert(published ? "已发布数据表的角色组需由管理员维护" : "只有草稿表创建者可新建角色组");
+      return;
+    }
     try {
       await apiFetch(`/data-assets/tables/${tableId}/role-groups`, {
         method: "POST",
@@ -42,6 +48,10 @@ export default function RoleGroupPanel({ tableId, roleGroups, onRefresh }: Props
 
   async function handleRename(groupId: number) {
     if (!editName.trim()) return;
+    if (!canManage) {
+      alert(published ? "已发布数据表的角色组需由管理员维护" : "只有草稿表创建者可编辑角色组");
+      return;
+    }
     try {
       await apiFetch(`/data-assets/role-groups/${groupId}`, {
         method: "PATCH",
@@ -55,6 +65,10 @@ export default function RoleGroupPanel({ tableId, roleGroups, onRefresh }: Props
   }
 
   async function handleDelete(groupId: number, groupName: string) {
+    if (!canManage) {
+      alert(published ? "已发布数据表的角色组需由管理员维护" : "只有草稿表创建者可删除角色组");
+      return;
+    }
     if (!confirm(`确认删除角色组「${groupName}」？关联的权限策略将一并删除。`)) return;
     try {
       await apiFetch(`/data-assets/role-groups/${groupId}`, { method: "DELETE" });
@@ -68,10 +82,16 @@ export default function RoleGroupPanel({ tableId, roleGroups, onRefresh }: Props
     <div className="border-2 border-[#1A202C] p-3">
       <div className="flex items-center justify-between mb-3">
         <span className="text-[9px] font-bold uppercase tracking-widest text-[#00A3C4]">角色组</span>
-        <PixelButton size="sm" variant="secondary" onClick={() => setCreating(true)}>+ 新建</PixelButton>
+        <PixelButton size="sm" variant="secondary" onClick={() => setCreating(true)} disabled={!canManage}>+ 新建</PixelButton>
       </div>
 
-      {creating && (
+      {!canManage && (
+        <div className="mb-3 px-2 py-1.5 text-[8px] text-yellow-700 bg-yellow-50 border border-yellow-200">
+          {published ? "已发布数据表的角色组需由管理员维护。" : "只有草稿表创建者可维护角色组。"}
+        </div>
+      )}
+
+      {creating && canManage && (
         <div className="flex items-center gap-2 mb-3 p-2 border border-[#00D1FF] bg-[#F0FBFF]">
           <input
             value={name}
@@ -119,7 +139,7 @@ export default function RoleGroupPanel({ tableId, roleGroups, onRefresh }: Props
                 <PixelBadge color={typeInfo.color}>{typeInfo.label}</PixelBadge>
                 {rg.is_system && <PixelBadge color="gray">系统</PixelBadge>}
                 <span className="text-[8px] text-gray-400">{memberCount} 成员</span>
-                {!rg.is_system && (
+                {!rg.is_system && canManage && (
                   <div className="hidden group-hover:flex items-center gap-1">
                     <button
                       onClick={() => { setEditingId(rg.id); setEditName(rg.name); }}

@@ -4,13 +4,14 @@ import React, { useState } from "react";
 import { PixelBadge } from "@/components/pixel/PixelBadge";
 import { apiFetch } from "@/lib/api";
 import { useV2DataAssets } from "../shared/feature-flags";
-import type { TableDetail, SkillDataGrant } from "../shared/types";
+import type { TableDetail, SkillDataGrant, TableCapabilities } from "../shared/types";
 import { DISCLOSURE_LABELS, type DisclosureLevel } from "../shared/types";
 import OutputReviewPanel from "./security/OutputReviewPanel";
 
 interface Props {
   detail: TableDetail;
   onRefresh: () => void;
+  capabilities?: TableCapabilities;
 }
 
 function GrantDetailPanel({ grant }: { grant: SkillDataGrant }) {
@@ -103,7 +104,7 @@ function BindingRelationGraph({ detail }: { detail: TableDetail }) {
   );
 }
 
-export default function SkillBindingsTab({ detail, onRefresh }: Props) {
+export default function SkillBindingsTab({ detail, onRefresh, capabilities }: Props) {
   const isV2 = useV2DataAssets();
   const [expandedGrantId, setExpandedGrantId] = useState<number | null>(null);
 
@@ -117,7 +118,13 @@ export default function SkillBindingsTab({ detail, onRefresh }: Props) {
     return (
       <div className="flex flex-col items-center justify-center h-32 gap-2">
         <div className="text-[10px] text-gray-400 uppercase tracking-widest">暂无 Skill 绑定</div>
-        <div className="text-[8px] text-gray-300">在 Skill Studio 中绑定数据表后，将在此显示</div>
+        <div className="text-[8px] text-gray-300">
+          {capabilities?.can_manage_bindings
+            ? "在 Skill Studio 中绑定数据表后，将在此显示"
+            : detail.publish_status === "published"
+              ? "已发布表仅管理员可维护 Skill 绑定"
+              : "草稿表需先申请发布后才能绑定 Skill"}
+        </div>
       </div>
     );
   }

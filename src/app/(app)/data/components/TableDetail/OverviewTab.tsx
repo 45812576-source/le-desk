@@ -47,7 +47,7 @@ export default function OverviewTab({ detail, onRefresh, onDeleteTable, capabili
   const [deleting, setDeleting] = useState(false);
   const [publishing, setPublishing] = useState(false);
 
-  const isPublished = (detail as unknown as Record<string, unknown>).publish_status === "published";
+  const isPublished = detail.publish_status === "published";
 
   async function handlePublish() {
     setPublishing(true);
@@ -210,14 +210,18 @@ export default function OverviewTab({ detail, onRefresh, onDeleteTable, capabili
             <span className={`text-[9px] font-bold px-2 py-0.5 rounded ${isPublished ? "bg-green-50 text-green-600" : "bg-gray-100 text-gray-500"}`}>
               {isPublished ? "已发布" : "草稿"}
             </span>
-            {isPublished ? (
-              <PixelButton size="sm" variant="secondary" onClick={handleUnpublish} disabled={publishing}>
-                {publishing ? "..." : "取消发布"}
-              </PixelButton>
+            {capabilities?.can_manage_publish ? (
+              isPublished ? (
+                <PixelButton size="sm" variant="secondary" onClick={handleUnpublish} disabled={publishing}>
+                  {publishing ? "..." : "取消发布"}
+                </PixelButton>
+              ) : (
+                <PixelButton size="sm" onClick={handlePublish} disabled={publishing}>
+                  {publishing ? "..." : "申请发布"}
+                </PixelButton>
+              )
             ) : (
-              <PixelButton size="sm" onClick={handlePublish} disabled={publishing}>
-                {publishing ? "..." : "申请发布"}
-              </PixelButton>
+              <span className="text-[8px] text-gray-400">仅表管理员可操作发布</span>
             )}
           </div>
         </InfoRow>
@@ -271,7 +275,7 @@ export default function OverviewTab({ detail, onRefresh, onDeleteTable, capabili
       {isV2 && <RiskScorePanel detail={detail as TableDetailV2} />}
 
       {/* 危险操作 */}
-      {onDeleteTable && (
+      {onDeleteTable && capabilities?.can_delete_table && (
         <div className="border-2 border-red-200 p-3">
           <div className="text-[9px] font-bold uppercase tracking-widest text-red-400 mb-2">危险操作</div>
           {!confirmDelete ? (
@@ -289,6 +293,12 @@ export default function OverviewTab({ detail, onRefresh, onDeleteTable, capabili
               </PixelButton>
             </div>
           )}
+        </div>
+      )}
+
+      {onDeleteTable && !capabilities?.can_delete_table && (
+        <div className="border border-yellow-200 bg-yellow-50 p-3 text-[9px] text-yellow-700">
+          如果数据表处于未发布草稿且你是创建者，则可以直接删除；已发布或无所有权的表不能在这里删除。
         </div>
       )}
 

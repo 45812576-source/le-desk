@@ -33,14 +33,36 @@ function UploadFilePanel({ onAdded }: { onAdded: () => void }) {
         headers: token ? { Authorization: `Bearer ${token}` } : {},
         body: formData,
       });
+      const tryParseJson = async () => {
+        const text = await res.text().catch(() => "");
+        if (!text) return null;
+        try {
+          return JSON.parse(text) as { detail?: string; display_name?: string; rows_inserted?: number; columns?: number };
+        } catch {
+          return null;
+        }
+      };
       if (!res.ok) {
         let detail = `上传失败 (${res.status})`;
-        try { const j = await res.json(); detail = j.detail || detail; } catch { /* non-JSON body */ }
+        const j = await tryParseJson();
+        detail = j?.detail || detail;
         setError(detail);
         return;
       }
-      const data = await res.json();
-      setResult(data);
+      const data = await tryParseJson();
+      setResult(
+        data && typeof data.display_name === "string"
+          ? {
+              display_name: data.display_name,
+              rows_inserted: Number(data.rows_inserted || 0),
+              columns: Number(data.columns || 0),
+            }
+          : {
+              display_name: file.name.replace(/\.(csv|xlsx|xls)$/i, ""),
+              rows_inserted: 0,
+              columns: 0,
+            }
+      );
       setFile(null);
       if (fileRef.current) fileRef.current.value = "";
       onAdded();

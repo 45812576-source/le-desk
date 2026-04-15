@@ -4,7 +4,7 @@ import React, { useState } from "react";
 import { PixelButton } from "@/components/pixel/PixelButton";
 import { useAuth } from "@/lib/auth";
 import { useV2DataAssets } from "../shared/feature-flags";
-import type { TableDetail, TableDetailV2 } from "../shared/types";
+import type { TableDetail, TableDetailV2, TableCapabilities } from "../shared/types";
 import RoleGroupPanel from "./permissions/RoleGroupPanel";
 import PermissionMatrix from "./permissions/PermissionMatrix";
 import PermissionPreview from "./permissions/PermissionPreview";
@@ -20,9 +20,10 @@ type PermissionMode = "wizard" | "expert";
 interface Props {
   detail: TableDetail;
   onRefresh: () => void;
+  capabilities?: TableCapabilities;
 }
 
-export default function PermissionsTab({ detail, onRefresh }: Props) {
+export default function PermissionsTab({ detail, onRefresh, capabilities }: Props) {
   const isV2 = useV2DataAssets();
   const { user } = useAuth();
   const isAdmin = user?.role === "super_admin" || user?.role === "dept_admin";
@@ -47,6 +48,8 @@ export default function PermissionsTab({ detail, onRefresh }: Props) {
           tableId={detail.id}
           roleGroups={detail.role_groups || []}
           onRefresh={onRefresh}
+          canManage={capabilities?.can_manage_role_groups ?? false}
+          published={detail.publish_status === "published"}
         />
         <PermissionMatrix
           tableId={detail.id}
@@ -93,6 +96,8 @@ export default function PermissionsTab({ detail, onRefresh }: Props) {
         tableId={detail.id}
         roleGroups={detail.role_groups || []}
         onRefresh={onRefresh}
+        canManage={capabilities?.can_manage_role_groups ?? false}
+        published={detail.publish_status === "published"}
       />
 
       {mode === "wizard" ? (

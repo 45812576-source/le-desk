@@ -13,6 +13,7 @@ import type {
   DisclosureLevel,
   RowAccessMode,
   FieldAccessMode,
+  TableCapabilities,
 } from "../shared/types";
 import { DISCLOSURE_LABELS } from "../shared/types";
 import MemberEditor from "./permissions/MemberEditor";
@@ -59,14 +60,21 @@ const GROUP_TYPE_LABELS: Record<string, { label: string; color: "cyan" | "green"
 interface Props {
   detail: TableDetail;
   onRefresh: () => void;
+  capabilities?: TableCapabilities;
 }
 
-export default function UnifiedPermissionTab({ detail, onRefresh }: Props) {
+export default function UnifiedPermissionTab({ detail, onRefresh, capabilities }: Props) {
   const [selection, setSelection] = useState<Selection | null>(null);
   const [showBindingCreator, setShowBindingCreator] = useState(false);
   const [creatingRoleGroupForSkill, setCreatingRoleGroupForSkill] = useState<number | null>(null);
   const [newRoleGroupName, setNewRoleGroupName] = useState("");
   const [newRoleGroupType, setNewRoleGroupType] = useState("human_role");
+  const bindingDisabledReason = !capabilities?.can_manage_bindings
+    ? (detail.publish_status === "published" ? "已发布数据表仅管理员可维护 Skill 绑定" : "草稿数据表需先申请发布后才能绑定 Skill")
+    : null;
+  const roleGroupDisabledReason = !capabilities?.can_manage_role_groups
+    ? (detail.publish_status === "published" ? "已发布数据表的角色组需由管理员维护" : "只有草稿表创建者可维护角色组")
+    : null;
 
   // 构建 Skill 树
   const { skillNodes, orphanRoleGroups } = useMemo(() => {
@@ -108,6 +116,10 @@ export default function UnifiedPermissionTab({ detail, onRefresh }: Props) {
 
   // ── 创建角色组 ──
   async function handleCreateRoleGroup(skillId?: number) {
+    if (roleGroupDisabledReason) {
+      alert(roleGroupDisabledReason);
+      return;
+    }
     if (!newRoleGroupName.trim()) return;
     try {
       await apiFetch(`/data-assets/tables/${detail.id}/role-groups`, {
@@ -128,6 +140,10 @@ export default function UnifiedPermissionTab({ detail, onRefresh }: Props) {
 
   // ── 删除绑定 ──
   async function handleDeleteBinding(bindingId: number) {
+    if (bindingDisabledReason) {
+      alert(bindingDisabledReason);
+      return;
+    }
     if (!confirm("确认解除此绑定？")) return;
     await apiFetch(`/data-assets/bindings/${bindingId}`, { method: "DELETE" });
     onRefresh();
@@ -151,16 +167,29 @@ export default function UnifiedPermissionTab({ detail, onRefresh }: Props) {
       {/* ── 左栏：Skill 列表 + 角色组树 ── */}
       <div className="w-64 flex-shrink-0 border-r-2 border-[#1A202C] overflow-y-auto">
         <div className="p-2 border-b border-gray-200">
-          <PixelButton size="sm" variant="secondary" onClick={() => setShowBindingCreator(true)} className="w-full">
+          <PixelButton
+            size="sm"
+            variant="secondary"
+            onClick={() => setShowBindingCreator(true)}
+            className="w-full"
+            disabled={!capabilities?.can_manage_bindings}
+          >
             + 绑定 Skill
           </PixelButton>
         </div>
+
+        {bindingDisabledReason && (
+          <div className="px-2 py-1.5 border-b border-yellow-200 bg-yellow-50 text-[8px] text-yellow-700">
+            {bindingDisabledReason}
+          </div>
+        )}
 
         {showBindingCreator && (
           <div className="p-2 border-b border-gray-200">
             <SkillBindingCreator
               tableId={detail.id}
               views={detail.views}
+              disabledReason={bindingDisabledReason}
               onCreated={() => { setShowBindingCreator(false); onRefresh(); }}
               onCancel={() => setShowBindingCreator(false)}
             />
@@ -226,6 +255,7 @@ export default function UnifiedPermissionTab({ detail, onRefresh }: Props) {
             ) : (
               <button
                 onClick={() => { setCreatingRoleGroupForSkill(node.skillId); setNewRoleGroupName(""); }}
+                disabled={!capabilities?.can_manage_role_groups}
                 className="w-full text-left pl-8 pr-3 py-1 text-[8px] text-gray-400 hover:text-[#00A3C4] border-b border-gray-100"
               >
                 └ + 新建角色组
@@ -287,6 +317,7 @@ export default function UnifiedPermissionTab({ detail, onRefresh }: Props) {
         ) : (
           <button
             onClick={() => { setCreatingRoleGroupForSkill(-1); setNewRoleGroupName(""); }}
+            disabled={!capabilities?.can_manage_role_groups}
             className="w-full text-left px-3 py-2 text-[8px] text-gray-400 hover:text-[#00A3C4]"
           >
             + 新建角色组
@@ -305,6 +336,7 @@ export default function UnifiedPermissionTab({ detail, onRefresh }: Props) {
           <SkillDetailPanel
             node={selectedSkillNode}
             onDeleteBinding={handleDeleteBinding}
+            canManageBindings={capabilities?.can_manage_bindings ?? false}
           />
         ) : selection.type === "role_group" && selectedRoleGroup ? (
           <RoleGroupDetailPanel
@@ -312,6 +344,7 @@ export default function UnifiedPermissionTab({ detail, onRefresh }: Props) {
             policy={selectedPolicy || null}
             detail={detail}
             onRefresh={onRefresh}
+            canManageRoleGroups={capabilities?.can_manage_role_groups ?? false}
           />
         ) : (
           <div className="flex items-center justify-center h-full text-[9px] text-gray-400">
@@ -330,9 +363,11 @@ export default function UnifiedPermissionTab({ detail, onRefresh }: Props) {
 function SkillDetailPanel({
   node,
   onDeleteBinding,
+  canManageBindings,
 }: {
   node: SkillNode;
   onDeleteBinding: (bindingId: number) => void;
+  canManageBindings: boolean;
 }) {
   return (
     <div className="p-4 space-y-4">
@@ -340,7 +375,7 @@ function SkillDetailPanel({
       <div className="border-2 border-[#1A202C] p-3">
         <div className="flex items-center justify-between mb-2">
           <span className="text-[9px] font-bold uppercase tracking-widest text-[#00A3C4]">Skill 绑定详情</span>
-          {node.binding.binding_id && (
+          {node.binding.binding_id && canManageBindings && (
             <button
               onClick={() => onDeleteBinding(node.binding.binding_id!)}
               className="text-[8px] text-gray-400 hover:text-red-500 px-1"
@@ -451,11 +486,13 @@ function RoleGroupDetailPanel({
   policy,
   detail,
   onRefresh,
+  canManageRoleGroups,
 }: {
   roleGroup: TableRoleGroup;
   policy: TablePermissionPolicy | null;
   detail: TableDetail;
   onRefresh: () => void;
+  canManageRoleGroups: boolean;
 }) {
   const typeInfo = GROUP_TYPE_LABELS[roleGroup.group_type] || GROUP_TYPE_LABELS.human_role;
 
@@ -476,6 +513,10 @@ function RoleGroupDetailPanel({
   }
 
   async function handleSavePolicy() {
+    if (!canManageRoleGroups) {
+      alert(detail.publish_status === "published" ? "已发布数据表的权限策略需由管理员维护" : "只有草稿表创建者可维护权限策略");
+      return;
+    }
     setPolicySaving(true);
     try {
       await apiFetch(`/data-assets/tables/${detail.id}/permission-policies`, {
@@ -497,6 +538,10 @@ function RoleGroupDetailPanel({
   }
 
   async function handleDeleteRoleGroup() {
+    if (!canManageRoleGroups) {
+      alert(detail.publish_status === "published" ? "已发布数据表的角色组需由管理员维护" : "只有草稿表创建者可删除角色组");
+      return;
+    }
     if (!confirm(`确认删除角色组「${roleGroup.name}」？关联的权限策略将一并删除。`)) return;
     try {
       await apiFetch(`/data-assets/role-groups/${roleGroup.id}`, { method: "DELETE" });
@@ -515,7 +560,7 @@ function RoleGroupDetailPanel({
           <PixelBadge color={typeInfo.color}>{typeInfo.label}</PixelBadge>
           {roleGroup.is_system && <PixelBadge color="gray">系统</PixelBadge>}
         </div>
-        {!roleGroup.is_system && (
+        {!roleGroup.is_system && canManageRoleGroups && (
           <button
             onClick={handleDeleteRoleGroup}
             className="text-[8px] text-gray-400 hover:text-red-500"
@@ -527,19 +572,25 @@ function RoleGroupDetailPanel({
 
       {/* 成员管理 */}
       <div className="border-2 border-[#1A202C] p-3">
-        <MemberEditor roleGroup={roleGroup} onSaved={onRefresh} />
+        <MemberEditor roleGroup={roleGroup} onSaved={onRefresh} readOnly={!canManageRoleGroups} />
       </div>
 
       {/* 权限配置（内联表单） */}
       <div className="border-2 border-[#1A202C] p-3">
         <div className="flex items-center justify-between mb-3">
           <span className="text-[9px] font-bold uppercase tracking-widest text-[#00A3C4]">权限配置</span>
-          {policyDirty && (
+          {policyDirty && canManageRoleGroups && (
             <PixelButton size="sm" onClick={handleSavePolicy} disabled={policySaving}>
               {policySaving ? "保存中..." : "保存策略"}
             </PixelButton>
           )}
         </div>
+
+        {!canManageRoleGroups && (
+          <div className="mb-3 text-[8px] text-yellow-700 bg-yellow-50 border border-yellow-200 px-2 py-1.5">
+            {detail.publish_status === "published" ? "已发布数据表的权限策略需由管理员维护。" : "只有草稿表创建者可维护角色组和权限策略。"}
+          </div>
+        )}
 
         <div className="grid grid-cols-2 gap-3">
           <div>
@@ -547,6 +598,7 @@ function RoleGroupDetailPanel({
             <select
               value={policyDraft.row_access_mode}
               onChange={(e) => updatePolicyDraft({ row_access_mode: e.target.value as RowAccessMode })}
+              disabled={!canManageRoleGroups}
               className="w-full text-[9px] border border-gray-300 px-1.5 py-1 bg-white"
             >
               {Object.entries(ROW_ACCESS_LABELS).map(([k, v]) => (
@@ -559,6 +611,7 @@ function RoleGroupDetailPanel({
             <select
               value={policyDraft.field_access_mode}
               onChange={(e) => updatePolicyDraft({ field_access_mode: e.target.value as FieldAccessMode })}
+              disabled={!canManageRoleGroups}
               className="w-full text-[9px] border border-gray-300 px-1.5 py-1 bg-white"
             >
               {Object.entries(FIELD_ACCESS_LABELS).map(([k, v]) => (
@@ -571,6 +624,7 @@ function RoleGroupDetailPanel({
             <select
               value={policyDraft.disclosure_level}
               onChange={(e) => updatePolicyDraft({ disclosure_level: e.target.value as DisclosureLevel })}
+              disabled={!canManageRoleGroups}
               className="w-full text-[9px] border border-gray-300 px-1.5 py-1 bg-white"
             >
               {Object.entries(DISCLOSURE_LABELS).map(([k, v]) => (
@@ -583,6 +637,7 @@ function RoleGroupDetailPanel({
             <select
               value={policyDraft.tool_permission_mode}
               onChange={(e) => updatePolicyDraft({ tool_permission_mode: e.target.value })}
+              disabled={!canManageRoleGroups}
               className="w-full text-[9px] border border-gray-300 px-1.5 py-1 bg-white"
             >
               {Object.entries(TOOL_LABELS).map(([k, v]) => (
@@ -595,6 +650,7 @@ function RoleGroupDetailPanel({
               type="checkbox"
               checked={policyDraft.export_permission}
               onChange={(e) => updatePolicyDraft({ export_permission: e.target.checked })}
+              disabled={!canManageRoleGroups}
               className="w-3 h-3"
             />
             <label className="text-[9px] font-bold">允许导出</label>

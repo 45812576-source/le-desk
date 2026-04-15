@@ -26,9 +26,10 @@ interface SkillItem {
 interface Props {
   roleGroup: TableRoleGroup;
   onSaved: () => void;
+  readOnly?: boolean;
 }
 
-export default function MemberEditor({ roleGroup, onSaved }: Props) {
+export default function MemberEditor({ roleGroup, onSaved, readOnly = false }: Props) {
   const [users, setUsers] = useState<UserItem[]>([]);
   const [departments, setDepartments] = useState<DepartmentItem[]>([]);
   const [skills, setSkills] = useState<SkillItem[]>([]);
@@ -103,6 +104,7 @@ export default function MemberEditor({ roleGroup, onSaved }: Props) {
   }, []);
 
   async function handleSave() {
+    if (readOnly) return;
     setSaving(true);
     try {
       await apiFetch(`/data-assets/role-groups/${roleGroup.id}`, {
@@ -151,9 +153,14 @@ export default function MemberEditor({ roleGroup, onSaved }: Props) {
 
   return (
     <div className="space-y-3">
+      {readOnly && (
+        <div className="text-[8px] text-yellow-700 bg-yellow-50 border border-yellow-200 px-2 py-1.5">
+          当前角色组为只读状态，无法修改成员。
+        </div>
+      )}
       <div className="flex items-center justify-between">
         <span className="text-[9px] font-bold uppercase tracking-widest text-[#00A3C4]">成员管理</span>
-        {dirty && (
+        {dirty && !readOnly && (
           <button
             onClick={handleSave}
             disabled={saving}
@@ -174,6 +181,7 @@ export default function MemberEditor({ roleGroup, onSaved }: Props) {
           value={userSearch}
           onChange={(e) => setUserSearch(e.target.value)}
           placeholder="搜索用户..."
+          disabled={readOnly}
           className="w-full border-2 border-gray-200 px-2 py-1 text-[10px] font-mono focus:outline-none focus:border-[#00D1FF] mb-1.5"
         />
         <div className="flex flex-wrap gap-1 max-h-28 overflow-y-auto">
@@ -181,6 +189,7 @@ export default function MemberEditor({ roleGroup, onSaved }: Props) {
             <button
               key={u.id}
               onClick={() => toggleUser(u.id)}
+              disabled={readOnly}
               className={`px-2 py-0.5 border-2 text-[9px] font-bold transition-colors ${
                 selectedUserIds.includes(u.id)
                   ? "border-[#00A3C4] bg-[#CCF2FF] text-[#1A202C]"
@@ -206,6 +215,7 @@ export default function MemberEditor({ roleGroup, onSaved }: Props) {
           value={deptSearch}
           onChange={(e) => setDeptSearch(e.target.value)}
           placeholder="搜索部门..."
+          disabled={readOnly}
           className="w-full border-2 border-gray-200 px-2 py-1 text-[10px] font-mono focus:outline-none focus:border-[#00D1FF] mb-1.5"
         />
         <div className="flex flex-wrap gap-1 max-h-28 overflow-y-auto">
@@ -213,6 +223,7 @@ export default function MemberEditor({ roleGroup, onSaved }: Props) {
             <button
               key={d.id}
               onClick={() => toggleDept(d.id)}
+              disabled={readOnly}
               className={`px-2 py-0.5 border-2 text-[9px] font-bold transition-colors ${
                 selectedDeptIds.includes(d.id)
                   ? "border-[#00A3C4] bg-[#CCF2FF] text-[#1A202C]"
@@ -239,6 +250,7 @@ export default function MemberEditor({ roleGroup, onSaved }: Props) {
             value={skillSearch}
             onChange={(e) => setSkillSearch(e.target.value)}
             placeholder="搜索 Skill..."
+            disabled={readOnly}
             className="w-full border-2 border-gray-200 px-2 py-1 text-[10px] font-mono focus:outline-none focus:border-[#00D1FF] mb-1.5"
           />
           <div className="flex flex-wrap gap-1 max-h-28 overflow-y-auto">
@@ -246,6 +258,7 @@ export default function MemberEditor({ roleGroup, onSaved }: Props) {
               <button
                 key={s.id}
                 onClick={() => toggleSkill(s.id)}
+                disabled={readOnly}
                 className={`px-2 py-0.5 border-2 text-[9px] font-bold transition-colors ${
                   selectedSkillIds.includes(s.id)
                     ? "border-[#00A3C4] bg-[#CCF2FF] text-[#1A202C]"

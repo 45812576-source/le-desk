@@ -1,18 +1,70 @@
+import type { User } from "@/lib/types";
+
 // ─── 能力分层 ─────────────────────────────────────────────────────────────────
 export interface TableCapabilities {
   can_edit_schema: boolean;
   can_edit_rows: boolean;
   can_edit_meta: boolean;
   can_export: boolean;
+  can_manage_views: boolean;
+  can_manage_role_groups: boolean;
+  can_manage_bindings: boolean;
+  can_manage_publish: boolean;
+  can_delete_table: boolean;
 }
 
-export function getTableCapabilities(sourceType: string): TableCapabilities {
-  const isLocal = sourceType === "blank" || sourceType === "imported";
+export type PublishStatus = "draft" | "published" | "reviewing" | "rejected" | "archived" | string;
+
+type TableCapabilityInput = {
+  source_type: string;
+  owner_id?: number | null;
+  publish_status?: PublishStatus | null;
+};
+
+export function isLocalTableSource(sourceType: string): boolean {
+  return sourceType === "blank" || sourceType === "imported";
+}
+
+export function getTablePublishStatus(table: { publish_status?: PublishStatus | null } | null | undefined): PublishStatus {
+  return table?.publish_status || "draft";
+}
+
+export function isPublishedTable(table: { publish_status?: PublishStatus | null } | null | undefined): boolean {
+  return getTablePublishStatus(table) === "published";
+}
+
+export function canUserManageDraftTable(
+  table: TableCapabilityInput,
+  user?: Pick<User, "id" | "role"> | null,
+): boolean {
+  const isLocal = isLocalTableSource(table.source_type);
+  const isOwner = user?.id !== undefined && user?.id !== null && table.owner_id === user.id;
+  const ownerUnknown = table.owner_id === null || table.owner_id === undefined;
+  return isLocal && !isPublishedTable(table) && (isOwner || ownerUnknown || !user);
+}
+
+export function getTableCapabilities(
+  table: TableCapabilityInput,
+  user?: Pick<User, "id" | "role"> | null,
+): TableCapabilities {
+  const isAdmin = user?.role === "super_admin" || user?.role === "dept_admin";
+  const isLocal = isLocalTableSource(table.source_type);
+  const isOwner = user?.id !== undefined && user?.id !== null && table.owner_id === user.id;
+  const ownerUnknown = table.owner_id === null || table.owner_id === undefined;
+  const canManageLocal = isLocal && (isOwner || ownerUnknown || !user);
+  const canManageDraft = canUserManageDraftTable(table, user) || isAdmin;
+  const published = isPublishedTable(table);
+  const canManagePublished = isAdmin;
   return {
-    can_edit_schema: isLocal,
-    can_edit_rows: isLocal,
-    can_edit_meta: isLocal,
+    can_edit_schema: canManageDraft || canManagePublished,
+    can_edit_rows: canManageDraft || canManagePublished,
+    can_edit_meta: canManageDraft || canManagePublished,
     can_export: true,
+    can_manage_views: canManageDraft || canManagePublished,
+    can_manage_role_groups: canManageDraft || canManagePublished,
+    can_manage_bindings: published && (canManageLocal || canManagePublished),
+    can_manage_publish: canManageLocal || canManagePublished,
+    can_delete_table: canManageDraft,
   };
 }
 
@@ -233,6 +285,7 @@ export interface DataAssetTable {
   bound_skills: BoundSkill[];
   risk_warnings: RiskWarning[];
   is_archived: boolean;
+  publish_status?: PublishStatus | null;
   created_at: string | null;
   role_group_count?: number;
   view_count?: number;
@@ -444,6 +497,7 @@ export interface TableDetail {
   field_profile_error: string | null;
   record_count: number | null;
   is_archived: boolean;
+  publish_status?: PublishStatus | null;
   owner_id: number | null;
   department_id: number | null;
   created_at: string | null;
