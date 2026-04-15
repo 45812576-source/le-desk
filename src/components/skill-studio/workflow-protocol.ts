@@ -1,0 +1,44 @@
+import type { GovernanceCardData, StagedEdit } from "./types";
+
+export interface WorkflowStateData extends Record<string, unknown> {
+  workflow_id?: string | null;
+  session_mode: "create_new_skill" | "optimize_existing_skill" | "audit_imported_skill";
+  workflow_mode: string;
+  phase: string;
+  next_action: string;
+  route_reason?: string;
+  active_assist_skills?: string[];
+  status?: string;
+  skill_id?: number | null;
+  conversation_id?: number | null;
+  metadata?: Record<string, unknown>;
+}
+
+export interface WorkflowEventEnvelope {
+  event_type: string;
+  workflow_id?: string | null;
+  source_type: string;
+  phase: string;
+  step?: string | null;
+  payload: Record<string, unknown>;
+  correlation_id?: string;
+  created_at?: string;
+  skill_id?: number | null;
+  conversation_id?: number | null;
+}
+
+export interface WorkflowActionResult {
+  action_id: string;
+  ok: boolean;
+  action: string;
+  card_id?: string | null;
+  staged_edit_id?: string | null;
+  updated_card_status?: GovernanceCardData["status"] | null;
+  updated_staged_edit_status?: StagedEdit["status"] | null;
+  workflow_state_patch?: Record<string, unknown>;
+  memo_refresh_required?: boolean;
+  editor_refresh_required?: boolean;
+  next_cards?: GovernanceCardData[];
+  result?: Record<string, unknown>;
+  error?: string | null;
+}

@@ -1,12 +1,14 @@
 "use client";
 
 import React, { useCallback, useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { PixelButton } from "@/components/pixel/PixelButton";
 import { PixelIcon, ICONS } from "@/components/pixel";
 import { ThemedPageIcon } from "@/components/layout/PageShell";
 import { useTheme } from "@/lib/theme";
 import { Table2 } from "lucide-react";
 import { apiFetch } from "@/lib/api";
+import { useAuth } from "@/lib/auth";
 
 
 import type { DataAssetFolder, DataAssetTable, Tab } from "./components/shared/types";
@@ -28,12 +30,19 @@ function ThemedIcon({ size }: { size: number }) {
 }
 
 // ─── ManageTab (new three-column layout) ─────────────────────────────────────
-function ManageTab() {
+function ManageTab({
+  initialSelectedTableId = null,
+  initialDetailTab = null,
+}: {
+  initialSelectedTableId?: number | null;
+  initialDetailTab?: string | null;
+}) {
   const isV2 = useV2DataAssets();
+  const { user } = useAuth();
   const [folders, setFolders] = useState<DataAssetFolder[]>([]);
   const [tables, setTables] = useState<DataAssetTable[]>([]);
   const [selectedFolderId, setSelectedFolderId] = useState<number | null>(null);
-  const [selectedTableId, setSelectedTableId] = useState<number | null>(null);
+  const [selectedTableId, setSelectedTableId] = useState<number | null>(initialSelectedTableId);
   const [quickFilter, setQuickFilter] = useState<QuickFilter>("all");
   const [assetFilter, setAssetFilter] = useState<AssetFilter>({});
   const [loadingFolders, setLoadingFolders] = useState(true);
@@ -61,6 +70,8 @@ function ManageTab() {
       if (selectedFolderId !== null) params.set("folder_id", String(selectedFolderId));
       if (quickFilter === "lark_sync") params.set("source_type", "lark_bitable");
       if (quickFilter === "imported") params.set("source_type", "imported");
+      if (quickFilter === "my_tables") params.set("bucket", "mine");
+      if (quickFilter === "shared") params.set("bucket", "shared");
       const qs = params.toString() ? `?${params.toString()}` : "";
       const data = await apiFetch<{ items: DataAssetTable[]; total: number }>(`/data-assets/tables${qs}`);
       setTables(data.items);
@@ -94,10 +105,13 @@ function ManageTab() {
     } finally {
       setLoadingTables(false);
     }
-  }, [selectedFolderId, quickFilter]);
+  }, [selectedFolderId, quickFilter, user?.id]);
 
   useEffect(() => { fetchFolders(); }, [fetchFolders]);
   useEffect(() => { fetchTables(); }, [fetchTables]);
+  useEffect(() => {
+    setSelectedTableId(initialSelectedTableId);
+  }, [initialSelectedTableId]);
 
   function handleSelectFolder(id: number | null) {
     setSelectedFolderId(id);
@@ -163,6 +177,7 @@ function ManageTab() {
                 tableId={selectedTableId}
                 onRefresh={() => { fetchTables(); }}
                 onDeleteTable={() => { setSelectedTableId(null); fetchTables(); }}
+                initialTab={initialDetailTab}
               />
             ) : isV2 ? (
               <RiskSummaryPanel />
@@ -182,10 +197,14 @@ function ManageTab() {
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
 export default function DataPage() {
+  const searchParams = useSearchParams();
   const [tab, setTab] = useState<Tab>("manage");
   const [manageKey, setManageKey] = useState(0);
   const { theme } = useTheme();
   const isLab = theme === "lab";
+  const tableIdParam = searchParams.get("tableId");
+  const initialSelectedTableId = tableIdParam ? Number(tableIdParam) || null : null;
+  const initialDetailTab = searchParams.get("tab");
 
 
   return (
@@ -207,7 +226,11 @@ export default function DataPage() {
         </div>
       ) : (
         <div className="flex-1 min-h-0 overflow-hidden">
-          <ManageTab key={manageKey} />
+          <ManageTab
+            key={`${manageKey}:${initialSelectedTableId ?? "none"}:${initialDetailTab ?? "default"}`}
+            initialSelectedTableId={initialSelectedTableId}
+            initialDetailTab={initialDetailTab}
+          />
         </div>
       )}
     </div>

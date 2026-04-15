@@ -39,6 +39,11 @@ interface BusinessTableItem {
   display_name: string;
 }
 
+function preferredTableFilename(table: Pick<BusinessTableItem, "display_name" | "table_name"> | null, format: string) {
+  const stem = table?.display_name?.trim() || table?.table_name?.trim() || "data_table";
+  return `${stem}.${format}`;
+}
+
 function TransferTableModal({
   onClose,
   onTransferred,
@@ -61,7 +66,7 @@ function TransferTableModal({
         setTables(data);
         if (data.length > 0) {
           setSelectedTable(data[0].table_name);
-          setFilename(`${data[0].table_name}.csv`);
+          setFilename(preferredTableFilename(data[0], "csv"));
         }
       })
       .catch(() => setError("加载数据表列表失败"))
@@ -116,7 +121,11 @@ function TransferTableModal({
               <div className="text-[9px] font-bold uppercase tracking-widest text-gray-400 mb-1">选择数据表</div>
               <select
                 value={selectedTable}
-                onChange={(e) => { setSelectedTable(e.target.value); setFilename(`${e.target.value}.${format}`); }}
+                onChange={(e) => {
+                  const nextTable = tables.find((table) => table.table_name === e.target.value) ?? null;
+                  setSelectedTable(e.target.value);
+                  setFilename(preferredTableFilename(nextTable, format));
+                }}
                 className="w-full border-2 border-[#1A202C] px-3 py-1.5 text-xs font-bold focus:outline-none focus:border-[#00A3C4] bg-white"
               >
                 {tables.map((t) => (
@@ -135,7 +144,11 @@ function TransferTableModal({
                   <button
                     key={f}
                     type="button"
-                    onClick={() => { setFormat(f); setFilename(`${selectedTable}.${f}`); }}
+                    onClick={() => {
+                      setFormat(f);
+                      const currentTable = tables.find((table) => table.table_name === selectedTable) ?? null;
+                      setFilename(preferredTableFilename(currentTable, f));
+                    }}
                     className={`px-3 py-1 text-[9px] font-bold uppercase tracking-widest border-2 transition-colors ${
                       format === f
                         ? "border-[#00A3C4] bg-[#00A3C4]/10 text-[#00A3C4]"
@@ -296,6 +309,10 @@ interface SkillOption {
 
 function buildFreshWorkdirTreePath() {
   return `/dev-studio/workdir/tree?_=${Date.now()}`;
+}
+
+function buildDataTableSettingsUrl(tableId: number) {
+  return `/data?tableId=${tableId}&tab=views`;
 }
 
 function SaveModal({
@@ -742,6 +759,7 @@ function TreeNodeRow({
   onRename,
   onDelete,
   onDownload,
+  onOpen,
   dragSrc,
   onDragStart,
   onDropFolder,
@@ -751,6 +769,7 @@ function TreeNodeRow({
   onRename: (node: TreeNode) => void;
   onDelete: (node: TreeNode) => void;
   onDownload: (node: TreeNode) => void;
+  onOpen: (node: TreeNode) => void;
   dragSrc: string | null;
   onDragStart: (path: string) => void;
   onDropFolder: (targetFolderPath: string) => void;
@@ -795,6 +814,9 @@ function TreeNodeRow({
         )}
         <div className="hidden group-hover:flex items-center gap-1">
           {node.type === "file" && (
+            <button onClick={() => onOpen(node)} className="text-[8px] text-gray-400 hover:text-[#6B46C1] px-1" title="打开验证">开</button>
+          )}
+          {node.type === "file" && (
             <button onClick={() => onDownload(node)} className="text-[8px] text-gray-400 hover:text-[#00CC99] px-1" title="下载到本地">下</button>
           )}
           <button onClick={() => onRename(node)} className="text-[8px] text-gray-400 hover:text-[#00A3C4] px-1" title="重命名/移动">改</button>
@@ -803,7 +825,7 @@ function TreeNodeRow({
       </div>
       {node.type === "dir" && open && node.children?.map((child) => (
         <TreeNodeRow key={child.path} node={child} depth={depth + 1}
-          onRename={onRename} onDelete={onDelete} onDownload={onDownload}
+          onRename={onRename} onDelete={onDelete} onDownload={onDownload} onOpen={onOpen}
           dragSrc={dragSrc} onDragStart={onDragStart} onDropFolder={onDropFolder}
         />
       ))}
@@ -886,18 +908,18 @@ function WorkdirPanel({ onClose, onWorkdirChange }: { onClose: () => void; onWor
     finally { setDeleteBusy(false); }
   }
 
-  function handleDownload(node: TreeNode) {
+  async function fetchWorkdirBlob(path: string) {
     const token = localStorage.getItem("token") ?? "";
-    const url = `/api/proxy/dev-studio/workdir/download?path=${encodeURIComponent(node.path)}`;
+    const url = `/api/proxy/dev-studio/workdir/download?path=${encodeURIComponent(path)}`;
+    const res = await fetch(url, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+    if (!res.ok) throw new Error("下载失败");
+    return res.blob();
+  }
+
+  function handleDownload(node: TreeNode) {
     const a = document.createElement("a");
-    a.href = url;
     a.download = node.name;
-    // 通过 fetch + blob 携带认证 header，触发浏览器下载
-    fetch(url, { headers: token ? { Authorization: `Bearer ${token}` } : {} })
-      .then((res) => {
-        if (!res.ok) throw new Error("下载失败");
-        return res.blob();
-      })
+    fetchWorkdirBlob(node.path)
       .then((blob) => {
         const blobUrl = URL.createObjectURL(blob);
         a.href = blobUrl;
@@ -909,12 +931,41 @@ function WorkdirPanel({ onClose, onWorkdirChange }: { onClose: () => void; onWor
       .catch(() => setError(`下载失败：${node.name}`));
   }
 
+  function handleOpen(node: TreeNode) {
+    const popup = window.open("", "_blank", "noopener,noreferrer");
+    fetchWorkdirBlob(node.path)
+      .then((blob) => {
+        const blobUrl = URL.createObjectURL(blob);
+        if (popup) {
+          popup.location.href = blobUrl;
+        } else {
+          window.open(blobUrl, "_blank", "noopener,noreferrer");
+        }
+      })
+      .catch(() => {
+        popup?.close();
+        setError(`打开失败：${node.name}`);
+      });
+  }
+
   function handleLatestFileDownload(file: DevStudioVisibleFile) {
     if (!file.path || !file.download_ready) {
       setError(`文件不可下载：${file.filename}`);
       return;
     }
     handleDownload({
+      name: file.filename,
+      path: file.path,
+      type: "file",
+    });
+  }
+
+  function handleLatestFileOpen(file: DevStudioVisibleFile) {
+    if (!file.path || !file.download_ready) {
+      setError(`文件不可打开：${file.filename}`);
+      return;
+    }
+    handleOpen({
       name: file.filename,
       path: file.path,
       type: "file",
@@ -957,6 +1008,7 @@ function WorkdirPanel({ onClose, onWorkdirChange }: { onClose: () => void; onWor
                   onRename={(n) => { setRenameTarget(n); setRenameDst(n.path); }}
                   onDelete={(n) => setDeleteTarget(n)}
                   onDownload={handleDownload}
+                  onOpen={handleOpen}
                   dragSrc={dragSrc}
                   onDragStart={setDragSrc}
                   onDropFolder={handleDropToFolder}
@@ -991,6 +1043,14 @@ function WorkdirPanel({ onClose, onWorkdirChange }: { onClose: () => void; onWor
                       )}
                       {f.exists_on_disk === false && f.source !== "legacy" && (
                         <span className="text-[8px] font-bold text-red-400 border border-red-200 px-1">已删除</span>
+                      )}
+                      {f.download_ready && f.path && (
+                        <button
+                          onClick={() => handleLatestFileOpen(f)}
+                          className="text-[8px] font-bold px-1.5 py-0.5 border border-[#6B46C1] text-[#6B46C1] hover:bg-[#E9D8FD]"
+                        >
+                          打开
+                        </button>
                       )}
                       {f.download_ready && f.path && (
                         <button
@@ -1228,6 +1288,7 @@ function DataViewPanel({ onClose, onSelectView }: { onClose: () => void; onSelec
   const [sourceFilter, setSourceFilter] = useState("");
   const [disclosureFilter, setDisclosureFilter] = useState("");
   const [error, setError] = useState("");
+  const [missingViewTable, setMissingViewTable] = useState<DataTableGroup | null>(null);
   const [expandedTableIds, setExpandedTableIds] = useState<Set<number>>(new Set());
 
   useEffect(() => {
@@ -1276,6 +1337,10 @@ function DataViewPanel({ onClose, onSelectView }: { onClose: () => void; onSelec
       return next;
     });
   };
+
+  const openTableSettings = useCallback((tableId: number) => {
+    window.open(buildDataTableSettingsUrl(tableId), "_blank", "noopener,noreferrer");
+  }, []);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={onClose}>
@@ -1332,7 +1397,20 @@ function DataViewPanel({ onClose, onSelectView }: { onClose: () => void; onSelec
 
         <div className="flex-1 overflow-y-auto px-4 py-2 space-y-1">
           {loading && <div className="text-[9px] text-gray-400 animate-pulse py-4">加载数据视图...</div>}
-          {error && <div className="text-[9px] text-red-500 py-4">{error}</div>}
+          {error && (
+            <div className="border border-red-200 bg-red-50 px-3 py-2 text-[9px] text-red-500">
+              <div>{error}</div>
+              {missingViewTable && (
+                <button
+                  type="button"
+                  onClick={() => openTableSettings(missingViewTable.table_id)}
+                  className="mt-2 inline-flex items-center border border-[#D97706] px-2 py-1 text-[8px] font-bold text-[#D97706] hover:bg-[#FFF7ED]"
+                >
+                  去数据表配置视图
+                </button>
+              )}
+            </div>
+          )}
           {!loading && !error && filtered.length === 0 && (
             <div className="text-[9px] text-gray-400 py-4">暂无可用数据视图</div>
           )}
@@ -1343,7 +1421,16 @@ function DataViewPanel({ onClose, onSelectView }: { onClose: () => void; onSelec
               <div key={table.table_id} className="border-2 border-gray-200">
                 {/* 表级行 */}
                 <button
-                  onClick={() => toggleTable(table.table_id)}
+                  onClick={() => {
+                    if (table.views.length === 0) {
+                      setMissingViewTable(table);
+                      setError(`数据表「${table.display_name}」还没有配置任何视图，请先去数据表页创建视图后再回来选择。`);
+                      return;
+                    }
+                    setMissingViewTable(null);
+                    setError("");
+                    toggleTable(table.table_id);
+                  }}
                   className="w-full text-left px-3 py-2 hover:bg-[#F0FBFF] transition-colors flex items-center gap-2"
                 >
                   <span className="text-[9px] text-gray-400">{expanded ? "▾" : "▸"}</span>
@@ -1361,6 +1448,18 @@ function DataViewPanel({ onClose, onSelectView }: { onClose: () => void; onSelec
                 {/* 视图列表 */}
                 {expanded && (
                   <div className="border-t border-gray-100">
+                    {table.views.length === 0 && (
+                      <div className="px-8 py-3 text-[8px] text-amber-700 bg-[#FFF7ED] flex items-center justify-between gap-2">
+                        <span>该数据表还没有可选视图，请先去数据表页完成视图配置。</span>
+                        <button
+                          type="button"
+                          onClick={() => openTableSettings(table.table_id)}
+                          className="border border-[#D97706] px-2 py-1 font-bold text-[#D97706] hover:bg-white"
+                        >
+                          去配置
+                        </button>
+                      </div>
+                    )}
                     {table.views.map((view) => {
                       const dl = view.disclosure_ceiling ? DISCLOSURE_LABELS[view.disclosure_ceiling] : null;
                       const modeLabel = RESULT_MODE_LABELS[view.result_mode] || view.result_mode;
@@ -1371,6 +1470,7 @@ function DataViewPanel({ onClose, onSelectView }: { onClose: () => void; onSelec
                           onClick={() => {
                             // v4 §7.2: 不可用视图可点击查看详情（只读），可用视图选择使用
                             if (view.available) {
+                              setMissingViewTable(null);
                               setError("");
                               onSelectView(view.view_id);
                               return;

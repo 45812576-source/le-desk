@@ -71,9 +71,10 @@ interface Props {
   tableId: number;
   onRefresh?: () => void;
   onDeleteTable?: (id: number) => void;
+  initialTab?: string | null;
 }
 
-export default function TableDetailPanel({ tableId, onRefresh, onDeleteTable }: Props) {
+export default function TableDetailPanel({ tableId, onRefresh, onDeleteTable, initialTab }: Props) {
   const isV2 = useV2DataAssets();
   const { user } = useAuth();
   const [detail, setDetail] = useState<TableDetail | null>(null);
@@ -99,9 +100,21 @@ export default function TableDetailPanel({ tableId, onRefresh, onDeleteTable }: 
 
   // Reset tab when table changes
   useEffect(() => {
-    setV1Tab("overview");
-    setV2Tab("fields");
-  }, [tableId]);
+    const nextTab = initialTab?.toLowerCase();
+    if (nextTab && V1_TABS.some((tab) => tab.id === nextTab)) {
+      setV1Tab(nextTab as V1TabId);
+    } else {
+      setV1Tab("overview");
+    }
+
+    if (nextTab && V2_TABS.some((tab) => tab.id === nextTab)) {
+      setV2Tab(nextTab as V2TabId);
+    } else if (nextTab === "views") {
+      setV2Tab("views");
+    } else {
+      setV2Tab("fields");
+    }
+  }, [initialTab, tableId]);
 
   if (loading) {
     return (
