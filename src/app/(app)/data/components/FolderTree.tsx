@@ -16,7 +16,7 @@ const QUICK_FILTERS: { id: QuickFilter; label: string; icon: string; v2Only?: bo
   { id: "external_source", label: "外部源", icon: "🌐", v2Only: true },
   { id: "lark_sync", label: "飞书同步", icon: "🔄" },
   { id: "imported", label: "本地导入", icon: "📥" },
-  { id: "my_tables", label: "我负责的", icon: "👤" },
+  { id: "my_tables", label: "我的数据", icon: "👤" },
   { id: "shared", label: "共享给我的", icon: "🤝" },
 ];
 

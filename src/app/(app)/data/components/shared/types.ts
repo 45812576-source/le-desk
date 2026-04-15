@@ -89,7 +89,7 @@ export interface SkillDataViewBase {
   row_filters: { field: string; op: string; value: string }[];
 }
 
-export type FieldType = "text" | "number" | "select" | "multi_select" | "date" | "person" | "url" | "checkbox" | "email" | "phone";
+export type FieldType = "text" | "number" | "select" | "single_select" | "multi_select" | "date" | "person" | "url" | "checkbox" | "boolean" | "email" | "phone";
 
 export interface FieldMeta {
   name: string;
@@ -103,14 +103,29 @@ export const FIELD_TYPE_LABELS: Record<FieldType, string> = {
   text: "文本",
   number: "数字",
   select: "单选",
+  single_select: "单选",
   multi_select: "多选",
   date: "日期",
   person: "人员",
   url: "链接",
   checkbox: "复选框",
+  boolean: "复选框",
   email: "邮箱",
   phone: "电话",
 };
+
+export const FIELD_TYPE_OPTIONS: FieldType[] = [
+  "text",
+  "number",
+  "single_select",
+  "multi_select",
+  "date",
+  "person",
+  "url",
+  "boolean",
+  "email",
+  "phone",
+];
 
 export interface BusinessTable {
   id: number;
@@ -351,6 +366,8 @@ export interface TableViewDetail {
   allowed_role_group_ids: number[];
   allowed_skill_ids: number[];
   row_limit: number | null;
+  view_state?: string | null;
+  view_invalid_reason?: string | null;
 }
 
 export interface SkillBindingDetail {

@@ -9,6 +9,7 @@ import type { TableDetail, TableDetailV2, TableCapabilities } from "../shared/ty
 import { formatCellValue, READONLY_COLS } from "../shared";
 import EditableCell from "../shared/EditableCell";
 import DegradationAlert from "./source/DegradationAlert";
+import { normalizeFieldType } from "../shared/value-normalization";
 
 interface SampleStrategy {
   enum_fields: { field: string; covered_values: string[] }[];
@@ -125,11 +126,28 @@ export default function PreviewTab({ detail, capabilities }: Props) {
   const hasRoleGroups = detail.role_groups && detail.role_groups.length > 0;
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
-  async function handleCellSave(rowId: number, col: string, value: string) {
+  const fieldMetaByColumn = new Map(
+    detail.fields.flatMap((field) => {
+      const aliases = [field.field_name];
+      if (field.physical_column_name) aliases.push(field.physical_column_name);
+      return aliases.map((alias) => [
+        alias,
+        {
+          name: alias,
+          field_type: normalizeFieldType(field.field_type) || "text",
+          options: field.enum_values || [],
+          nullable: field.is_nullable,
+          comment: field.description || "",
+        },
+      ] as const);
+    })
+  );
+
+  async function handleCellSave(rowId: number, col: string, value: unknown) {
     try {
       await apiFetch(`/data/${detail.table_name}/rows/${rowId}`, {
         method: "PUT",
-        body: JSON.stringify({ data: { [col]: value || null } }),
+        body: JSON.stringify({ data: { [col]: value ?? null } }),
       });
       setRows((prev) => prev.map((r) => r.id === rowId ? { ...r, [col]: value } : r));
     } catch { /* silently ignore */ }
@@ -350,6 +368,7 @@ export default function PreviewTab({ detail, capabilities }: Props) {
                   <td key={c} className="px-3 py-1.5 border-r border-gray-100 whitespace-nowrap max-w-[240px] truncate" title={formatCellValue(row[c])}>
                     <EditableCell
                       value={row[c]}
+                      fieldMeta={fieldMetaByColumn.get(c)}
                       readOnly={!isEditable || READONLY_COLS.has(c)}
                       onSave={(v) => row.id && handleCellSave(row.id as number, c, v)}
                     />

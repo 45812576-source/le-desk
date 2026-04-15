@@ -3,6 +3,12 @@
 import React, { useEffect, useRef, useState } from "react";
 import { formatCellValue } from "./CellFormatters";
 import type { FieldMeta } from "./types";
+import {
+  normalizeCellValueForField,
+  normalizeFieldType,
+  normalizeOptionValues,
+  serializeCellValueForField,
+} from "./value-normalization";
 
 export default function EditableCell({
   value,
@@ -12,19 +18,26 @@ export default function EditableCell({
 }: {
   value: unknown;
   fieldMeta?: FieldMeta;
-  onSave: (v: string) => void;
+  onSave: (v: unknown) => void;
   readOnly?: boolean;
 }) {
   const [editing, setEditing] = useState(false);
-  const [editVal, setEditVal] = useState<{ source: unknown; text: string }>({ source: value, text: formatCellValue(value) });
+  const [editVal, setEditVal] = useState<{ source: unknown; value: unknown }>({
+    source: value,
+    value: normalizeCellValueForField(value, fieldMeta),
+  });
   const inputRef = useRef<HTMLInputElement | HTMLSelectElement>(null);
+  const fieldType = normalizeFieldType(fieldMeta?.field_type);
 
   // Reset edit value when the prop changes (instead of setState in effect)
   if (editVal.source !== value) {
-    setEditVal({ source: value, text: formatCellValue(value) });
+    setEditVal({
+      source: value,
+      value: normalizeCellValueForField(value, fieldMeta),
+    });
   }
-  const val = editVal.text;
-  const setVal = (text: string) => setEditVal({ source: value, text });
+  const val = editVal.value;
+  const setVal = (next: unknown) => setEditVal({ source: value, value: next });
 
   useEffect(() => { if (editing) (inputRef.current as HTMLElement | null)?.focus(); }, [editing]);
 
@@ -40,7 +53,7 @@ export default function EditableCell({
     return (
       <span
         className="text-gray-700 font-mono cursor-text hover:bg-[#F0F8FF] px-0.5 rounded min-w-[20px] inline-block"
-        onDoubleClick={() => { setVal(formatCellValue(value)); setEditing(true); }}
+        onDoubleClick={() => { setVal(normalizeCellValueForField(value, fieldMeta)); setEditing(true); }}
         title="双击编辑"
       >
         {value === null || value === undefined ? <span className="text-gray-200">—</span> : formatCellValue(value)}
@@ -50,16 +63,16 @@ export default function EditableCell({
 
   function commit() {
     setEditing(false);
-    if (val !== formatCellValue(value)) onSave(val);
+    const nextValue = serializeCellValueForField(val, fieldMeta);
+    const currentValue = serializeCellValueForField(value, fieldMeta);
+    if (JSON.stringify(nextValue) !== JSON.stringify(currentValue)) onSave(nextValue);
   }
 
-  const ft = fieldMeta?.field_type;
-
-  if (ft === "select" && fieldMeta?.options?.length) {
+  if (fieldType === "single_select" && fieldMeta?.options?.length) {
     return (
       <select
         ref={inputRef as React.RefObject<HTMLSelectElement>}
-        value={val}
+        value={String(val ?? "")}
         onChange={(e) => setVal(e.target.value)}
         onBlur={commit}
         className="border border-[#00D1FF] text-[9px] px-1 py-0.5 bg-white focus:outline-none"
@@ -70,23 +83,56 @@ export default function EditableCell({
     );
   }
 
-  if (ft === "checkbox") {
+  if (fieldType === "multi_select" && fieldMeta?.options?.length) {
+    const selected = normalizeOptionValues(val);
+    return (
+      <div className="border border-[#00D1FF] bg-white p-1 min-w-[120px]">
+        <div className="max-h-28 overflow-y-auto space-y-0.5">
+          {fieldMeta.options.map((option) => {
+            const checked = selected.includes(option);
+            return (
+              <label key={option} className="flex items-center gap-1 text-[8px] text-gray-700">
+                <input
+                  type="checkbox"
+                  checked={checked}
+                  onChange={() => {
+                    const next = checked
+                      ? selected.filter((item) => item !== option)
+                      : [...selected, option];
+                    setVal(next);
+                  }}
+                  className="w-3 h-3"
+                />
+                <span>{option}</span>
+              </label>
+            );
+          })}
+        </div>
+        <div className="flex items-center gap-2 mt-1">
+          <button onClick={commit} className="text-[8px] font-bold text-[#00A3C4]">保存</button>
+          <button onClick={() => setEditing(false)} className="text-[8px] text-gray-400">取消</button>
+        </div>
+      </div>
+    );
+  }
+
+  if (fieldType === "boolean") {
     return (
       <input
         type="checkbox"
-        checked={val === "1" || val === "true"}
-        onChange={(e) => { const v = e.target.checked ? "1" : "0"; setVal(v); onSave(v); setEditing(false); }}
+        checked={Boolean(val)}
+        onChange={(e) => { const next = e.target.checked; setVal(next); onSave(serializeCellValueForField(next, fieldMeta)); setEditing(false); }}
         className="w-3 h-3"
       />
     );
   }
 
-  if (ft === "date") {
+  if (fieldType === "date") {
     return (
       <input
         ref={inputRef as React.RefObject<HTMLInputElement>}
         type="datetime-local"
-        value={val.slice(0, 16)}
+        value={String(val ?? "").slice(0, 16)}
         onChange={(e) => setVal(e.target.value)}
         onBlur={commit}
         onKeyDown={(e) => { if (e.key === "Enter") commit(); if (e.key === "Escape") setEditing(false); }}
@@ -98,8 +144,8 @@ export default function EditableCell({
   return (
     <input
       ref={inputRef as React.RefObject<HTMLInputElement>}
-      type={ft === "number" ? "number" : "text"}
-      value={val}
+      type={fieldType === "number" ? "number" : "text"}
+      value={String(val ?? "")}
       onChange={(e) => setVal(e.target.value)}
       onBlur={commit}
       onKeyDown={(e) => { if (e.key === "Enter") commit(); if (e.key === "Escape") setEditing(false); }}

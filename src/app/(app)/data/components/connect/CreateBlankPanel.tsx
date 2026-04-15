@@ -3,7 +3,7 @@
 import React, { useState } from "react";
 import { PixelButton } from "@/components/pixel/PixelButton";
 import { apiFetch } from "@/lib/api";
-import { FieldMeta, FieldType, FIELD_TYPE_LABELS } from "../shared/types";
+import { FieldMeta, FieldType, FIELD_TYPE_LABELS, FIELD_TYPE_OPTIONS } from "../shared/types";
 
 function CreateBlankPanel({ onAdded }: { onAdded: () => void }) {
   const [displayName, setDisplayName] = useState("");
@@ -101,11 +101,11 @@ function CreateBlankPanel({ onAdded }: { onAdded: () => void }) {
                     onChange={(e) => updateField(i, { field_type: e.target.value as FieldType })}
                     className="border-2 border-gray-200 px-2 py-1 text-[10px] focus:outline-none focus:border-[#00D1FF] bg-white"
                   >
-                    {(Object.keys(FIELD_TYPE_LABELS) as FieldType[]).map((t) => (
+                    {FIELD_TYPE_OPTIONS.map((t) => (
                       <option key={t} value={t}>{FIELD_TYPE_LABELS[t]}</option>
                     ))}
                   </select>
-                  {(f.field_type === "select" || f.field_type === "multi_select") && (
+                  {(f.field_type === "select" || f.field_type === "single_select" || f.field_type === "multi_select") && (
                     <input
                       value={f.options.join(",")}
                       onChange={(e) => updateField(i, { options: e.target.value.split(",").map((s) => s.trim()).filter(Boolean) })}

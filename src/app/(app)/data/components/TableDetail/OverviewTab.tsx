@@ -1,10 +1,10 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { PixelButton } from "@/components/pixel/PixelButton";
 import { apiFetch } from "@/lib/api";
 import { useV2DataAssets } from "../shared/feature-flags";
-import type { TableDetail, TableDetailV2, TableCapabilities } from "../shared/types";
+import type { TableDetail, TableDetailV2, TableCapabilities, DataAssetFolder } from "../shared/types";
 import { patchTableMeta } from "../shared/api";
 import RiskScorePanel from "./security/RiskScorePanel";
 import SourceProfilePanel from "./source/SourceProfilePanel";
@@ -46,6 +46,8 @@ export default function OverviewTab({ detail, onRefresh, onDeleteTable, capabili
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [publishing, setPublishing] = useState(false);
+  const [folders, setFolders] = useState<DataAssetFolder[]>([]);
+  const [moving, setMoving] = useState(false);
 
   const isPublished = detail.publish_status === "published";
 
@@ -121,6 +123,40 @@ export default function OverviewTab({ detail, onRefresh, onDeleteTable, capabili
       onRefresh();
     } catch (e: unknown) {
       alert(e instanceof Error ? e.message : "同步失败");
+    }
+  }
+
+  useEffect(() => {
+    apiFetch<{ items: DataAssetFolder[] }>("/data-assets/folders")
+      .then((data) => setFolders(data.items))
+      .catch(() => setFolders([]));
+  }, [detail.id]);
+
+  const folderOptions = useMemo(() => {
+    const result: Array<{ id: number; label: string }> = [];
+    const walk = (items: DataAssetFolder[], prefix = "") => {
+      items.forEach((folder) => {
+        const label = prefix ? `${prefix} / ${folder.name}` : folder.name;
+        result.push({ id: folder.id, label });
+        walk(folder.children || [], label);
+      });
+    };
+    walk(folders);
+    return result;
+  }, [folders]);
+
+  async function moveToFolder(folderId: string) {
+    setMoving(true);
+    try {
+      await apiFetch(`/data-assets/tables/${detail.id}/move`, {
+        method: "PATCH",
+        body: JSON.stringify({ folder_id: folderId ? Number(folderId) : 0 }),
+      });
+      onRefresh();
+    } catch (e: unknown) {
+      alert(e instanceof Error ? e.message : "移动失败");
+    } finally {
+      setMoving(false);
     }
   }
 
@@ -200,6 +236,24 @@ export default function OverviewTab({ detail, onRefresh, onDeleteTable, capabili
         </InfoRow>
 
         <InfoRow label="来源">{SOURCE_LABELS[detail.source_type] || detail.source_type}</InfoRow>
+        <InfoRow label="归档目录">
+          <div className="flex items-center gap-2">
+            <select
+              value={detail.folder_id ?? ""}
+              onChange={(e) => moveToFolder(e.target.value)}
+              disabled={!capabilities?.can_edit_meta || moving}
+              className="border border-border px-1.5 py-0.5 text-[9px] bg-background focus:outline-none focus:border-[#00D1FF]"
+            >
+              <option value="">未归档</option>
+              {folderOptions.map((folder) => (
+                <option key={folder.id} value={folder.id}>{folder.label}</option>
+              ))}
+            </select>
+            {!capabilities?.can_edit_meta && (
+              <span className="text-[8px] text-gray-400">仅表创建者或管理员可移动</span>
+            )}
+          </div>
+        </InfoRow>
         <InfoRow label="记录数">{detail.record_count ?? "未统计"}</InfoRow>
         <InfoRow label="字段数">{detail.fields.length}</InfoRow>
         <InfoRow label="视图数">{detail.views.length}</InfoRow>

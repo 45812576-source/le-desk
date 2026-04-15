@@ -16,6 +16,7 @@ export function useAssetList(params?: {
   folder_id?: number;
   source_type?: string;
   risk_level?: string;
+  bucket?: string;
 }): UseAssetListResult {
   const [tables, setTables] = useState<DataAssetTableV2[]>([]);
   const [total, setTotal] = useState(0);
@@ -34,7 +35,7 @@ export function useAssetList(params?: {
     } finally {
       setIsLoading(false);
     }
-  }, [params?.folder_id, params?.source_type, params?.risk_level]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [params?.folder_id, params?.source_type, params?.risk_level, params?.bucket]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => { load(); }, [load]);
 

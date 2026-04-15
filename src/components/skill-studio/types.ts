@@ -159,7 +159,7 @@ export interface StudioRouteInfo {
   initial_phase?: string;
   complexity_level?: "simple" | "medium" | "high";
   execution_strategy?: "fast_only" | "fast_then_deep" | "deep_resume";
-  fast_status?: "pending" | "running" | "completed" | "failed";
+  fast_status?: "not_requested" | "pending" | "running" | "completed" | "failed";
   deep_status?: "not_requested" | "pending" | "running" | "completed" | "failed" | "superseded";
 }
 

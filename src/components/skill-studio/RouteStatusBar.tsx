@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import type { ArchivedStudioRun } from "@/lib/studio-store";
 import type { StudioRouteInfo, PhaseProgress, ArchitectPhaseStatus, StudioRecoveryInfo } from "./types";
 import { architectPhaseToThemeKey } from "./utils";
 
@@ -61,6 +62,13 @@ const LANE_STATUS_LABELS: Record<string, string> = {
   superseded: "已过期",
 };
 
+const RUN_STATUS_LABELS: Record<ArchivedStudioRun["status"], string> = {
+  superseded: "已过期",
+  completed: "已完成",
+  failed: "失败",
+  cancelled: "已取消",
+};
+
 function formatRecoveryBadge(recoveryInfo: StudioRecoveryInfo | null | undefined): string | null {
   if (!recoveryInfo || recoveryInfo.source === "none") return null;
   const sourceLabel = recoveryInfo.source === "memory"
@@ -106,6 +114,9 @@ export function RouteStatusBar({
   recoveryDraftImpact,
   recoverySkillId,
   recoveryConversationId,
+  activeRunId,
+  activeRunVersion,
+  archivedRuns = [],
   onNextAction,
   nextActionRunning = false,
 }: {
@@ -116,14 +127,18 @@ export function RouteStatusBar({
   recoveryDraftImpact?: string | null;
   recoverySkillId?: number | null;
   recoveryConversationId?: number | null;
+  activeRunId?: string | null;
+  activeRunVersion?: number | null;
+  archivedRuns?: ArchivedStudioRun[];
   onNextAction?: (() => void) | null;
   nextActionRunning?: boolean;
 }) {
   const [recoveryExpanded, setRecoveryExpanded] = useState(false);
+  const [runExpanded, setRunExpanded] = useState(false);
   const recoveryBadge = formatRecoveryBadge(recoveryInfo);
   const recoverySourceLabel = formatRecoverySourceLabel(recoveryInfo);
   const recoveryTimeLabel = formatRecoveryTimeLabel(recoveryInfo);
-  if (!route && !recoveryBadge) return null;
+  if (!route && !recoveryBadge && !activeRunId && archivedRuns.length === 0) return null;
   const lastPhase = phaseProgress[phaseProgress.length - 1];
 
   // Derive current phase theme + goal + frameworks from architectPhase
@@ -171,6 +186,24 @@ export function RouteStatusBar({
           <span className="text-[7px] font-bold uppercase tracking-widest px-1 py-0.5 bg-white border border-purple-300 text-purple-700 dark:bg-zinc-900 dark:border-purple-800 dark:text-purple-200">
             Deep：{LANE_STATUS_LABELS[route.deep_status] || route.deep_status}
           </span>
+        )}
+
+        {activeRunId && (
+          <span className="text-[7px] font-bold uppercase tracking-widest px-1 py-0.5 bg-white border border-slate-300 text-slate-700 dark:bg-zinc-900 dark:border-zinc-700 dark:text-zinc-200">
+            当前 Run：v{activeRunVersion || 1} · {activeRunId.slice(0, 6)}
+          </span>
+        )}
+
+        {archivedRuns.length > 0 && (
+          <button
+            type="button"
+            onClick={() => setRunExpanded((prev) => !prev)}
+            aria-expanded={runExpanded}
+            className="text-[7px] font-bold uppercase tracking-widest px-1 py-0.5 bg-white border border-slate-300 text-slate-600 dark:bg-zinc-900 dark:border-zinc-700 dark:text-zinc-300"
+            title={runExpanded ? "收起运行历史" : "查看运行历史"}
+          >
+            历史 Run：{archivedRuns.length} · {runExpanded ? "收起详情" : "查看详情"}
+          </button>
         )}
 
         {route?.next_action && (
@@ -258,6 +291,20 @@ export function RouteStatusBar({
               草稿：{recoveryDraftImpact}
             </span>
           )}
+        </div>
+      )}
+
+      {runExpanded && archivedRuns.length > 0 && (
+        <div className="mt-1 flex items-center gap-2 flex-wrap text-[7px] uppercase tracking-widest text-slate-600 dark:text-zinc-300">
+          {archivedRuns.map((run) => (
+            <span
+              key={`${run.runId}:${run.runVersion}`}
+              className="px-1 py-0.5 bg-white border border-slate-300 dark:bg-zinc-900 dark:border-zinc-700"
+            >
+              Run v{run.runVersion} · {run.runId.slice(0, 6)} · {RUN_STATUS_LABELS[run.status] || run.status}
+              {run.supersededBy ? ` · → ${run.supersededBy.slice(0, 6)}` : ""}
+            </span>
+          ))}
         </div>
       )}
 

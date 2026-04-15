@@ -58,11 +58,13 @@ export async function fetchAssetTables(params?: {
   folder_id?: number;
   source_type?: string;
   risk_level?: string;
+  bucket?: string;
 }): Promise<{ items: DataAssetTableV2[]; total: number }> {
   const qs = new URLSearchParams();
   if (params?.folder_id) qs.set("folder_id", String(params.folder_id));
   if (params?.source_type) qs.set("source_type", params.source_type);
   if (params?.risk_level) qs.set("risk_level", params.risk_level);
+  if (params?.bucket) qs.set("bucket", params.bucket);
   const qsStr = qs.toString() ? `?${qs.toString()}` : "";
 
   try {

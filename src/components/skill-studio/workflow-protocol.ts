@@ -8,7 +8,7 @@ export interface WorkflowStateData extends Record<string, unknown> {
   next_action: string;
   complexity_level?: "simple" | "medium" | "high";
   execution_strategy?: "fast_only" | "fast_then_deep" | "deep_resume";
-  fast_status?: "pending" | "running" | "completed" | "failed";
+  fast_status?: "not_requested" | "pending" | "running" | "completed" | "failed";
   deep_status?: "not_requested" | "pending" | "running" | "completed" | "failed" | "superseded";
   route_reason?: string;
   active_assist_skills?: string[];
@@ -29,6 +29,33 @@ export interface WorkflowEventEnvelope {
   created_at?: string;
   skill_id?: number | null;
   conversation_id?: number | null;
+}
+
+export interface StudioPatchEnvelope {
+  run_id: string;
+  run_version: number;
+  patch_seq: number;
+  patch_type:
+    | "workflow_patch"
+    | "audit_patch"
+    | "governance_patch"
+    | "staged_edit_patch"
+    | "deep_summary_patch"
+    | "evidence_patch";
+  payload: Record<string, unknown>;
+  created_at?: string;
+}
+
+export interface StudioDeepPatch {
+  run_id: string;
+  run_version: number;
+  patch_seq: number;
+  patch_type: "deep_summary_patch" | "evidence_patch";
+  title: string;
+  summary: string;
+  evidence?: string[];
+  created_at?: string;
+  payload: Record<string, unknown>;
 }
 
 export interface WorkflowActionResult {

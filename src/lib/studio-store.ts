@@ -10,7 +10,7 @@ import type {
   GovernanceCardData,
   StagedEdit,
 } from "@/components/skill-studio/types";
-import type { WorkflowStateData } from "@/components/skill-studio/workflow-protocol";
+import type { StudioDeepPatch, WorkflowStateData } from "@/components/skill-studio/workflow-protocol";
 import type { SkillMemo } from "@/lib/types";
 
 // ─── Editor visibility state machine ─────────────────────────────────────────
@@ -20,6 +20,14 @@ export type EditorVisibility = "collapsed" | "auto_expanded" | "pinned_open";
 // ─── Session mode ─────────────────────────────────────────────────────────────
 
 export type SessionMode = "create" | "optimize" | "audit" | null;
+
+export interface ArchivedStudioRun {
+  runId: string;
+  runVersion: number;
+  status: "superseded" | "completed" | "failed" | "cancelled";
+  supersededBy?: string | null;
+  archivedAt?: string | null;
+}
 
 // ─── Store interface ──────────────────────────────────────────────────────────
 
@@ -39,6 +47,16 @@ export interface StudioSessionState {
   setActiveAssistSkills: (skills: { id: number; name: string; status: string }[]) => void;
   workflowState: WorkflowStateData | null;
   setWorkflowState: (state: WorkflowStateData | null) => void;
+  activeRunId: string | null;
+  activeRunVersion: number | null;
+  archivedRuns: ArchivedStudioRun[];
+  appliedPatchSeqs: number[];
+  deepPatches: StudioDeepPatch[];
+  setActiveRun: (runId: string, runVersion: number) => void;
+  archiveRun: (run: ArchivedStudioRun) => void;
+  rememberPatchSeq: (patchSeq: number) => void;
+  addDeepPatch: (patch: StudioDeepPatch) => void;
+  resetRunTracking: () => void;
 
   // 治理卡片队列
   governanceCards: GovernanceCardData[];
@@ -84,6 +102,11 @@ const initialState = {
   sessionMode: null as SessionMode,
   activeAssistSkills: [] as { id: number; name: string; status: string }[],
   workflowState: null as WorkflowStateData | null,
+  activeRunId: null as string | null,
+  activeRunVersion: null as number | null,
+  archivedRuns: [] as ArchivedStudioRun[],
+  appliedPatchSeqs: [] as number[],
+  deepPatches: [] as StudioDeepPatch[],
   governanceCards: [] as GovernanceCardData[],
   stagedEdits: [] as StagedEdit[],
   preflightRefreshToken: 0,
@@ -103,6 +126,38 @@ export const useStudioStore = create<StudioSessionState>((set) => ({
   setSessionMode: (mode) => set({ sessionMode: mode }),
   setActiveAssistSkills: (skills) => set({ activeAssistSkills: skills }),
   setWorkflowState: (state) => set({ workflowState: state }),
+  setActiveRun: (runId, runVersion) => set({ activeRunId: runId, activeRunVersion: runVersion }),
+  archiveRun: (run) =>
+    set((s) => ({
+      archivedRuns: s.archivedRuns.some((existing) => existing.runId === run.runId)
+        ? s.archivedRuns.map((existing) => existing.runId === run.runId ? { ...existing, ...run } : existing)
+        : [run, ...s.archivedRuns].slice(0, 12),
+      activeRunId: s.activeRunId === run.runId ? null : s.activeRunId,
+      activeRunVersion: s.activeRunId === run.runId ? null : s.activeRunVersion,
+    })),
+  rememberPatchSeq: (patchSeq) =>
+    set((s) => (
+      s.appliedPatchSeqs.includes(patchSeq)
+        ? s
+        : { appliedPatchSeqs: [...s.appliedPatchSeqs, patchSeq].slice(-200) }
+    )),
+  addDeepPatch: (patch) =>
+    set((s) => ({
+      deepPatches: s.deepPatches.some((existing) =>
+        existing.run_id === patch.run_id && existing.patch_seq === patch.patch_seq
+      )
+        ? s.deepPatches.map((existing) =>
+            existing.run_id === patch.run_id && existing.patch_seq === patch.patch_seq ? patch : existing
+          )
+        : [...s.deepPatches, patch].slice(-20),
+    })),
+  resetRunTracking: () => set({
+    activeRunId: null,
+    activeRunVersion: null,
+    archivedRuns: [],
+    appliedPatchSeqs: [],
+    deepPatches: [],
+  }),
 
   addGovernanceCard: (card) =>
     set((s) => ({
@@ -163,6 +218,11 @@ export const useStudioStore = create<StudioSessionState>((set) => ({
     sessionMode: null,
     activeAssistSkills: [],
     workflowState: null,
+    activeRunId: null,
+    activeRunVersion: null,
+    archivedRuns: [],
+    appliedPatchSeqs: [],
+    deepPatches: [],
     governanceCards: [],
     stagedEdits: [],
   }),

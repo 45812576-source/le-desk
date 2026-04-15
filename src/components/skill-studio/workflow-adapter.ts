@@ -1,5 +1,5 @@
-import type { GovernanceCardData, GovernanceAction, StagedEdit } from "./types";
-import type { WorkflowEventEnvelope, WorkflowStateData } from "./workflow-protocol";
+import type { AuditResult, GovernanceCardData, GovernanceAction, StagedEdit } from "./types";
+import type { StudioDeepPatch, StudioPatchEnvelope, WorkflowEventEnvelope, WorkflowStateData } from "./workflow-protocol";
 import { normalizeStagedEditPayload } from "./utils";
 
 export function normalizeWorkflowCardPayload(
@@ -51,4 +51,82 @@ export function parseWorkflowEnvelope(raw: Record<string, unknown>): WorkflowEve
 export function parseWorkflowStatePayload(raw: Record<string, unknown>): WorkflowStateData | null {
   if (!raw.session_mode || !raw.workflow_mode || !raw.phase || !raw.next_action) return null;
   return raw as unknown as WorkflowStateData;
+}
+
+export function parseStudioPatchEnvelope(raw: Record<string, unknown>): StudioPatchEnvelope | null {
+  if (!raw.run_id || !raw.run_version || !raw.patch_seq || !raw.patch_type || !raw.payload) {
+    return null;
+  }
+  return raw as unknown as StudioPatchEnvelope;
+}
+
+export function normalizeAuditSummaryPayload(raw: Record<string, unknown>): AuditResult {
+  const verdict = String(raw.verdict || "");
+  const severity: AuditResult["severity"] =
+    raw.severity === "critical" || raw.severity === "high" || raw.severity === "medium" || raw.severity === "low"
+      ? raw.severity
+      : verdict === "poor"
+        ? "high"
+        : verdict === "needs_work"
+          ? "medium"
+          : "low";
+  const qualityScore = typeof raw.quality_score === "number"
+    ? raw.quality_score
+    : severity === "high" || severity === "critical"
+      ? 25
+      : severity === "medium"
+        ? 55
+        : 80;
+
+  return {
+    quality_score: qualityScore,
+    severity,
+    issues: Array.isArray(raw.issues) ? raw.issues as AuditResult["issues"] : [],
+    recommended_path:
+      raw.recommended_path === "restructure"
+      || raw.recommended_path === "brainstorming_upgrade"
+      || raw.recommended_path === "major_rewrite"
+        ? "restructure"
+        : "optimize",
+    phase_entry: raw.phase_entry as AuditResult["phase_entry"],
+    assist_skills_to_enable: Array.isArray(raw.assist_skills_to_enable)
+      ? raw.assist_skills_to_enable.filter((item): item is string => typeof item === "string")
+      : undefined,
+  };
+}
+
+export function normalizeDeepPatchEnvelope(envelope: StudioPatchEnvelope): StudioDeepPatch | null {
+  if (envelope.patch_type !== "deep_summary_patch" && envelope.patch_type !== "evidence_patch") {
+    return null;
+  }
+  const payload = envelope.payload || {};
+  const evidence = Array.isArray(payload.evidence)
+    ? payload.evidence.filter((item): item is string => typeof item === "string")
+    : Array.isArray(payload.items)
+      ? payload.items.filter((item): item is string => typeof item === "string")
+      : undefined;
+  const title = typeof payload.title === "string"
+    ? payload.title
+    : envelope.patch_type === "evidence_patch"
+      ? "证据补充"
+      : "深层补完";
+  const summary = typeof payload.summary === "string"
+    ? payload.summary
+    : typeof payload.text === "string"
+      ? payload.text
+      : typeof payload.message === "string"
+        ? payload.message
+        : "";
+
+  return {
+    run_id: envelope.run_id,
+    run_version: envelope.run_version,
+    patch_seq: envelope.patch_seq,
+    patch_type: envelope.patch_type,
+    title,
+    summary,
+    evidence,
+    created_at: envelope.created_at,
+    payload,
+  };
 }

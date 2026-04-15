@@ -3,7 +3,7 @@
 import React, { useState } from "react";
 import { PixelButton } from "@/components/pixel/PixelButton";
 import { apiFetch } from "@/lib/api";
-import { FieldType, FIELD_TYPE_LABELS } from "../shared/types";
+import { FieldType, FIELD_TYPE_LABELS, FIELD_TYPE_OPTIONS } from "../shared/types";
 
 export default function AddColumnModal({ tableId, onDone, onClose }: { tableId: number; onDone: () => void; onClose: () => void }) {
   const [name, setName] = useState("");
@@ -47,12 +47,12 @@ export default function AddColumnModal({ tableId, onDone, onClose }: { tableId: 
           <label className="block text-[9px] font-bold text-gray-500 mb-1">类型</label>
           <select value={fieldType} onChange={(e) => setFieldType(e.target.value as FieldType)}
             className="w-full border-2 border-[#1A202C] px-2 py-1.5 text-[10px] bg-white focus:outline-none">
-            {(Object.keys(FIELD_TYPE_LABELS) as FieldType[]).map((t) => (
+            {FIELD_TYPE_OPTIONS.map((t) => (
               <option key={t} value={t}>{FIELD_TYPE_LABELS[t]}</option>
             ))}
           </select>
         </div>
-        {(fieldType === "select" || fieldType === "multi_select") && (
+        {(fieldType === "select" || fieldType === "single_select" || fieldType === "multi_select") && (
           <div>
             <label className="block text-[9px] font-bold text-gray-500 mb-1">选项（逗号分隔）</label>
             <input value={options} onChange={(e) => setOptions(e.target.value)}

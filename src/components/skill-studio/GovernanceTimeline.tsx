@@ -1,6 +1,7 @@
 "use client";
 
 import { memo } from "react";
+import type { StudioDeepPatch } from "./workflow-protocol";
 import type { ChatMessage, GovernanceCardData, GovernanceAction, AuditResult, GovernanceActionCard, PhaseProgress, ArchitectPhaseStatus, ArchitectQuestion, ArchitectPhaseSummary, ArchitectStructure, ArchitectPriorityMatrix, ArchitectOodaDecision, ArchitectReadyForDraft } from "./types";
 import { GovernanceCard } from "./cards/GovernanceCard";
 import { ArchitectPhaseCard } from "./cards/ArchitectPhaseCard";
@@ -155,6 +156,37 @@ const GovernanceActionCardComponent = memo(function GovernanceActionCardComponen
   );
 });
 
+const DeepPatchCard = memo(function DeepPatchCard({ patch }: { patch: StudioDeepPatch }) {
+  const isEvidence = patch.patch_type === "evidence_patch";
+  return (
+    <div className="mx-3 my-1.5 border-2 border-purple-300 dark:border-purple-800 bg-purple-50 dark:bg-purple-950/30 text-[9px] font-mono">
+      <div className="px-3 py-1.5 border-b border-purple-300 dark:border-purple-800 flex items-center gap-2">
+        <span className="bg-purple-600 dark:bg-purple-500 text-white px-1.5 py-0.5 text-[7px] font-bold uppercase tracking-widest">
+          {isEvidence ? "Evidence" : "Deep Lane"}
+        </span>
+        <span className="text-purple-700 dark:text-purple-200 font-bold text-[8px] uppercase tracking-widest flex-1">
+          {patch.title}
+        </span>
+        <span className="text-[7px] text-purple-500 dark:text-purple-300">
+          v{patch.run_version} · #{patch.patch_seq}
+        </span>
+      </div>
+      <div className="px-3 py-2 space-y-1">
+        {patch.summary && (
+          <p className="text-[#1A202C] dark:text-foreground">{patch.summary}</p>
+        )}
+        {patch.evidence && patch.evidence.length > 0 && (
+          <ul className="list-disc pl-4 text-gray-600 dark:text-muted-foreground space-y-0.5">
+            {patch.evidence.map((item, index) => (
+              <li key={`${patch.run_id}-${patch.patch_seq}-${index}`}>{item}</li>
+            ))}
+          </ul>
+        )}
+      </div>
+    </div>
+  );
+});
+
 // ─── PhaseProgressCard ───────────────────────────────────────────────────────
 
 const PhaseProgressCard = memo(function PhaseProgressCard({ progress }: { progress: PhaseProgress }) {
@@ -266,6 +298,7 @@ export function GovernanceTimeline({
   governanceCards,
   auditResult,
   pendingGovernanceActions,
+  deepPatches = [],
   phaseProgress = [],
   architectPhase,
   architectQuestions = [],
@@ -295,6 +328,7 @@ export function GovernanceTimeline({
   governanceCards: GovernanceCardData[];
   auditResult: AuditResult | null;
   pendingGovernanceActions: GovernanceActionCard[];
+  deepPatches?: StudioDeepPatch[];
   phaseProgress?: PhaseProgress[];
   architectPhase?: ArchitectPhaseStatus | null;
   architectQuestions?: ArchitectQuestion[];
@@ -339,6 +373,7 @@ export function GovernanceTimeline({
     { label: "只改这段", msg: "不要重写全文，只修改我刚才指出的那一段，保持其他部分不变" },
     { label: "收敛成版", msg: "请按当前结论整理成可直接采纳的最终版本，不再继续追问" },
   ];
+  const showDeepSection = deepPatches.length > 0;
 
   return (
     <>
@@ -465,6 +500,18 @@ export function GovernanceTimeline({
         />
       ))}
 
+      {showDeepSection && (
+        <div className="mx-3 my-2 flex items-center gap-2 text-[8px] font-mono text-purple-500 dark:text-purple-300">
+          <div className="flex-1 h-px bg-purple-200 dark:bg-purple-900" />
+          <span className="font-bold uppercase tracking-widest">Deep Lane 补完</span>
+          <div className="flex-1 h-px bg-purple-200 dark:bg-purple-900" />
+        </div>
+      )}
+
+      {deepPatches.map((patch) => (
+        <DeepPatchCard key={`${patch.run_id}:${patch.patch_seq}`} patch={patch} />
+      ))}
+
       {governanceCompleted && (
         <div className="mx-3 my-2 border-2 border-emerald-300 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-950/30 text-[9px] font-mono">
           <div className="px-3 py-1.5 border-b border-emerald-300 dark:border-emerald-800 flex items-center gap-2">
@@ -493,4 +540,4 @@ export function GovernanceTimeline({
 }
 
 // Re-export for backward compatibility
-export { AuditReportCard, GovernanceActionCardComponent, PhaseProgressCard };
+export { AuditReportCard, DeepPatchCard, GovernanceActionCardComponent, PhaseProgressCard };

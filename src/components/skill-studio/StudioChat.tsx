@@ -18,8 +18,9 @@ import { applyOps, estimateMessagesTokens, TOKEN_COMPRESS_THRESHOLD } from "./ut
 import { parseStructuredStudioMessage } from "./message-parser";
 import { recoverStudioHistory } from "./history-recovery";
 import { deriveStudioRecoveryDraftImpact, parseStudioRecoveryPayload, parseStudioStatePayload } from "./studio-state-adapter";
-import { normalizeWorkflowCardPayload, normalizeWorkflowStagedEditPayload, parseWorkflowStatePayload } from "./workflow-adapter";
-import type { WorkflowActionResult, WorkflowStateData } from "./workflow-protocol";
+import { isFrontendRunProtocolEnabled, isPatchProtocolEnabled } from "./feature-flags";
+import { normalizeAuditSummaryPayload, normalizeDeepPatchEnvelope, normalizeWorkflowCardPayload, normalizeWorkflowStagedEditPayload, parseStudioPatchEnvelope, parseWorkflowStatePayload } from "./workflow-adapter";
+import type { StudioPatchEnvelope, WorkflowActionResult, WorkflowStateData } from "./workflow-protocol";
 import type {
   ChatMessage,
   StudioDraft,
@@ -44,6 +45,21 @@ import type {
   ArchitectOodaDecision,
   ArchitectReadyForDraft,
 } from "./types";
+
+const STREAM_STAGE_LABELS: Record<string, string> = {
+  accepted: "已接收",
+  routing: "路由中",
+  classified: "已分级",
+  context_ready: "上下文就绪",
+  auditing: "审计中",
+  generating: "首答生成中",
+  first_useful_response: "首答已给出",
+  done: "完成",
+  superseded: "已过期",
+  reconnecting: "重连中",
+  connecting: "连接中",
+  ingest_parsing: "解析长文本",
+};
 
 // ─── StudioChat ───────────────────────────────────────────────────────────────
 
@@ -213,11 +229,20 @@ export function StudioChat({
   const setActiveAssistSkills = useStudioStore((s) => s.setActiveAssistSkills);
   const storeWorkflowState = useStudioStore((s) => s.workflowState);
   const setStoreWorkflowState = useStudioStore((s) => s.setWorkflowState);
+  const setActiveRunMeta = useStudioStore((s) => s.setActiveRun);
+  const archiveRun = useStudioStore((s) => s.archiveRun);
+  const rememberPatchSeq = useStudioStore((s) => s.rememberPatchSeq);
+  const resetRunTracking = useStudioStore((s) => s.resetRunTracking);
+  const activeRunVersion = useStudioStore((s) => s.activeRunVersion);
+  const archivedRuns = useStudioStore((s) => s.archivedRuns);
+  const deepPatches = useStudioStore((s) => s.deepPatches);
+  const addDeepPatch = useStudioStore((s) => s.addDeepPatch);
   const setEditorVisibility = useStudioStore((s) => s.setEditorVisibility);
   const setEditorManuallyCollapsed = useStudioStore((s) => s.setEditorManuallyCollapsed);
   const requestPreflightRefresh = useStudioStore((s) => s.requestPreflightRefresh);
   const studioChatSource = skillId ? `studio-chat:${skillId}:${convId}` : `studio-chat:${convId}`;
   const [workflowNextActionRunning, setWorkflowNextActionRunning] = useState(false);
+  const frontendRunProtocolEnabled = isFrontendRunProtocolEnabled(storeWorkflowState);
 
   function applyRecoveredStudioState(studioState?: Record<string, unknown> | null) {
     const recovered = parseStudioStatePayload(studioState);
@@ -632,14 +657,116 @@ export function StudioChat({
       setRouteInfo((prev) => prev ? { ...prev, fast_status: "completed" } : prev);
       return;
     }
+    if (stage === "superseded") {
+      setRouteInfo((prev) => prev ? { ...prev, deep_status: "superseded" } : prev);
+      return;
+    }
     if (stage === "generating") {
       setRouteInfo((prev) => prev ? { ...prev, fast_status: "running" } : prev);
     }
   }
 
+  function activateRunFromPayload(data: Record<string, unknown>) {
+    const runId = typeof data.run_id === "string"
+      ? data.run_id
+      : typeof data.id === "string"
+        ? data.id
+        : null;
+    const runVersion = typeof data.run_version === "number"
+      ? data.run_version
+      : typeof data.run_version === "string"
+        ? Number(data.run_version)
+        : 1;
+    if (!runId) return;
+    setActiveRunId(runId);
+    if (isFrontendRunProtocolEnabled(useStudioStore.getState().workflowState)) {
+      setActiveRunMeta(runId, Number.isFinite(runVersion) && runVersion > 0 ? runVersion : 1);
+    }
+  }
+
+  function applyPatchEnvelope(envelope: StudioPatchEnvelope) {
+    const currentState = useStudioStore.getState();
+    if (!isPatchProtocolEnabled(currentState.workflowState)) {
+      return;
+    }
+    if (currentState.activeRunId && currentState.activeRunId !== envelope.run_id) {
+      return;
+    }
+    if (currentState.appliedPatchSeqs.includes(envelope.patch_seq)) {
+      return;
+    }
+    rememberPatchSeq(envelope.patch_seq);
+    activateRunFromPayload({ run_id: envelope.run_id, run_version: envelope.run_version });
+
+    const payload = envelope.payload;
+    if (envelope.patch_type === "workflow_patch") {
+      const workflowState = parseWorkflowStatePayload(payload);
+      if (workflowState) {
+        setStoreWorkflowState(
+          currentState.workflowState
+            ? { ...currentState.workflowState, ...workflowState }
+            : workflowState
+        );
+      }
+      if ("session_mode" in payload) {
+        applyRouteStatus(payload);
+      }
+      if ("stage" in payload && typeof payload.stage === "string") {
+        applyStatusStage(payload.stage);
+      }
+      return;
+    }
+    if (envelope.patch_type === "governance_patch") {
+      addGovernanceCard(normalizeWorkflowCardPayload(payload, studioChatSource));
+      return;
+    }
+    if (envelope.patch_type === "staged_edit_patch") {
+      addStagedEdit(normalizeWorkflowStagedEditPayload(payload, studioChatSource));
+      onExpandEditor?.();
+      return;
+    }
+    if (envelope.patch_type === "audit_patch") {
+      setAuditResult(normalizeAuditSummaryPayload(payload));
+      return;
+    }
+    if (envelope.patch_type === "deep_summary_patch" || envelope.patch_type === "evidence_patch") {
+      const deepPatch = normalizeDeepPatchEnvelope(envelope);
+      if (deepPatch) {
+        addDeepPatch(deepPatch);
+      }
+      setRouteInfo((prev) => prev ? { ...prev, deep_status: "completed" } : prev);
+      return;
+    }
+  }
+
   function handleRunEvent(eventName: string, data: Record<string, unknown>) {
+    if (eventName === "patch_applied") {
+      const envelope = parseStudioPatchEnvelope(data);
+      if (envelope) {
+        applyPatchEnvelope(envelope);
+      }
+      return;
+    }
+    if (eventName === "run_superseded") {
+      const runId = typeof data.run_id === "string" ? data.run_id : typeof data.id === "string" ? data.id : null;
+      const runVersion = typeof data.run_version === "number" ? data.run_version : 1;
+      if (runId && isFrontendRunProtocolEnabled(useStudioStore.getState().workflowState)) {
+        archiveRun({
+          runId,
+          runVersion,
+          status: "superseded",
+          supersededBy: typeof data.superseded_by === "string" ? data.superseded_by : null,
+          archivedAt: typeof data.superseded_at === "string" ? data.superseded_at : null,
+        });
+      }
+      setRouteInfo((prev) => prev ? { ...prev, deep_status: "superseded" } : prev);
+      setStreaming(false);
+      setActiveRunId(null);
+      setStreamStage("superseded");
+      return;
+    }
     if (eventName === "studio_run" && typeof data.id === "string") {
-      setActiveRunId(data.id);
+      activateRunFromPayload(data);
       setStreaming(data.status === "queued" || data.status === "running");
       return;
     }
@@ -652,6 +779,10 @@ export function StudioChat({
       if (workflowState) {
         setStoreWorkflowState(workflowState);
       }
+      return;
+    }
+    if (eventName === "audit_summary") {
+      setAuditResult(normalizeAuditSummaryPayload(data));
       return;
     }
     if (eventName === "governance_card") {
@@ -674,6 +805,12 @@ export function StudioChat({
       ));
       return;
     }
+    if (eventName === "workflow_event") {
+      // workflow_event 是后端 _append() 自动生成的 envelope 包装。
+      // 原始事件（governance_card / workflow_state 等）已被上层 case 消费，
+      // 此处仅静默接收，避免 console warning，为未来审计面板预留入口。
+      return;
+    }
     if ((eventName === "delta" || eventName === "content_block_delta") && typeof data.text === "string") {
       runAccTextRef.current += data.text;
       setStreamStage("generating");
@@ -694,6 +831,15 @@ export function StudioChat({
     }
     if (eventName === "done") {
       updateLastStreamingMessage(parseStructuredStudioMessage(runAccTextRef.current).cleanText, false);
+      const currentRunId = useStudioStore.getState().activeRunId;
+      if (currentRunId && isFrontendRunProtocolEnabled(useStudioStore.getState().workflowState)) {
+        archiveRun({
+          runId: currentRunId,
+          runVersion: useStudioStore.getState().activeRunVersion || 1,
+          status: "completed",
+          archivedAt: new Date().toISOString(),
+        });
+      }
       setStreaming(false);
       setActiveRunId(null);
       setStreamStage(null);
@@ -729,6 +875,8 @@ export function StudioChat({
         setConfirmedPhases([]);
         setAnsweredQuestionIdx(-1);
         setPhaseProgress([]);
+        setActiveRunId(null);
+        resetRunTracking();
         syncGovernanceCards(studioChatSource, []);
         syncStagedEdits(studioChatSource, []);
         try { localStorage.removeItem(_storageKey); } catch { /* ignore */ }
@@ -736,7 +884,7 @@ export function StudioChat({
       };
     }
     return () => { if (clearRef) clearRef.current = null; };
-  }, [clearRef, _storageKey, convId, studioChatSource, syncGovernanceCards, syncStagedEdits]);
+  }, [clearRef, _storageKey, convId, resetRunTracking, studioChatSource, syncGovernanceCards, syncStagedEdits]);
 
   useEffect(() => {
     if (setInputRef) {
@@ -754,11 +902,14 @@ export function StudioChat({
 
     async function attachActiveRun() {
       try {
-        const active = await apiFetch<{ run: { id: string; status: string; latest_event_offset?: number } | null }>(
+        const active = await apiFetch<{ run: { id: string; status: string; latest_event_offset?: number; run_version?: number } | null }>(
           `/conversations/${convId}/studio-runs/active`
         );
         if (cancelled || !active.run || !["queued", "running"].includes(active.run.status)) return;
         setActiveRunId(active.run.id);
+        if (isFrontendRunProtocolEnabled(useStudioStore.getState().workflowState)) {
+          setActiveRunMeta(active.run.id, typeof active.run.run_version === "number" ? active.run.run_version : 1);
+        }
         setStreaming(true);
         setStreamStage("reconnecting");
         runAccTextRef.current = "";
@@ -837,6 +988,10 @@ export function StudioChat({
     setConfirmedPhases([]);
     setAnsweredQuestionIdx(-1);
     setPhaseProgress([]);
+    setActiveRunId(null);
+    setStreaming(false);
+    setStreamStage(null);
+    resetRunTracking();
     syncGovernanceCards(studioChatSource, []);
     syncStagedEdits(studioChatSource, []);
 
@@ -905,7 +1060,7 @@ export function StudioChat({
         setBackendFailed(true);
         setBackendLoaded(true);
       });
-  }, [convId, _storageKey, onExpandEditor, skillId, studioChatSource, syncGovernanceCards, syncStagedEdits]);
+  }, [convId, _storageKey, onExpandEditor, resetRunTracking, skillId, studioChatSource, syncGovernanceCards, syncStagedEdits]);
 
   useEffect(() => {
     if (!backendLoaded) return;
@@ -1402,22 +1557,7 @@ export function StudioChat({
                 }
                 setArchitectReady(ready);
               } else if (curEvt === "audit_summary") {
-                // 新协议审计事件 — 兼容后端直接发 severity 或 verdict
-                const as_ = data as {
-                  quality_score?: number; verdict?: string; severity?: AuditResult["severity"];
-                  issues?: AuditResult["issues"]; recommended_path?: string; phase_entry?: string;
-                  assist_skills_to_enable?: string[];
-                };
-                const severity: AuditResult["severity"] = as_.severity
-                  || (as_.verdict === "poor" ? "high" : as_.verdict === "needs_work" ? "medium" : "low");
-                setAuditResult({
-                  quality_score: as_.quality_score ?? (severity === "high" ? 25 : severity === "medium" ? 55 : 80),
-                  severity,
-                  issues: as_.issues || [],
-                  recommended_path: (as_.recommended_path === "brainstorming_upgrade" || as_.recommended_path === "major_rewrite") ? "restructure" : "optimize",
-                  phase_entry: as_.phase_entry as AuditResult["phase_entry"],
-                  assist_skills_to_enable: as_.assist_skills_to_enable,
-                });
+                setAuditResult(normalizeAuditSummaryPayload(data as Record<string, unknown>));
               } else if (curEvt === "studio_editor_target") {
                 const target = data as { file_type?: string; filename?: string };
                 if (target.filename) {
@@ -1578,7 +1718,7 @@ export function StudioChat({
           <span className="text-[9px] font-bold uppercase tracking-widest text-[#00A3C4]">Studio Chat</span>
           {streaming && (
             <span className="text-[9px] px-1.5 py-0.5 border border-[#1A202C] bg-white text-[#1A202C]">
-              {streamStage || "running"}
+              {streamStage ? STREAM_STAGE_LABELS[streamStage] || streamStage : "运行中"}
             </span>
           )}
           <span className="flex-1" />
@@ -1679,6 +1819,9 @@ export function StudioChat({
           recoveryDraftImpact={recoveryDraftImpact}
           recoverySkillId={skillId}
           recoveryConversationId={convId}
+          activeRunId={frontendRunProtocolEnabled ? activeRunId : null}
+          activeRunVersion={frontendRunProtocolEnabled ? activeRunVersion : null}
+          archivedRuns={frontendRunProtocolEnabled ? archivedRuns : []}
           onNextAction={routeInfo?.next_action ? (() => { void handleWorkflowNextStep(); }) : null}
           nextActionRunning={workflowNextActionRunning}
         />
@@ -1730,6 +1873,7 @@ export function StudioChat({
             governanceCards={storeGovernanceCards}
             auditResult={auditResult}
             pendingGovernanceActions={pendingGovernanceActions}
+            deepPatches={deepPatches}
             phaseProgress={phaseProgress}
             architectPhase={architectPhase}
             architectQuestions={architectQuestions}
