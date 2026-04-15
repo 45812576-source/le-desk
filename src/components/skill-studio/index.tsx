@@ -143,7 +143,7 @@ export function SkillStudio({
     selectedSkill.current_version !== activeSandboxReport.target_version,
   );
   const sandboxVersionMismatchMessage = sandboxVersionMismatch
-    ? `当前 Skill 已是 v${selectedSkill?.current_version}，但整改来源报告基于 v${activeSandboxReport?.target_version}。如果要继续发布，请先重新运行质量检测生成新报告。`
+    ? `当前 Skill 已是 v${selectedSkill?.current_version}，但整改来源报告基于 v${activeSandboxReport?.target_version}。如果要继续提交审批，请先重新运行质量检测生成新报告。`
     : null;
 
   // ── Memo: fetch when selected skill changes ──

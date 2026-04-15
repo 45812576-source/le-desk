@@ -6,11 +6,13 @@ import { ICONS } from "@/components/pixel";
 import { PixelButton } from "@/components/pixel/PixelButton";
 import { PixelBadge } from "@/components/pixel/PixelBadge";
 import { apiFetch, getToken } from "@/lib/api";
+import { useAuth } from "@/lib/auth";
 import type { SkillDetail, SkillVersion } from "@/lib/types";
 import { CommentsPanel } from "@/components/skill/CommentsPanel";
 
 const STATUS_COLOR: Record<string, "cyan" | "green" | "yellow" | "red" | "gray"> = {
   draft: "gray",
+  reviewing: "yellow",
   published: "green",
   archived: "red",
 };
@@ -24,9 +26,25 @@ interface UploadResult {
   error?: string;
 }
 
+interface SkillStatusUpdateResult {
+  id: number;
+  status: SkillDetail["status"];
+  scope: SkillDetail["scope"];
+  approval_stage?: SkillDetail["approval_stage"];
+}
+
+function approvalStageLabel(stage?: string | null): string | null {
+  if (!stage) return null;
+  if (stage === "dept_pending") return "待部门审批";
+  if (stage === "super_pending") return "待超管终审";
+  if (stage === "needs_info") return "待补充材料";
+  return stage;
+}
+
 // ─── Main page ────────────────────────────────────────────────────────────────
 
 export default function AdminSkillsPage() {
+  const { user } = useAuth();
   const [skills, setSkills] = useState<SkillDetail[]>([]);
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<SkillDetail | null>(null);
@@ -82,10 +100,19 @@ export default function AdminSkillsPage() {
 
   async function handleStatusChange(id: number, status: string) {
     try {
-      await apiFetch(`/skills/${id}/status?status=${status}`, { method: "PATCH" });
+      const updated = await apiFetch<SkillStatusUpdateResult>(`/skills/${id}/status?status=${status}`, { method: "PATCH" });
       fetchSkills();
       if (selected?.id === id) {
-        setSelected((prev) => (prev ? { ...prev, status } : null));
+        setSelected((prev) => (
+          prev
+            ? {
+                ...prev,
+                status: updated.status,
+                scope: updated.scope,
+                approval_stage: updated.approval_stage ?? null,
+              }
+            : null
+        ));
       }
     } catch {
       // ignore
@@ -95,8 +122,17 @@ export default function AdminSkillsPage() {
   async function handleScopeChange(id: number, scope: string) {
     if (!selected) return;
     try {
-      await apiFetch(`/skills/${id}/status?status=${selected.status}&scope=${scope}`, { method: "PATCH" });
-      setSelected((prev) => (prev ? { ...prev, scope: scope as SkillDetail["scope"] } : null));
+      const updated = await apiFetch<SkillStatusUpdateResult>(`/skills/${id}/status?status=${selected.status}&scope=${scope}`, { method: "PATCH" });
+      setSelected((prev) => (
+        prev
+          ? {
+              ...prev,
+              status: updated.status,
+              scope: updated.scope,
+              approval_stage: updated.approval_stage ?? null,
+            }
+          : null
+      ));
       fetchSkills();
     } catch (e) {
       alert(`修改失败：${e instanceof Error ? e.message : "未知错误"}`);
@@ -124,7 +160,7 @@ export default function AdminSkillsPage() {
 
   async function handleBatchPublish() {
     if (checkedIds.size === 0) return;
-    if (!confirm(`确认将选中的 ${checkedIds.size} 个 Skill 批量发布到公司市场？`)) return;
+    if (!confirm(`确认将选中的 ${checkedIds.size} 个 Skill ${user?.role === "super_admin" ? "批量发布到公司市场" : "批量提交审批"}？`)) return;
     setBatchPublishing(true);
     try {
       await apiFetch("/skills/batch-publish", {
@@ -134,7 +170,7 @@ export default function AdminSkillsPage() {
       setCheckedIds(new Set());
       fetchSkills();
     } catch (e) {
-      alert(`批量发布失败：${e instanceof Error ? e.message : "未知错误"}`);
+      alert(`批量处理失败：${e instanceof Error ? e.message : "未知错误"}`);
     } finally {
       setBatchPublishing(false);
     }
@@ -225,7 +261,7 @@ export default function AdminSkillsPage() {
               disabled={batchPublishing}
               onClick={handleBatchPublish}
             >
-              {batchPublishing ? "发布中..." : `批量发布 (${checkedIds.size})`}
+              {batchPublishing ? "处理中..." : `${user?.role === "super_admin" ? "批量发布" : "批量提审"} (${checkedIds.size})`}
             </PixelButton>
           )}
           <PixelButton
@@ -316,7 +352,14 @@ export default function AdminSkillsPage() {
                   >
                     <div className="flex items-center justify-between mb-1">
                       <span className="text-xs font-bold truncate">{s.name}</span>
-                      <PixelBadge color={STATUS_COLOR[s.status] || "gray"}>{s.status}</PixelBadge>
+                      <div className="flex items-center gap-1">
+                        {approvalStageLabel(s.approval_stage) && (
+                          <PixelBadge color={s.approval_stage === "super_pending" ? "purple" : "yellow"}>
+                            {approvalStageLabel(s.approval_stage)}
+                          </PixelBadge>
+                        )}
+                        <PixelBadge color={STATUS_COLOR[s.status] || "gray"}>{s.status}</PixelBadge>
+                      </div>
                     </div>
                     <p className="text-[10px] text-gray-500 truncate">{s.description || "无描述"}</p>
                     <div className="flex items-center gap-2 mt-1">
@@ -351,7 +394,7 @@ export default function AdminSkillsPage() {
                           size="sm"
                           onClick={() => handleStatusChange(selected.id, "published")}
                         >
-                          发布
+                          {user?.role === "super_admin" ? "发布" : "提交审批"}
                         </PixelButton>
                       )}
                       {selected.status === "published" && (
@@ -373,6 +416,9 @@ export default function AdminSkillsPage() {
                     </div>
                   </div>
                   <p className="text-[10px] text-gray-600 mb-1">{selected.description}</p>
+                  {approvalStageLabel(selected.approval_stage) && (
+                    <p className="text-[9px] text-amber-600 mb-2 font-bold">{approvalStageLabel(selected.approval_stage)}</p>
+                  )}
                   {selected.created_by && (
                     <p className="text-[9px] text-gray-400 mb-3">
                       作者：<span className="font-bold text-[#1A202C]">{userMap.get(selected.created_by) ?? `#${selected.created_by}`}</span>

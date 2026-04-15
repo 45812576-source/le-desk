@@ -337,7 +337,7 @@ export interface ApprovalAction {
   id: number;
   actor_id: number;
   actor_name: string | null;
-  action: "approve" | "reject" | "add_conditions" | "request_more_info" | "approve_with_conditions" | "supplement";
+  action: "approve" | "reject" | "add_conditions" | "request_more_info" | "approve_with_conditions" | "supplement" | "withdraw";
   comment: string | null;
   decision_payload: Record<string, unknown> | null;
   checklist_result: Array<{ item: string; status: string; note?: string }> | null;
@@ -353,7 +353,7 @@ export interface ApprovalRequest {
   target_detail: Record<string, any>;
   requester_id: number;
   requester_name: string | null;
-  status: "pending" | "approved" | "rejected" | "conditions";
+  status: "pending" | "approved" | "rejected" | "conditions" | "withdrawn";
   stage: string | null;
   needs_info_comment: string | null;
   reason: string | null;
@@ -401,6 +401,7 @@ export interface SkillDetail {
   system_prompt?: string;
   source_files?: { filename: string; path: string; size: number; category?: string }[];
   rejection_comment?: string | null;
+  approval_stage?: string | null;
   data_queries?: { query_name: string; query_type: string; table_name: string; description?: string }[];
 }
 

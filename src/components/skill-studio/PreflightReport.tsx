@@ -37,6 +37,7 @@ export function PreflightReport({
   onConfirmKnowledge,
   onSubmit,
   onRerun,
+  submitLabel = "提交审批",
 }: {
   result: PreflightResult | null;
   stage: string | null;
@@ -44,6 +45,7 @@ export function PreflightReport({
   onConfirmKnowledge: (items: PreflightGate["items"]) => void;
   onSubmit: () => void;
   onRerun: () => void;
+  submitLabel?: string;
 }) {
   if (!running && !result) return null;
 
@@ -159,7 +161,7 @@ export function PreflightReport({
       {!running && result && (
         <div className="flex items-center gap-2 pt-1">
           {result.passed && (
-            <PixelButton size="sm" onClick={onSubmit}>提交审核</PixelButton>
+            <PixelButton size="sm" onClick={onSubmit}>{submitLabel}</PixelButton>
           )}
           <PixelButton size="sm" variant="secondary" onClick={onRerun}>
             {result.passed ? "重新检测" : "修复后重检"}

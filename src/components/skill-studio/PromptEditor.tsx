@@ -4,6 +4,7 @@ import { useDeferredValue, useEffect, useRef, useState } from "react";
 import { Zap, Download, Search } from "lucide-react";
 import { PixelButton } from "@/components/pixel/PixelButton";
 import { apiFetch, getToken } from "@/lib/api";
+import { useAuth } from "@/lib/auth";
 import type { SkillDetail, SkillVersion } from "@/lib/types";
 import { useTheme } from "@/lib/theme";
 import { useStudioStore } from "@/lib/studio-store";
@@ -14,6 +15,13 @@ import { KnowledgeConfirmModal } from "./KnowledgeConfirmModal";
 import type { GovernanceCardData, PreflightResult, PreflightGate, StagedEdit, DiffOp } from "./types";
 import type { WorkflowStateData } from "./workflow-protocol";
 import { normalizeStagedEditPayload } from "./utils";
+
+interface SkillStatusUpdateResult {
+  id: number;
+  status: SkillDetail["status"];
+  scope: SkillDetail["scope"];
+  approval_stage?: SkillDetail["approval_stage"];
+}
 
 function SkillIcon({ size }: { size: number }) {
   const { theme } = useTheme();
@@ -79,6 +87,7 @@ export function PromptEditor({
   sandboxVersionMismatch?: boolean;
   sandboxVersionMismatchMessage?: string | null;
 }) {
+  const { user } = useAuth();
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [changeNote, setChangeNote] = useState("");
@@ -420,9 +429,14 @@ export function PromptEditor({
     }
     setSubmitting(true);
     try {
-      await apiFetch(`/skills/${skill.id}/status?status=published`, { method: "PATCH" });
-      setSaveMsg("✓ 已提交审核");
-      onSaved(skill);
+      const updated = await apiFetch<SkillStatusUpdateResult>(`/skills/${skill.id}/status?status=published`, { method: "PATCH" });
+      setSaveMsg(updated.status === "published" ? "✓ 已发布" : "✓ 已提交审批");
+      onSaved({
+        ...skill,
+        status: updated.status,
+        scope: updated.scope,
+        approval_stage: updated.approval_stage ?? null,
+      });
     } catch (err) {
       setSaveMsg(err instanceof Error ? err.message : "提交失败");
     } finally { setSubmitting(false); }
@@ -616,6 +630,7 @@ export function PromptEditor({
         onConfirmKnowledge={(items) => setShowKbConfirm(items || null)}
         onSubmit={handleSubmitReview}
         onRerun={runPreflight}
+        submitLabel={user?.role === "super_admin" ? "发布" : "提交审批"}
       />
 
       {/* Toolbar */}

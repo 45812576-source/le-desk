@@ -335,17 +335,26 @@ export function StudioChat({
         return;
       }
       if (nextAction === "submit_approval") {
-        await apiFetch(`/skills/${skillId}/status?status=published`, {
+        const updated = await apiFetch<{
+          id: number;
+          status: SkillDetail["status"];
+          scope: SkillDetail["scope"];
+          approval_stage?: SkillDetail["approval_stage"];
+        }>(`/skills/${skillId}/status?status=published`, {
           method: "PATCH",
         });
+        const isPublished = updated.status === "published";
+        const approvalMessage = updated.approval_stage === "super_pending"
+          ? "已提交审批，当前 Skill 正等待超管终审。"
+          : "已提交审批，当前 Skill 已进入后续审批流。";
         setStoreWorkflowState(
           storeWorkflowState
             ? {
                 ...storeWorkflowState,
                 phase: "ready",
                 next_action: "continue_chat",
-                route_reason: "approval_submitted",
-                status: "submitted",
+                route_reason: isPublished ? "published" : "approval_submitted",
+                status: isPublished ? "published" : "submitted",
               }
             : storeWorkflowState
         );
@@ -353,7 +362,7 @@ export function StudioChat({
         onMemoRefresh();
         setMessages((prev) => [...prev, {
           role: "assistant",
-          text: "已提交审批，当前 Skill 已进入后续审批流。",
+          text: isPublished ? "已发布，当前 Skill 已可挂载到工作台。" : approvalMessage,
           loading: false,
         }]);
         return;

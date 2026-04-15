@@ -40,7 +40,7 @@ export function SandboxTestModal({
   onPassed,
   onCancel,
   onImportToStudio: onImportToStudioProp,
-  passedLabel = "OK 通过，继续发布",
+  passedLabel = "OK 通过，继续提交审批",
   initialSessionId,
 }: SandboxTestModalProps) {
   const router = useRouter();
@@ -1930,7 +1930,7 @@ function Step6KnowledgePrecheck({
       {/* 阻断原因 */}
       {blocked && block_reasons.length > 0 && (
         <div className="border border-red-200 bg-red-50 rounded p-2 space-y-1">
-          <div className="text-[9px] font-bold text-red-600">发布被阻断</div>
+          <div className="text-[9px] font-bold text-red-600">提审被阻断</div>
           {block_reasons.map((r, i) => (
             <div key={i} className="text-[8px] text-red-500">• {r}</div>
           ))}
@@ -1983,10 +1983,10 @@ function Step6KnowledgePrecheck({
 
       <div className="flex justify-end pt-1">
         {blocked ? (
-          <div className="text-[9px] text-red-500 font-bold">请先解决上述阻断问题后再发布</div>
+          <div className="text-[9px] text-red-500 font-bold">请先解决上述阻断问题后再提交审批</div>
         ) : (
           <PixelButton onClick={onPassed}>
-            {references.length > 0 ? "安全检查通过，继续发布" : "继续发布"}
+            {references.length > 0 ? "安全检查通过，继续提交审批" : "继续提交审批"}
           </PixelButton>
         )}
       </div>

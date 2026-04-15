@@ -598,10 +598,11 @@ function ApprovalWorkbench({
                   a.action === "approve" ? "bg-green-100 text-green-700"
                   : a.action === "reject" ? "bg-red-100 text-red-700"
                   : a.action === "request_more_info" ? "bg-blue-100 text-blue-700"
+                  : a.action === "withdraw" ? "bg-gray-100 text-gray-600"
                   : a.action === "approve_with_conditions" ? "bg-purple-100 text-purple-700"
                   : "bg-amber-100 text-amber-700"
                 }`}>
-                  {a.action === "approve" ? "通过" : a.action === "reject" ? "拒绝" : a.action === "request_more_info" ? "要求补充" : a.action === "approve_with_conditions" ? "附条件通过" : "附条件"}
+                  {a.action === "approve" ? "通过" : a.action === "reject" ? "拒绝" : a.action === "request_more_info" ? "要求补充" : a.action === "withdraw" ? "撤回" : a.action === "approve_with_conditions" ? "附条件通过" : "附条件"}
                 </span>
                 {a.comment && <span className="text-muted-foreground truncate">{a.comment}</span>}
               </div>
@@ -1235,6 +1236,7 @@ function StatusBadge({ status }: { status: string }) {
   if (status === "pending") return <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-amber-100 text-amber-700"><Clock size={10} />审批中</span>;
   if (status === "approved") return <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-green-100 text-green-700"><Check size={10} />已通过</span>;
   if (status === "rejected") return <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-red-100 text-red-700"><X size={10} />已拒绝</span>;
+  if (status === "withdrawn") return <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-gray-100 text-gray-600"><X size={10} />已撤回</span>;
   return <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-gray-100 text-gray-600">{status}</span>;
 }
 
@@ -1253,6 +1255,7 @@ function ApprovalCard({
   templates,
   currentUserId,
   onRefresh,
+  onWithdraw,
 }: {
   request: ApprovalRequest;
   acting: number | null;
@@ -1267,6 +1270,7 @@ function ApprovalCard({
   templates: Record<string, ApprovalTemplate>;
   currentUserId?: number;
   onRefresh?: () => void;
+  onWithdraw?: (requestId: number) => void;
 }) {
   const detail: Record<string, unknown> = (r.target_detail || {}) as Record<string, unknown>;
   const title = (detail.title || detail.name || `#${r.target_id}`) as string;
@@ -1306,7 +1310,7 @@ function ApprovalCard({
               {r.actions.map((a) => (
                 <div key={a.id} className="flex items-center gap-1">
                   <span className="font-medium">{a.actor_name}</span>
-                  <span>{a.action === "approve" ? "已通过" : a.action === "reject" ? "已拒绝" : a.action === "request_more_info" ? "要求补充" : a.action === "approve_with_conditions" ? "附条件通过" : a.action === "supplement" ? "补充证据" : a.action}</span>
+                  <span>{a.action === "approve" ? "已通过" : a.action === "reject" ? "已拒绝" : a.action === "request_more_info" ? "要求补充" : a.action === "approve_with_conditions" ? "附条件通过" : a.action === "supplement" ? "补充证据" : a.action === "withdraw" ? "已撤回" : a.action}</span>
                   {a.comment && <span className="text-foreground">: {a.comment}</span>}
                   <span className="ml-1">{formatTime(a.created_at)}</span>
                 </div>
@@ -1315,6 +1319,14 @@ function ApprovalCard({
           )}
         </div>
         <div className="flex items-center gap-2 flex-shrink-0">
+          {!showActions && r.status === "pending" && currentUserId === r.requester_id && onWithdraw && (
+            <button
+              onClick={() => onWithdraw(r.id)}
+              className="text-[10px] font-medium text-red-600 hover:underline"
+            >
+              撤回
+            </button>
+          )}
           <button onClick={onToggleExpand} className="p-1.5 rounded hover:bg-muted transition-colors text-muted-foreground">
             {expanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
           </button>
@@ -1418,6 +1430,19 @@ export default function ApprovalsPage() {
     setActing(null);
   }
 
+  async function handleWithdraw(requestId: number) {
+    if (!confirm("确认撤回这条审批申请？")) return;
+    setActing(requestId);
+    try {
+      await apiFetch(`/approvals/${requestId}/withdraw`, { method: "POST" });
+      if (mainTab === "all") await fetchAdminData();
+      else await fetchData();
+    } catch (e: unknown) {
+      alert(e instanceof Error ? e.message : "撤回失败");
+    }
+    setActing(null);
+  }
+
   async function loadFileContent(skillId: number, filename: string) {
     const key = `${skillId}:${filename}`;
     if (fileContents[key] !== undefined) {
@@ -1516,6 +1541,7 @@ export default function ApprovalsPage() {
                 templates={templates}
                 currentUserId={user?.id}
                 onRefresh={fetchData}
+                onWithdraw={handleWithdraw}
               />
             ))}
             {resolvedIncoming.length > 0 && (
@@ -1537,6 +1563,7 @@ export default function ApprovalsPage() {
                     templates={templates}
                     currentUserId={user?.id}
                     onRefresh={fetchData}
+                    onWithdraw={handleWithdraw}
                   />
                 ))}
               </>
@@ -1580,6 +1607,7 @@ export default function ApprovalsPage() {
                 templates={templates}
                 currentUserId={user?.id}
                 onRefresh={fetchData}
+                onWithdraw={handleWithdraw}
               />
             ))}
           </div>
@@ -1616,6 +1644,7 @@ const ADMIN_STATUS_TABS: { key: string; label: string }[] = [
   { key: "pending", label: "待审批" },
   { key: "approved", label: "已通过" },
   { key: "rejected", label: "已拒绝" },
+  { key: "withdrawn", label: "已撤回" },
 ];
 
 function AdminAllTab({

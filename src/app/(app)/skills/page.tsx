@@ -44,6 +44,14 @@ const TOOL_TYPE_COLOR: Record<string, "cyan" | "green" | "purple" | "gray"> = {
   mcp: "cyan", builtin: "green", http: "purple",
 };
 
+function approvalStageLabel(stage?: string | null): string | null {
+  if (!stage) return null;
+  if (stage === "dept_pending") return "待部门审批";
+  if (stage === "super_pending") return "待超管终审";
+  if (stage === "needs_info") return "待补充材料";
+  return stage;
+}
+
 // ─── Types ──────────────────────────────────────────────────────────────────
 
 interface WorkspaceConfigItem {
@@ -51,6 +59,7 @@ interface WorkspaceConfigItem {
   name: string;
   description?: string;
   status?: string;
+  approval_stage?: string | null;
   scope?: string;
   source: string;
   mounted: boolean;
@@ -85,6 +94,25 @@ function sanitizeMountedSkills(
     next.set(id, { ...item, status: latestStatus });
   }
   return next;
+}
+
+function workspacePublishBlockReason(skill: SkillDetail, scope: "department" | "company"): string {
+  const targetLabel = scope === "department" ? "部门标准工作台" : "公司标准工作台";
+  const stageLabel = approvalStageLabel(skill.approval_stage);
+  const skillName = `Skill「${skill.name}」`;
+  if (stageLabel) {
+    return `${skillName}当前${stageLabel}，暂不可发布为${targetLabel}；只有已发布 Skill 才能挂载到标准工作台。`;
+  }
+  if (skill.status === "reviewing") {
+    return `${skillName}当前审核中，暂不可发布为${targetLabel}；只有已发布 Skill 才能挂载到标准工作台。`;
+  }
+  if (skill.status === "draft") {
+    return `${skillName}当前仍是草稿，暂不可发布为${targetLabel}；请先提交审批并完成发布。`;
+  }
+  if (skill.status === "rejected") {
+    return `${skillName}已被打回，暂不可发布为${targetLabel}；请修改后重新提交审批。`;
+  }
+  return `${skillName}尚未发布，暂不可发布为${targetLabel}；只有已发布 Skill 才能挂载到标准工作台。`;
 }
 
 // ─── Section Group ────────────────────────────────────────────────────────────
@@ -185,6 +213,7 @@ function CheckItem({
 
 // ─── My Skill Actions (发布/归档/删除) ────────────────────────────────────
 function MySkillActions({ skill, onRefresh }: { skill: SkillDetail; onRefresh: () => void }) {
+  const { user } = useAuth();
   const [deleting, setDeleting] = useState(false);
   const [showSandbox, setShowSandbox] = useState(false);
 
@@ -216,6 +245,7 @@ function MySkillActions({ skill, onRefresh }: { skill: SkillDetail; onRefresh: (
           type="skill"
           id={skill.id}
           name={skill.name}
+          passedLabel={user?.role === "super_admin" ? "OK 通过，继续发布" : "OK 通过，继续提交审批"}
           onPassed={() => { setShowSandbox(false); onRefresh(); }}
           onCancel={() => setShowSandbox(false)}
           onImportToStudio={() => {
@@ -225,10 +255,14 @@ function MySkillActions({ skill, onRefresh }: { skill: SkillDetail; onRefresh: (
         />
       )}
       {(skill.status === "draft" || skill.status === "archived") && (
-        <PixelButton size="sm" variant="secondary" onClick={() => setShowSandbox(true)}>发布</PixelButton>
+        <PixelButton size="sm" variant="secondary" onClick={() => setShowSandbox(true)}>
+          {user?.role === "super_admin" ? "发布" : "提交审批"}
+        </PixelButton>
       )}
       {skill.status === "reviewing" && (
-        <span className="text-[9px] font-bold text-yellow-600 dark:text-yellow-400 border border-yellow-400 dark:border-yellow-600 bg-yellow-50 dark:bg-yellow-950 px-2 py-1">审批中</span>
+        <span className="text-[9px] font-bold text-yellow-600 dark:text-yellow-400 border border-yellow-400 dark:border-yellow-600 bg-yellow-50 dark:bg-yellow-950 px-2 py-1">
+          {approvalStageLabel(skill.approval_stage) || "审批中"}
+        </span>
       )}
       {skill.status === "published" && (
         <PixelButton size="sm" variant="secondary" onClick={handleArchive}>归档</PixelButton>
@@ -242,6 +276,7 @@ function MySkillActions({ skill, onRefresh }: { skill: SkillDetail; onRefresh: (
 
 // ─── My Tool Actions ────────────────────────────────────────────────────────
 function MyToolActions({ tool, onRefresh }: { tool: ToolEntry; onRefresh: () => void }) {
+  const { user } = useAuth();
   const [deleting, setDeleting] = useState(false);
   const [showSandbox, setShowSandbox] = useState(false);
 
@@ -272,12 +307,15 @@ function MyToolActions({ tool, onRefresh }: { tool: ToolEntry; onRefresh: () => 
           type="tool"
           id={tool.id}
           name={tool.display_name || tool.name}
+          passedLabel={user?.role === "super_admin" ? "OK 通过，继续发布" : "OK 通过，继续提交审批"}
           onPassed={() => { setShowSandbox(false); onRefresh(); }}
           onCancel={() => setShowSandbox(false)}
         />
       )}
       {(tool.status === "draft" || tool.status === "archived") && (
-        <PixelButton size="sm" variant="secondary" onClick={() => setShowSandbox(true)}>发布</PixelButton>
+        <PixelButton size="sm" variant="secondary" onClick={() => setShowSandbox(true)}>
+          {user?.role === "super_admin" ? "发布" : "提交审批"}
+        </PixelButton>
       )}
       {tool.status === "reviewing" && (
         <span className="text-[9px] font-bold text-yellow-600 dark:text-yellow-400 border border-yellow-400 dark:border-yellow-600 bg-yellow-50 dark:bg-yellow-950 px-2 py-1">审批中</span>
@@ -459,6 +497,15 @@ export default function SkillsPage() {
     setPublishing(true);
     setSaveMsg(null);
     try {
+      const blockedSkill = mySkills.find((skill) => {
+        const mounted = mountedSkills.get(skill.id);
+        return mounted?.mounted && !isWorkspaceMountableSkillStatus(skill.status);
+      });
+      if (blockedSkill) {
+        setSaveMsg(workspacePublishBlockReason(blockedSkill, scope));
+        return;
+      }
+
       const sanitizedMountedSkills = sanitizeMountedSkills(mountedSkills, mySkills);
       const skillItems = Array.from(sanitizedMountedSkills.values()).map((s) => ({
         id: s.id, source: s.source, mounted: s.mounted,
@@ -547,6 +594,7 @@ export default function SkillsPage() {
               ownSkills.map((s) => {
                 const skill = mySkills.find((ms) => ms.id === s.id);
                 const badge = SKILL_STATUS_BADGE[s.status ?? "draft"] ?? SKILL_STATUS_BADGE.draft;
+                const stageLabel = approvalStageLabel(skill?.approval_stage ?? s.approval_stage);
                 return (
                   <CheckItem
                     key={s.id}
@@ -560,11 +608,12 @@ export default function SkillsPage() {
                           <PixelBadge color="cyan">v{skill.current_version}</PixelBadge>
                         )}
                         {s.scope && <PixelBadge color="gray">{SCOPE_LABEL[s.scope] || s.scope}</PixelBadge>}
+                        {stageLabel && <PixelBadge color={stageLabel.includes("超管") ? "purple" : "yellow"}>{stageLabel}</PixelBadge>}
                       </>
                     }
                     checked={s.mounted}
                     disabled={!s.mountable}
-                    helperText={s.mountable ? undefined : "Skill需通过审核发布后，可在工作台中配置使用"}
+                    helperText={s.mountable ? undefined : stageLabel ? `${stageLabel}，暂不可在工作台中配置使用` : "Skill需通过审核发布后，可在工作台中配置使用"}
                     onToggle={(checked) => {
                       if (!s.mountable) return;
                       toggleSkillMount(s.id, checked);
@@ -726,7 +775,7 @@ export default function SkillsPage() {
               </>
             )}
             {saveMsg && (
-              <span className={`text-[9px] font-bold ${saveMsg.includes("失败") ? "text-red-500" : "text-[#00CC99]"}`}>
+              <span className={`text-[9px] font-bold ${saveMsg.includes("失败") || saveMsg.includes("暂不可") ? "text-red-500" : "text-[#00CC99]"}`}>
                 {saveMsg}
               </span>
             )}
