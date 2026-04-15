@@ -79,6 +79,7 @@ interface ChatStore {
 
   loadConversations: () => Promise<void>;
   loadMessages: (convId: number) => Promise<void>;
+  clearMessages: (convId: number) => Promise<void>;
   setActiveConv: (convId: number | null) => void;
   sendMessage: (
     convId: number,
@@ -130,6 +131,29 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     } catch {
       // ignore
     }
+  },
+
+  async clearMessages(convId) {
+    await apiFetch(`/conversations/${convId}/messages`, {
+      method: "DELETE",
+    });
+    set((s) => {
+      const next = new Map(s.messagesMap);
+      next.set(convId, []);
+      return { messagesMap: next };
+    });
+    patchStreamState(convId, {
+      isSending: false,
+      isFileUpload: false,
+      streamingText: "",
+      streamingBlocks: [],
+      streamStage: null,
+      abortController: null,
+      currentRound: 0,
+      maxRounds: 0,
+      streamError: null,
+      tokenUsage: null,
+    }, true);
   },
 
   appendOptimisticMessage(convId, msg) {

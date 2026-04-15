@@ -6,7 +6,7 @@ import { apiFetch } from "@/lib/api";
 import { useChatStore, subscribeConvStream, getConvStreamSnapshot } from "@/lib/chat-store";
 import { connectionManager } from "@/lib/connection";
 import type { ConnectionState } from "@/lib/connection";
-import type { ContentBlock } from "@/lib/types";
+import type { ContentBlock, SandboxReport, SandboxSession } from "@/lib/types";
 import { MessageBubble } from "@/components/chat/MessageBubble";
 import { ChatInput } from "@/components/chat/ChatInput";
 import { DevStudio } from "@/components/chat/DevStudio";
@@ -17,6 +17,13 @@ import { isEditableSkillStatus, isPublishedSkillStatus } from "@/lib/skill-statu
 // Module-level workspace cache — survives route navigation
 type WorkspaceData = { workspace_type?: string; welcome_message?: string; skills: { id: number; name: string; description?: string; status?: string }[]; tools: { id: number; name: string; display_name: string; description?: string; tool_type?: string }[] };
 const _wsCache = new Map<number, WorkspaceData>();
+
+interface SandboxHistoryItem extends SandboxSession {
+  has_report: boolean;
+  report_created_at: string | null;
+  report_knowledge_entry_id: number | null;
+  report_hash: string | null;
+}
 
 const STAGE_LABELS: Record<string, string> = {
   matching_skill: "识别意图...",
@@ -51,6 +58,44 @@ const ALLOWED_EXTS = [".txt", ".pdf", ".docx", ".pptx", ".md", ".xlsx", ".xls", 
   ".jpg", ".jpeg", ".png", ".webp", ".bmp", ".mp3", ".wav", ".m4a", ".ogg", ".flac"];
 const isAllowedFile = (f: File) =>
   ALLOWED_EXTS.some((ext) => f.name.toLowerCase().endsWith(ext)) || f.type.startsWith("image/");
+
+function formatDateTime(value: string | null | undefined): string {
+  if (!value) return "—";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString("zh-CN", {
+    hour12: false,
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function statusLabel(status: string): string {
+  switch (status) {
+    case "completed": return "已完成";
+    case "running": return "执行中";
+    case "cannot_test": return "不可测试";
+    case "ready_to_run": return "可运行";
+    case "blocked": return "已阻断";
+    case "draft": return "草稿";
+    default: return status;
+  }
+}
+
+function stepLabel(step: string): string {
+  switch (step) {
+    case "input_slot_review": return "输入确认";
+    case "tool_review": return "工具确认";
+    case "permission_review": return "权限确认";
+    case "case_generation": return "生成用例";
+    case "execution": return "执行测试";
+    case "evaluation": return "质量评估";
+    case "done": return "已结束";
+    default: return step;
+  }
+}
 
 /* ── Status Indicator ── */
 
@@ -171,6 +216,187 @@ function StreamingBubble({ text }: { text: string }) {
   );
 }
 
+function SandboxHistoryModal({
+  open,
+  loading,
+  detailLoading,
+  error,
+  items,
+  selectedSessionId,
+  sessionDetail,
+  reportDetail,
+  onClose,
+  onSelectSession,
+  onViewReport,
+}: {
+  open: boolean;
+  loading: boolean;
+  detailLoading: boolean;
+  error: string | null;
+  items: SandboxHistoryItem[];
+  selectedSessionId: number | null;
+  sessionDetail: SandboxSession | null;
+  reportDetail: SandboxReport | null;
+  onClose: () => void;
+  onSelectSession: (sessionId: number) => void;
+  onViewReport: (sessionId: number) => void;
+}) {
+  if (!open) return null;
+
+  return (
+    <div className="absolute inset-0 z-30 bg-[#1A202C]/35 flex justify-end">
+      <div className="w-full max-w-5xl h-full bg-[#F8FCFE] border-l-2 border-[#1A202C] flex">
+        <div className="w-[44%] border-r-2 border-[#1A202C] flex flex-col">
+          <div className="px-4 py-3 border-b-2 border-[#1A202C] bg-white flex items-center justify-between">
+            <div>
+              <div className="text-[9px] font-bold uppercase tracking-widest text-[#00CC99]">历史测试记录</div>
+              <div className="text-[9px] text-gray-400 mt-1">清空聊天后，这里的 session 与报告仍可找回</div>
+            </div>
+            <button
+              onClick={onClose}
+              className="px-3 py-1 text-[9px] font-bold uppercase tracking-widest border-2 border-[#1A202C] bg-white text-[#1A202C] hover:bg-[#F0F4F8] transition-colors"
+            >
+              关闭
+            </button>
+          </div>
+          <div className="flex-1 overflow-y-auto p-3 space-y-3">
+            {loading ? (
+              <div className="text-[10px] font-bold uppercase tracking-widest text-gray-400">加载中...</div>
+            ) : error ? (
+              <div className="border-2 border-red-300 bg-red-50 px-3 py-2 text-[10px] text-red-500">{error}</div>
+            ) : items.length === 0 ? (
+              <div className="border-2 border-dashed border-[#00CC99] bg-white px-4 py-6 text-center">
+                <div className="text-[10px] font-bold uppercase tracking-widest text-[#00CC99] mb-2">暂无历史测试</div>
+                <div className="text-[10px] text-gray-500 leading-relaxed">如果当前还没有保存过沙盒测试，则这里会在第一次产出 session 或报告后出现记录。</div>
+              </div>
+            ) : (
+              items.map((item) => {
+                const selected = item.session_id === selectedSessionId;
+                return (
+                  <button
+                    key={item.session_id}
+                    onClick={() => onSelectSession(item.session_id)}
+                    className={`w-full text-left border-2 px-3 py-3 transition-colors ${
+                      selected
+                        ? "border-[#00CC99] bg-[#F0FFF9]"
+                        : "border-[#1A202C] bg-white hover:bg-[#F8FAFC]"
+                    }`}
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div>
+                        <div className="text-[10px] font-bold text-[#1A202C]">
+                          {item.target_name || `${item.target_type} #${item.target_id}`}
+                        </div>
+                        <div className="text-[9px] text-gray-400 mt-1">
+                          v{item.target_version ?? "?"} · {formatDateTime(item.created_at)}
+                        </div>
+                      </div>
+                      <div className={`px-2 py-0.5 text-[8px] font-bold border ${item.has_report ? "border-[#00CC99] text-[#00CC99]" : "border-gray-300 text-gray-400"}`}>
+                        {item.has_report ? "有报告" : "无报告"}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 mt-3 text-[8px] font-bold uppercase tracking-widest text-gray-500">
+                      <span>{statusLabel(item.status)}</span>
+                      <span>•</span>
+                      <span>{stepLabel(item.current_step)}</span>
+                      {item.parent_session_id ? (
+                        <>
+                          <span>•</span>
+                          <span>重测</span>
+                        </>
+                      ) : null}
+                    </div>
+                  </button>
+                );
+              })
+            )}
+          </div>
+        </div>
+        <div className="flex-1 flex flex-col">
+          <div className="px-4 py-3 border-b-2 border-[#1A202C] bg-white">
+            <div className="text-[9px] font-bold uppercase tracking-widest text-[#1A202C]">记录详情</div>
+          </div>
+          <div className="flex-1 overflow-y-auto p-4 space-y-4">
+            {detailLoading ? (
+              <div className="text-[10px] font-bold uppercase tracking-widest text-gray-400">加载详情...</div>
+            ) : !sessionDetail ? (
+              <div className="border-2 border-dashed border-gray-300 bg-white px-4 py-6 text-[10px] text-gray-500">
+                选择左侧一条历史记录后，这里会显示对应 session 与报告摘要。
+              </div>
+            ) : (
+              <>
+                <div className="border-2 border-[#1A202C] bg-white p-4 space-y-2">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <div className="text-[10px] font-bold uppercase tracking-widest text-[#00CC99]">Session #{sessionDetail.session_id}</div>
+                      <div className="text-[11px] font-bold text-[#1A202C] mt-1">
+                        {sessionDetail.target_name || `${sessionDetail.target_type} #${sessionDetail.target_id}`}
+                      </div>
+                    </div>
+                    {sessionDetail.report_id ? (
+                      <button
+                        onClick={() => onViewReport(sessionDetail.session_id)}
+                        className="px-3 py-1 text-[9px] font-bold uppercase tracking-widest border-2 border-[#00CC99] bg-[#F0FFF9] text-[#00CC99] hover:bg-[#DDFBED] transition-colors"
+                      >
+                        查看报告
+                      </button>
+                    ) : null}
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 text-[10px]">
+                    <div><span className="text-gray-400">状态：</span><span className="font-bold text-[#1A202C]">{statusLabel(sessionDetail.status)}</span></div>
+                    <div><span className="text-gray-400">阶段：</span><span className="font-bold text-[#1A202C]">{stepLabel(sessionDetail.current_step)}</span></div>
+                    <div><span className="text-gray-400">创建：</span><span className="font-bold text-[#1A202C]">{formatDateTime(sessionDetail.created_at)}</span></div>
+                    <div><span className="text-gray-400">完成：</span><span className="font-bold text-[#1A202C]">{formatDateTime(sessionDetail.completed_at)}</span></div>
+                  </div>
+                  {sessionDetail.blocked_reason ? (
+                    <div className="border border-amber-300 bg-amber-50 px-3 py-2 text-[10px] text-amber-700">
+                      阻断原因：{sessionDetail.blocked_reason}
+                    </div>
+                  ) : null}
+                </div>
+                <div className="border-2 border-[#1A202C] bg-white p-4">
+                  <div className="text-[9px] font-bold uppercase tracking-widest text-[#1A202C] mb-3">测试摘要</div>
+                  <div className="grid grid-cols-2 gap-2 text-[10px]">
+                    <div><span className="text-gray-400">输入槽位：</span><span className="font-bold text-[#1A202C]">{sessionDetail.detected_slots?.length ?? 0}</span></div>
+                    <div><span className="text-gray-400">工具确认：</span><span className="font-bold text-[#1A202C]">{sessionDetail.tool_review?.length ?? 0}</span></div>
+                    <div><span className="text-gray-400">理论组合：</span><span className="font-bold text-[#1A202C]">{sessionDetail.theoretical_combo_count ?? "—"}</span></div>
+                    <div><span className="text-gray-400">已执行用例：</span><span className="font-bold text-[#1A202C]">{sessionDetail.executed_case_count ?? "—"}</span></div>
+                    <div><span className="text-gray-400">质量通过：</span><span className="font-bold text-[#1A202C]">{sessionDetail.quality_passed == null ? "—" : sessionDetail.quality_passed ? "是" : "否"}</span></div>
+                    <div><span className="text-gray-400">可提审：</span><span className="font-bold text-[#1A202C]">{sessionDetail.approval_eligible == null ? "—" : sessionDetail.approval_eligible ? "是" : "否"}</span></div>
+                  </div>
+                </div>
+                {reportDetail ? (
+                  <div className="border-2 border-[#00CC99] bg-[#F0FFF9] p-4 space-y-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="text-[9px] font-bold uppercase tracking-widest text-[#00CC99]">报告 #{reportDetail.report_id}</div>
+                      <div className="text-[9px] text-[#00CC99]/70">
+                        {formatDateTime(reportDetail.created_at)}
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2 text-[10px]">
+                      <div><span className="text-gray-500">知识库存证：</span><span className="font-bold text-[#1A202C]">{reportDetail.knowledge_entry_id ?? "—"}</span></div>
+                      <div><span className="text-gray-500">Hash：</span><span className="font-bold text-[#1A202C]">{reportDetail.report_hash?.slice(0, 12) ?? "—"}</span></div>
+                      <div><span className="text-gray-500">质量通过：</span><span className="font-bold text-[#1A202C]">{reportDetail.quality_passed == null ? "—" : reportDetail.quality_passed ? "是" : "否"}</span></div>
+                      <div><span className="text-gray-500">反幻觉通过：</span><span className="font-bold text-[#1A202C]">{reportDetail.anti_hallucination_passed == null ? "—" : reportDetail.anti_hallucination_passed ? "是" : "否"}</span></div>
+                    </div>
+                    <pre className="text-[9px] leading-relaxed whitespace-pre-wrap break-words bg-white border border-[#BEEFD7] p-3 overflow-x-auto">
+                      {JSON.stringify(reportDetail.part3_evaluation ?? {}, null, 2)}
+                    </pre>
+                  </div>
+                ) : sessionDetail.report_id ? (
+                  <div className="border border-dashed border-[#00CC99] bg-white px-4 py-3 text-[10px] text-gray-500">
+                    这条记录已生成报告，点击“查看报告”即可加载详情。
+                  </div>
+                ) : null}
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* ── Main Page ── */
 
 export default function ChatDetailPage() {
@@ -219,6 +445,14 @@ export default function ChatDetailPage() {
   const [sandboxSkills, setSandboxSkills] = useState<{ id: number; name: string; status: string }[]>([]);
   const [sandboxSkillId, setSandboxSkillId] = useState<number | null>(null);
   const [sandboxLoaded, setSandboxLoaded] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyDetailLoading, setHistoryDetailLoading] = useState(false);
+  const [historyError, setHistoryError] = useState<string | null>(null);
+  const [sandboxHistory, setSandboxHistory] = useState<SandboxHistoryItem[]>([]);
+  const [selectedHistorySessionId, setSelectedHistorySessionId] = useState<number | null>(null);
+  const [selectedHistorySession, setSelectedHistorySession] = useState<SandboxSession | null>(null);
+  const [selectedHistoryReport, setSelectedHistoryReport] = useState<SandboxReport | null>(null);
   const visibleWorkspaceSkills = useMemo(
     () => workspaceSkills.filter((skill) => !skill.status || isPublishedSkillStatus(skill.status)),
     [workspaceSkills],
@@ -317,6 +551,75 @@ export default function ChatDetailPage() {
     }
   }, [activeSkill, visibleWorkspaceSkills]);
 
+  const loadSandboxHistory = useCallback(async () => {
+    if (workspaceType !== "sandbox") return;
+    setHistoryLoading(true);
+    setHistoryError(null);
+    try {
+      const params = new URLSearchParams();
+      params.set("limit", "20");
+      if (sandboxSkillId) {
+        params.set("target_type", "skill");
+        params.set("target_id", String(sandboxSkillId));
+      }
+      const path = `/sandbox/interactive/history?${params.toString()}`;
+      const data = await apiFetch<SandboxHistoryItem[]>(path);
+      setSandboxHistory(data);
+      setSelectedHistorySessionId((prev) =>
+        prev && data.some((item) => item.session_id === prev) ? prev : data[0]?.session_id ?? null
+      );
+    } catch (error) {
+      setHistoryError(error instanceof Error ? error.message : "加载历史记录失败");
+      setSandboxHistory([]);
+      setSelectedHistorySessionId(null);
+    } finally {
+      setHistoryLoading(false);
+    }
+  }, [sandboxSkillId, workspaceType]);
+
+  useEffect(() => {
+    if (!historyOpen || workspaceType !== "sandbox") return;
+    loadSandboxHistory();
+  }, [historyOpen, loadSandboxHistory, workspaceType]);
+
+  useEffect(() => {
+    if (!historyOpen || workspaceType !== "sandbox" || !selectedHistorySessionId) {
+      if (!selectedHistorySessionId) {
+        setSelectedHistorySession(null);
+        setSelectedHistoryReport(null);
+      }
+      return;
+    }
+    let cancelled = false;
+    const loadDetails = async () => {
+      setHistoryDetailLoading(true);
+      setHistoryError(null);
+      try {
+        const session = await apiFetch<SandboxSession>(`/sandbox/interactive/${selectedHistorySessionId}`);
+        if (cancelled) return;
+        setSelectedHistorySession(session);
+        if (session.report_id) {
+          const report = await apiFetch<SandboxReport>(`/sandbox/interactive/${selectedHistorySessionId}/report`);
+          if (!cancelled) setSelectedHistoryReport(report);
+        } else if (!cancelled) {
+          setSelectedHistoryReport(null);
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setHistoryError(error instanceof Error ? error.message : "加载历史详情失败");
+          setSelectedHistorySession(null);
+          setSelectedHistoryReport(null);
+        }
+      } finally {
+        if (!cancelled) setHistoryDetailLoading(false);
+      }
+    };
+    loadDetails();
+    return () => {
+      cancelled = true;
+    };
+  }, [historyOpen, selectedHistorySessionId, workspaceType]);
+
   // Auto-scroll
   useEffect(() => {
     const el = scrollRef.current;
@@ -344,6 +647,48 @@ export default function ChatDetailPage() {
 
   function handleStop() {
     useChatStore.getState().stopGeneration(convId);
+  }
+
+  async function handleClearConversation() {
+    if (isSending) {
+      window.alert("当前测试进行中，请先停止生成后再清空。");
+      return;
+    }
+    const confirmed = window.confirm("只清除当前聊天记录，历史测试 session、memo 和测试报告会保留。确认清空吗？");
+    if (!confirmed) return;
+    try {
+      await useChatStore.getState().clearMessages(convId);
+      setQuote(null);
+      setPrefill(null);
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : "清空失败，请重试");
+    }
+  }
+
+  function handleOpenHistory() {
+    setHistoryOpen(true);
+  }
+
+  function handleCloseHistory() {
+    setHistoryOpen(false);
+  }
+
+  function handleSelectHistorySession(sessionId: number) {
+    setSelectedHistorySessionId(sessionId);
+    setSelectedHistoryReport(null);
+  }
+
+  async function handleViewHistoryReport(sessionId: number) {
+    setHistoryDetailLoading(true);
+    setHistoryError(null);
+    try {
+      const report = await apiFetch<SandboxReport>(`/sandbox/interactive/${sessionId}/report`);
+      setSelectedHistoryReport(report);
+    } catch (error) {
+      setHistoryError(error instanceof Error ? error.message : "加载报告失败");
+    } finally {
+      setHistoryDetailLoading(false);
+    }
   }
 
   // Esc to stop generation
@@ -435,6 +780,19 @@ export default function ChatDetailPage() {
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
     >
+      <SandboxHistoryModal
+        open={historyOpen}
+        loading={historyLoading}
+        detailLoading={historyDetailLoading}
+        error={historyError}
+        items={sandboxHistory}
+        selectedSessionId={selectedHistorySessionId}
+        sessionDetail={selectedHistorySession}
+        reportDetail={selectedHistoryReport}
+        onClose={handleCloseHistory}
+        onSelectSession={handleSelectHistorySession}
+        onViewReport={handleViewHistoryReport}
+      />
       {/* Connection status bar */}
       {connState === "failed" && (
         <div className="bg-red-50 border-b-2 border-red-300 px-4 py-1.5 text-[9px] font-bold text-red-500 flex items-center justify-between">
@@ -452,6 +810,34 @@ export default function ChatDetailPage() {
       {tokenUsage && tokenUsage.used > tokenUsage.limit * 0.8 && (
         <div className="text-[8px] font-bold text-amber-500 px-4 py-1 bg-amber-50 border-b border-amber-200">
           上下文已使用 {Math.round(tokenUsage.used / tokenUsage.limit * 100)}%，建议新建对话
+        </div>
+      )}
+
+      {workspaceType === "sandbox" && (
+        <div className={`border-b-2 border-[#00CC99] px-4 py-2 flex items-center justify-between gap-3 ${theme === "dark" ? "bg-[#0D2B22]" : "bg-[#F0FFF9]"}`}>
+          <div>
+            <div className="text-[9px] font-bold uppercase tracking-widest text-[#00CC99]">
+              沙盒短期聊天记录
+            </div>
+            <div className="text-[9px] text-[#00CC99]/70 mt-0.5">
+              清空只影响当前聊天，历史 session、memo 和报告会保留。
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleOpenHistory}
+              className="px-3 py-1 text-[9px] font-bold uppercase tracking-widest border-2 border-[#00CC99] bg-white text-[#00CC99] hover:bg-[#DDFBED] transition-colors"
+            >
+              历史测试记录
+            </button>
+            <button
+              onClick={handleClearConversation}
+              disabled={isSending || messages.length === 0}
+              className="px-3 py-1 text-[9px] font-bold uppercase tracking-widest border-2 border-[#1A202C] bg-white text-[#1A202C] hover:bg-[#F0F4F8] disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+            >
+              清空当前对话
+            </button>
+          </div>
         </div>
       )}
 
