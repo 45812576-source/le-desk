@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { Upload, FileText, AlertTriangle, Trash2, ChevronDown, ChevronRight } from "lucide-react";
+import { Upload, FileText, AlertTriangle, Trash2, ChevronDown, ChevronRight, FolderOpen, Star } from "lucide-react";
 import { PixelButton } from "@/components/pixel/PixelButton";
 import { apiFetch, getToken } from "@/lib/api";
 
@@ -10,6 +10,14 @@ import { apiFetch, getToken } from "@/lib/api";
 interface RemovedSection {
   section: string;
   reason: string;
+}
+
+interface FileTreeItem {
+  filename: string;
+  path: string;
+  role: string;       // "main_prompt" | "knowledge-base" | "example" | "tool" | ...
+  role_label: string;  // 中文标签
+  size: number;
 }
 
 interface ConvertResult {
@@ -22,11 +30,28 @@ interface ConvertResult {
   has_frontend_content: boolean;
   frontend_detail: string;
   ai_converted: boolean;
+  file_tree: FileTreeItem[] | null;
 }
 
 interface ImportSkillModalProps {
   onImported: (skill: { id: number; name: string }) => void;
   onCancel: () => void;
+}
+
+const ROLE_COLORS: Record<string, string> = {
+  main_prompt: "bg-[#CCF2FF] text-[#00A3C4] border-[#00A3C4]",
+  "knowledge-base": "bg-violet-50 text-violet-600 border-violet-300",
+  example: "bg-amber-50 text-amber-600 border-amber-300",
+  reference: "bg-blue-50 text-blue-600 border-blue-300",
+  template: "bg-green-50 text-green-600 border-green-300",
+  tool: "bg-orange-50 text-orange-600 border-orange-300",
+  other: "bg-gray-50 text-gray-500 border-gray-300",
+};
+
+function formatSize(bytes: number) {
+  if (bytes > 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+  if (bytes > 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${bytes} B`;
 }
 
 // ─── Component ──────────────────────────────────────────────────────────────
@@ -44,8 +69,12 @@ export function ImportSkillModal({ onImported, onCancel }: ImportSkillModalProps
   const [saveError, setSaveError] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [reassigning, setReassigning] = useState(false);
 
-  async function handleConvert() {
+  const isZip = selectedFile?.name.toLowerCase().endsWith(".zip");
+  const hasFileTree = result?.file_tree && result.file_tree.length > 1;
+
+  async function doConvert(mainFileOverride?: string) {
     setConverting(true);
     setConvertError(null);
 
@@ -55,6 +84,9 @@ export function ImportSkillModal({ onImported, onCancel }: ImportSkillModalProps
       if (inputMode === "file" && selectedFile) {
         const formData = new FormData();
         formData.append("file", selectedFile);
+        if (mainFileOverride) {
+          formData.append("main_file", mainFileOverride);
+        }
         const token = getToken();
         const resp = await fetch("/api/proxy/skills/import-convert", {
           method: "POST",
@@ -67,7 +99,6 @@ export function ImportSkillModal({ onImported, onCancel }: ImportSkillModalProps
         }
         data = await resp.json();
       } else if (inputMode === "paste" && pasteContent.trim()) {
-        // 用 FormData 发送 content 字段
         const formData = new FormData();
         formData.append("content", pasteContent);
         const token = getToken();
@@ -93,7 +124,18 @@ export function ImportSkillModal({ onImported, onCancel }: ImportSkillModalProps
       setConvertError(err instanceof Error ? err.message : "转换失败");
     } finally {
       setConverting(false);
+      setReassigning(false);
     }
+  }
+
+  function handleConvert() {
+    doConvert();
+  }
+
+  async function handleReassignMain(newMainPath: string) {
+    // 用户点击了另一个文件作为主文件，重新解析
+    setReassigning(true);
+    await doConvert(newMainPath);
   }
 
   async function handleConfirmImport() {
@@ -102,18 +144,65 @@ export function ImportSkillModal({ onImported, onCancel }: ImportSkillModalProps
     setSaveError(null);
 
     try {
-      const created = await apiFetch<{ id: number; name: string }>("/skills", {
-        method: "POST",
-        body: JSON.stringify({
-          name: editName.trim() || result.name,
-          description: editDesc.trim() || result.description,
-          system_prompt: result.system_prompt,
-          mode: "hybrid",
-          variables: [],
-          auto_inject: true,
-        }),
-      });
-      onImported(created);
+      if (isZip && selectedFile && hasFileTree) {
+        // zip 包：使用 upload-zip 保留所有附属文件
+        const formData = new FormData();
+        formData.append("file", selectedFile);
+        // 告知后端哪个是主文件
+        const mainItem = result.file_tree!.find((f) => f.role === "main_prompt");
+        if (mainItem) {
+          formData.append("main_file", mainItem.path);
+        }
+        const token = getToken();
+        const resp = await fetch("/api/proxy/skills/upload-zip", {
+          method: "POST",
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+          body: formData,
+        });
+        if (!resp.ok) {
+          const err = await resp.json().catch(() => ({ detail: `HTTP ${resp.status}` }));
+          throw new Error(err.detail || `请求失败 (${resp.status})`);
+        }
+        const data = await resp.json();
+        // upload-zip 可能没返回 name 且 skill name 可能需要更新
+        const skillId = data.id;
+        const trimmedName = editName.trim() || result.name;
+        const trimmedDesc = editDesc.trim() || result.description;
+        // 更新 name/description（upload-zip 用 frontmatter 中的 name，用户可能改过）
+        if (trimmedName !== data.name || trimmedDesc) {
+          try {
+            await apiFetch(`/skills/${skillId}`, {
+              method: "PUT",
+              body: JSON.stringify({
+                name: trimmedName,
+                description: trimmedDesc,
+                mode: "hybrid",
+                auto_inject: true,
+                system_prompt: result.system_prompt,
+                variables: [],
+                required_inputs: [],
+                model_config_id: null,
+                output_schema: null,
+              }),
+            });
+          } catch { /* best effort */ }
+        }
+        onImported({ id: skillId, name: trimmedName });
+      } else {
+        // 单文件/粘贴：直接 POST /skills
+        const created = await apiFetch<{ id: number; name: string }>("/skills", {
+          method: "POST",
+          body: JSON.stringify({
+            name: editName.trim() || result.name,
+            description: editDesc.trim() || result.description,
+            system_prompt: result.system_prompt,
+            mode: "hybrid",
+            variables: [],
+            auto_inject: true,
+          }),
+        });
+        onImported(created);
+      }
     } catch (err) {
       setSaveError(err instanceof Error ? err.message : "创建失败");
       setStep("preview");
@@ -228,6 +317,61 @@ export function ImportSkillModal({ onImported, onCancel }: ImportSkillModalProps
           {/* ── Step 2: Preview ── */}
           {step === "preview" && result && (
             <>
+              {/* File tree (zip only) */}
+              {hasFileTree && (
+                <div className="border-2 border-[#1A202C] p-3">
+                  <div className="flex items-center gap-1.5 mb-2">
+                    <FolderOpen size={10} className="text-[#00A3C4]" />
+                    <span className="text-[9px] font-bold uppercase tracking-widest text-[#00A3C4]">
+                      压缩包结构分析
+                    </span>
+                    <span className="text-[8px] text-gray-400 ml-1">
+                      ({result.file_tree!.length} 个文件)
+                    </span>
+                  </div>
+                  <div className="space-y-0.5">
+                    {result.file_tree!.map((f) => {
+                      const isMain = f.role === "main_prompt";
+                      const isMd = f.filename.toLowerCase().endsWith(".md");
+                      const colorCls = ROLE_COLORS[f.role] || ROLE_COLORS.other;
+                      return (
+                        <div
+                          key={f.path}
+                          className={`flex items-center gap-2 px-2 py-1.5 rounded transition-colors ${
+                            isMain ? "bg-[#F0FBFF] border border-[#00D1FF]" : "hover:bg-gray-50"
+                          }`}
+                        >
+                          {isMain && <Star size={9} className="text-[#00A3C4] flex-shrink-0" />}
+                          <FileText size={9} className={`flex-shrink-0 ${isMain ? "text-[#00A3C4]" : "text-gray-400"}`} />
+                          <span className={`text-[9px] font-mono truncate flex-1 ${isMain ? "font-bold text-[#00A3C4]" : "text-gray-600"}`}>
+                            {f.filename}
+                          </span>
+                          <span className={`text-[7px] font-bold px-1.5 py-0.5 border rounded flex-shrink-0 ${colorCls}`}>
+                            {f.role_label}
+                          </span>
+                          <span className="text-[8px] text-gray-400 flex-shrink-0 w-14 text-right font-mono">
+                            {formatSize(f.size)}
+                          </span>
+                          {!isMain && isMd && (
+                            <button
+                              onClick={() => handleReassignMain(f.path)}
+                              disabled={reassigning}
+                              className="text-[7px] font-bold px-1.5 py-0.5 border border-[#00A3C4] text-[#00A3C4] hover:bg-[#CCF2FF] transition-colors flex-shrink-0 disabled:opacity-50"
+                              title="将此文件设为主 Prompt"
+                            >
+                              {reassigning ? "..." : "设为主文件"}
+                            </button>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <div className="mt-2 text-[8px] text-gray-400">
+                    系统自动识别主 Prompt 文件。如果识别有误，点击「设为主文件」可重新分析。
+                  </div>
+                </div>
+              )}
+
               {/* Frontend warning banner */}
               {result.has_frontend_content && (
                 <div className="border-2 border-red-400 bg-red-50 px-3 py-2.5 flex items-start gap-2">
@@ -368,7 +512,7 @@ export function ImportSkillModal({ onImported, onCancel }: ImportSkillModalProps
                 onClick={handleConfirmImport}
                 disabled={!editName.trim() || !result.system_prompt.trim()}
               >
-                确认导入
+                {hasFileTree ? `确认导入 (${result.file_tree!.length} 个文件)` : "确认导入"}
               </PixelButton>
               <PixelButton variant="secondary" onClick={() => setStep("input")}>
                 返回修改
