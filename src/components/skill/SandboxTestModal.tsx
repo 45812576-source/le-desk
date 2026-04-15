@@ -353,7 +353,11 @@ export function SandboxTestModal({
                 try {
                   setLoading(true);
                   if (report?.report_id) {
-                    const remediation = await apiFetch<{ cards: unknown[]; staged_edits: unknown[] }>(
+                    const remediation = await apiFetch<{
+                      workflow_state?: import("../skill-studio/workflow-protocol").WorkflowStateData;
+                      cards: unknown[];
+                      staged_edits: unknown[];
+                    }>(
                       `/sandbox/interactive/by-report/${report.report_id}/remediation-actions`,
                       { method: "POST" }
                     );

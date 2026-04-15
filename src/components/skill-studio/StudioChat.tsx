@@ -14,8 +14,12 @@ import { FileSplitCard } from "./cards/FileSplitCard";
 import { GovernanceTimeline } from "./GovernanceTimeline";
 import { RouteStatusBar } from "./RouteStatusBar";
 import { AssistSkillsBar } from "./AssistSkillsBar";
-import { applyOps, estimateMessagesTokens, normalizeStagedEditPayload, TOKEN_COMPRESS_THRESHOLD } from "./utils";
+import { applyOps, estimateMessagesTokens, TOKEN_COMPRESS_THRESHOLD } from "./utils";
 import { parseStructuredStudioMessage } from "./message-parser";
+import { recoverStudioHistory } from "./history-recovery";
+import { deriveStudioRecoveryDraftImpact, parseStudioRecoveryPayload, parseStudioStatePayload } from "./studio-state-adapter";
+import { normalizeWorkflowCardPayload, normalizeWorkflowStagedEditPayload, parseWorkflowStatePayload } from "./workflow-adapter";
+import type { WorkflowActionResult, WorkflowStateData } from "./workflow-protocol";
 import type {
   ChatMessage,
   StudioDraft,
@@ -27,11 +31,11 @@ import type {
   V2SessionState,
   StudioRouteInfo,
   AuditResult,
+  StudioRecoveryInfo,
   GovernanceActionCard,
   GovernanceCardData,
   GovernanceAction,
   PhaseProgress,
-  StagedEdit,
   ArchitectPhaseStatus,
   ArchitectQuestion,
   ArchitectPhaseSummary,
@@ -173,6 +177,7 @@ export function StudioChat({
 
   // V2 会话状态
   const [sessionState, setSessionState] = useState<V2SessionState | null>(null);
+  const [studioRecovery, setStudioRecovery] = useState<StudioRecoveryInfo | null>(null);
   const [reconciledFacts, setReconciledFacts] = useState<{ type: string; text: string }[]>([]);
   const [, setDirectionShift] = useState<{ from: string; to: string } | null>(null);
   const [, setFileNeedStatus] = useState<{ status: string; forbidden_countdown: number } | null>(null);
@@ -206,17 +211,214 @@ export function StudioChat({
   const setStoreSessionMode = useStudioStore((s) => s.setSessionMode);
   const storeAssistSkills = useStudioStore((s) => s.activeAssistSkills);
   const setActiveAssistSkills = useStudioStore((s) => s.setActiveAssistSkills);
+  const storeWorkflowState = useStudioStore((s) => s.workflowState);
+  const setStoreWorkflowState = useStudioStore((s) => s.setWorkflowState);
   const setEditorVisibility = useStudioStore((s) => s.setEditorVisibility);
   const setEditorManuallyCollapsed = useStudioStore((s) => s.setEditorManuallyCollapsed);
   const requestPreflightRefresh = useStudioStore((s) => s.requestPreflightRefresh);
   const studioChatSource = skillId ? `studio-chat:${skillId}:${convId}` : `studio-chat:${convId}`;
+  const [workflowNextActionRunning, setWorkflowNextActionRunning] = useState(false);
+
+  function applyRecoveredStudioState(studioState?: Record<string, unknown> | null) {
+    const recovered = parseStudioStatePayload(studioState);
+    setSessionState(recovered.sessionState);
+    setReconciledFacts(recovered.reconciledFacts);
+    setDirectionShift(recovered.directionShift);
+    setFileNeedStatus(recovered.fileNeedStatus);
+    setRepeatBlocked(recovered.repeatBlocked);
+  }
+
+  function applyWorkflowStatePatch(patch?: Record<string, unknown> | null) {
+    if (!patch) return;
+    const nextWorkflowState = parseWorkflowStatePayload(patch);
+    if (!nextWorkflowState) return;
+    setStoreWorkflowState(
+      storeWorkflowState
+        ? { ...storeWorkflowState, ...(nextWorkflowState as WorkflowStateData) }
+        : nextWorkflowState
+    );
+  }
+
+  function maybeAnnounceNextAction(nextAction?: string | null) {
+    if (!nextAction) return;
+    if (nextAction === "run_sandbox") {
+      setMessages((prev) => [...prev, {
+        role: "assistant",
+        text: "本轮修改已采纳，建议下一步运行 Sandbox 验证完整链路。",
+        loading: false,
+      }]);
+      return;
+    }
+    if (nextAction === "run_targeted_rerun") {
+      setMessages((prev) => [...prev, {
+        role: "assistant",
+        text: "本轮修改已采纳，建议下一步执行局部重测验证受影响问题。",
+        loading: false,
+      }]);
+    }
+  }
+
+  function resolveTargetedRetestPayload(recommendation?: Record<string, unknown> | null) {
+    const issueIds = Array.isArray(recommendation?.issue_ids)
+      ? recommendation?.issue_ids.filter((item): item is string => typeof item === "string" && item.trim().length > 0)
+      : [];
+    const recommendationReportId = Number(recommendation?.source_report_id);
+    if (Number.isFinite(recommendationReportId) && recommendationReportId > 0 && issueIds.length > 0) {
+      return { sourceReportId: recommendationReportId, issueIds };
+    }
+
+    const allTasks = ((memo?.memo as Record<string, unknown> | undefined)?.tasks as Array<{
+      type?: string;
+      status?: string;
+      problem_refs?: string[];
+      source_report_id?: number;
+    }> | undefined) || [];
+    const retestTask = allTasks.find((task) =>
+      task.type === "run_targeted_retest"
+      && (task.status === "todo" || task.status === "in_progress")
+      && Array.isArray(task.problem_refs)
+      && task.problem_refs.length > 0
+      && typeof task.source_report_id === "number"
+    );
+    if (retestTask?.source_report_id && retestTask.problem_refs) {
+      return { sourceReportId: retestTask.source_report_id, issueIds: retestTask.problem_refs };
+    }
+    return null;
+  }
+
+  async function handleWorkflowNextStep(prepared?: WorkflowActionResult | null) {
+    if (!skillId || workflowNextActionRunning) return;
+    setWorkflowNextActionRunning(true);
+    try {
+      const preparedResult = prepared ?? await apiFetch<WorkflowActionResult>(`/skills/${skillId}/workflow/actions`, {
+        method: "POST",
+        body: JSON.stringify({ action: "prepare_next_step" }),
+      });
+      applyWorkflowStatePatch(preparedResult.workflow_state_patch);
+      const nextAction = typeof preparedResult.workflow_state_patch?.next_action === "string"
+        ? preparedResult.workflow_state_patch.next_action
+        : typeof preparedResult.result?.next_action === "string"
+          ? preparedResult.result.next_action
+          : storeWorkflowState?.next_action;
+      const recommendation = (preparedResult.result && typeof preparedResult.result.test_recommendation === "object")
+        ? preparedResult.result.test_recommendation as Record<string, unknown>
+        : null;
+
+      if (nextAction === "run_preflight") {
+        requestPreflightRefresh();
+        return;
+      }
+      if (nextAction === "run_sandbox") {
+        await apiFetch(`/skills/${skillId}/memo/direct-test`, {
+          method: "POST",
+          body: JSON.stringify({ source: "workflow_next_action" }),
+        });
+        onMemoRefresh();
+        onOpenSandbox(skillId);
+        return;
+      }
+      if (nextAction === "run_targeted_rerun") {
+        const payload = resolveTargetedRetestPayload(recommendation);
+        if (!payload) {
+          throw new Error("缺少局部重测范围");
+        }
+        await apiFetch(
+          `/sandbox/interactive/by-report/${payload.sourceReportId}/targeted-rerun`,
+          { method: "POST", body: JSON.stringify({ issue_ids: payload.issueIds }) }
+        );
+        onMemoRefresh();
+        setMessages((prev) => [...prev, {
+          role: "assistant",
+          text: "已触发局部重测，稍后可在报告与 Memo 中查看新结果。",
+          loading: false,
+        }]);
+        return;
+      }
+      if (nextAction === "submit_approval") {
+        await apiFetch(`/skills/${skillId}/status?status=published`, {
+          method: "PATCH",
+        });
+        setStoreWorkflowState(
+          storeWorkflowState
+            ? {
+                ...storeWorkflowState,
+                phase: "ready",
+                next_action: "continue_chat",
+                route_reason: "approval_submitted",
+                status: "submitted",
+              }
+            : storeWorkflowState
+        );
+        onRefreshSkill();
+        onMemoRefresh();
+        setMessages((prev) => [...prev, {
+          role: "assistant",
+          text: "已提交审批，当前 Skill 已进入后续审批流。",
+          loading: false,
+        }]);
+        return;
+      }
+      maybeAnnounceNextAction(nextAction);
+    } catch (err) {
+      setMessages((prev) => [...prev, {
+        role: "assistant",
+        text: `执行下一步失败：${err instanceof Error ? err.message : "未知错误"}`,
+        loading: false,
+      }]);
+    } finally {
+      setWorkflowNextActionRunning(false);
+    }
+  }
+
+  useEffect(() => {
+    if (!storeWorkflowState) return;
+    setRouteInfo({
+      session_mode: storeWorkflowState.session_mode,
+      route_reason: storeWorkflowState.route_reason || "",
+      active_assist_skills: storeWorkflowState.active_assist_skills || [],
+      next_action: storeWorkflowState.next_action,
+      workflow_mode: storeWorkflowState.workflow_mode,
+      initial_phase: storeWorkflowState.phase,
+    });
+    setStoreSessionMode(
+      storeWorkflowState.session_mode === "create_new_skill"
+        ? "create"
+        : storeWorkflowState.session_mode === "optimize_existing_skill"
+          ? "optimize"
+          : storeWorkflowState.session_mode === "audit_imported_skill"
+            ? "audit"
+            : null
+    );
+    setActiveAssistSkills((storeWorkflowState.active_assist_skills || []).map((s, i) => ({
+      id: i,
+      name: s,
+      status: "active",
+    })));
+    if (storeWorkflowState.workflow_mode === "architect_mode") {
+      setArchitectPhase((prev) => ({
+        phase: storeWorkflowState.phase,
+        mode_source: storeWorkflowState.session_mode,
+        ooda_round: prev?.ooda_round || 0,
+        phase_confirmed: prev?.phase_confirmed,
+        transition: prev?.transition,
+        ooda_decision: prev?.ooda_decision,
+        upgrade_reason: prev?.upgrade_reason,
+      }));
+    } else {
+      setArchitectPhase((prev) => (prev && prev.phase ? null : prev));
+    }
+  }, [storeWorkflowState, setStoreSessionMode, setActiveAssistSkills]);
 
   // ── Staged edit adopt/reject handlers ──
 
   async function handleAdoptStagedEdit(editId: string) {
     if (!skillId) return;
     try {
-      const result = await apiFetch<{ target_type?: string }>(`/skills/${skillId}/studio/staged-edits/${editId}/adopt`, { method: "POST" });
+      const result = await apiFetch<WorkflowActionResult>(`/skills/${skillId}/workflow/actions`, {
+        method: "POST",
+        body: JSON.stringify({ action: "adopt_staged_edit", staged_edit_id: Number(editId) }),
+      });
+      applyWorkflowStatePatch(result.workflow_state_patch);
       adoptStagedEdit(editId);
       // Apply diff ops to prompt
       const edit = storeStagedEdits.find((e) => e.id === editId);
@@ -224,10 +426,21 @@ export function StudioChat({
         const newPrompt = applyOps(currentPrompt, edit.diff);
         onApplyDraft({ system_prompt: newPrompt, change_note: edit.changeNote || "采纳编辑" });
       }
-      if (result?.target_type && result.target_type !== "system_prompt" && result.target_type !== "prompt") {
+      const targetType = typeof result?.result?.target_type === "string" ? result.result.target_type : undefined;
+      if (targetType && targetType !== "system_prompt" && targetType !== "prompt") {
         onRefreshSkill();
       }
-      requestPreflightRefresh();
+      if (result.memo_refresh_required) {
+        onMemoRefresh();
+      }
+      const nextAction = typeof result.workflow_state_patch?.next_action === "string"
+        ? result.workflow_state_patch.next_action
+        : storeWorkflowState?.next_action;
+      if (!nextAction || nextAction === "run_preflight") {
+        requestPreflightRefresh();
+      } else {
+        await handleWorkflowNextStep(result);
+      }
       // Auto-collapse if no more pending staged edits
       const remaining = storeStagedEdits.filter((e) => e.id !== editId && e.status === "pending");
       if (remaining.length === 0) {
@@ -252,46 +465,37 @@ export function StudioChat({
     if (!preflightAction) return false;
 
     try {
+      const result = await apiFetch<WorkflowActionResult>(`/skills/${skillId}/workflow/actions`, {
+        method: "POST",
+        body: JSON.stringify({ action: preflightAction, card_id: card.id, payload }),
+      });
+      applyWorkflowStatePatch(result.workflow_state_patch);
+      if (result.memo_refresh_required) {
+        onMemoRefresh();
+      }
+
       if (preflightAction === "confirm_archive") {
-        await apiFetch(`/sandbox/preflight/${skillId}/knowledge-confirm`, {
-          method: "POST",
-          body: JSON.stringify(payload),
-        });
         onRefreshSkill();
         requestPreflightRefresh();
         setMessages((prev) => [...prev, { role: "assistant", text: "已按默认路径归档知识文件，正在重新执行质量检测。", loading: false }]);
         return true;
       }
       if (preflightAction === "reindex_knowledge") {
-        await apiFetch(`/sandbox/preflight/${skillId}/knowledge-reindex`, {
-          method: "POST",
-          body: JSON.stringify({ knowledge_ids: payload.knowledge_ids || [] }),
-        });
         requestPreflightRefresh();
         setMessages((prev) => [...prev, { role: "assistant", text: "已重建向量索引，正在重新执行质量检测。", loading: false }]);
         return true;
       }
       if (preflightAction === "navigate_tools" || preflightAction === "navigate_data_assets") {
-        const targetUrl = typeof payload.target_url === "string"
-          ? payload.target_url
-          : (preflightAction === "navigate_data_assets" ? "/data" : "/skills");
+        const targetUrl = typeof result.result?.target_url === "string"
+          ? result.result.target_url
+          : typeof payload.target_url === "string"
+            ? payload.target_url
+            : (preflightAction === "navigate_data_assets" ? "/data" : "/skills");
         window.open(targetUrl, "_blank", "noopener,noreferrer");
         setMessages((prev) => [...prev, { role: "assistant", text: `已打开处理页面：${targetUrl}`, loading: false }]);
         return true;
       }
       if (preflightAction === "bind_sandbox_tools" || preflightAction === "bind_knowledge_references" || preflightAction === "bind_permission_tables") {
-        const sourceReportId = Number(payload.source_report_id || sandboxReportId);
-        if (!Number.isFinite(sourceReportId) || sourceReportId <= 0) {
-          setMessages((prev) => [...prev, { role: "assistant", text: "无法执行：缺少沙盒报告 ID。", loading: false }]);
-          return false;
-        }
-        const result = await apiFetch<{ ok: boolean; bound?: number; skipped?: number; bound_queries?: number; bound_bindings?: number }>(
-          `/sandbox/interactive/by-report/${sourceReportId}/apply-action`,
-          {
-            method: "POST",
-            body: JSON.stringify({ action: preflightAction, payload }),
-          }
-        );
         onRefreshSkill();
         requestPreflightRefresh();
         const label = preflightAction === "bind_sandbox_tools"
@@ -300,8 +504,8 @@ export function StudioChat({
             ? "数据表绑定"
             : "知识引用";
         const detail = preflightAction === "bind_permission_tables"
-          ? `新增查询 ${result.bound_queries ?? 0}，新增运行绑定 ${result.bound_bindings ?? 0}，跳过 ${result.skipped ?? 0}`
-          : `新增 ${result.bound ?? 0}，跳过 ${result.skipped ?? 0}`;
+          ? `新增查询 ${Number(result.result?.bound_queries ?? 0)}，新增运行绑定 ${Number(result.result?.bound_bindings ?? 0)}，跳过 ${Number(result.result?.skipped ?? 0)}`
+          : `新增 ${Number(result.result?.bound ?? 0)}，跳过 ${Number(result.result?.skipped ?? 0)}`;
         setMessages((prev) => [...prev, {
           role: "assistant",
           text: `${label}已处理：${detail}。`,
@@ -310,26 +514,15 @@ export function StudioChat({
         return true;
       }
       if (preflightAction === "binding_action") {
-        const action = typeof payload.action === "string" ? payload.action : "";
-        const targetId = Number(payload.target_id);
-        if (!action || !Number.isFinite(targetId) || targetId <= 0) {
-          setMessages((prev) => [...prev, { role: "assistant", text: "无法执行：绑定动作缺少目标资源。", loading: false }]);
-          return false;
-        }
-        const result = await apiFetch<{ ok: boolean; action: string; changed: boolean; target: string }>(
-          `/skills/${skillId}/binding-actions/execute`,
-          {
-            method: "POST",
-            body: JSON.stringify({ action, target_id: targetId }),
-          }
-        );
         onRefreshSkill();
         requestPreflightRefresh();
-        const verb = result.action === "unbind_tool" || result.action === "unbind_table" ? "解绑" : "绑定";
-        const kind = result.action.endsWith("_table") ? "数据表" : "工具";
+        const bindingResult = (result.result || {}) as Record<string, unknown>;
+        const action = typeof bindingResult.action === "string" ? bindingResult.action : "";
+        const verb = action === "unbind_tool" || action === "unbind_table" ? "解绑" : "绑定";
+        const kind = action.endsWith("_table") ? "数据表" : "工具";
         setMessages((prev) => [...prev, {
           role: "assistant",
-          text: `${kind}${verb}已处理：${result.target}${result.changed ? "" : "（无变化）"}。`,
+          text: `${kind}${verb}已处理：${String(bindingResult.target || "目标资源")}${bindingResult.changed ? "" : "（无变化）"}。`,
           loading: false,
         }]);
         return true;
@@ -344,9 +537,15 @@ export function StudioChat({
   async function handleRejectStagedEdit(editId: string) {
     if (!skillId) return;
     try {
-      await apiFetch(`/skills/${skillId}/studio/staged-edits/${editId}/reject`, { method: "POST" });
+      const result = await apiFetch<WorkflowActionResult>(`/skills/${skillId}/workflow/actions`, {
+        method: "POST",
+        body: JSON.stringify({ action: "reject_staged_edit", staged_edit_id: Number(editId) }),
+      });
+      applyWorkflowStatePatch(result.workflow_state_patch);
       rejectStagedEdit(editId);
-      // Auto-collapse if no more pending staged edits
+      if (result.memo_refresh_required) {
+        onMemoRefresh();
+      }
       const remaining = storeStagedEdits.filter((e) => e.id !== editId && e.status === "pending");
       if (remaining.length === 0) {
         setEditorManuallyCollapsed(false);
@@ -411,8 +610,22 @@ export function StudioChat({
     });
   }
 
-  function normalizeBackendStagedEdit(raw: Record<string, unknown>): StagedEdit {
-    return normalizeStagedEditPayload(raw, studioChatSource);
+  function applyRouteStatus(data: Record<string, unknown>) {
+    const rs = data as unknown as StudioRouteInfo;
+    setRouteInfo(rs);
+    const mode = rs.session_mode;
+    setStoreSessionMode(mode === "create_new_skill" ? "create" : mode === "optimize_existing_skill" ? "optimize" : mode === "audit_imported_skill" ? "audit" : null);
+  }
+
+  function applyStatusStage(stage: string) {
+    setStreamStage(stage);
+    if (stage === "first_useful_response") {
+      setRouteInfo((prev) => prev ? { ...prev, fast_status: "completed" } : prev);
+      return;
+    }
+    if (stage === "generating") {
+      setRouteInfo((prev) => prev ? { ...prev, fast_status: "running" } : prev);
+    }
   }
 
   function handleRunEvent(eventName: string, data: Record<string, unknown>) {
@@ -422,48 +635,27 @@ export function StudioChat({
       return;
     }
     if (eventName === "status" && data.stage) {
-      setStreamStage(data.stage as string);
+      applyStatusStage(data.stage as string);
       return;
     }
-    if (eventName === "governance_card") {
-      const raw = data;
-      if (raw.id && raw.type && raw.actions) {
-        addGovernanceCard({ ...(raw as unknown as GovernanceCardData), source: studioChatSource });
-      } else {
-        addGovernanceCard({
-          id: `gov-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-          source: studioChatSource,
-          type: raw.suggested_action === "staged_edit" ? "staged_edit" : "followup_prompt",
-          title: (raw.title as string) || "治理建议",
-          content: {
-            description: raw.description,
-            summary: raw.summary,
-            severity: raw.severity,
-            category: raw.category,
-            staged_edit_id: raw.staged_edit_id != null
-              ? String(raw.staged_edit_id)
-              : raw.id != null
-                ? String(raw.id)
-                : undefined,
-          },
-          status: "pending",
-          actions: raw.suggested_action === "staged_edit"
-            ? [{ label: "查看修改", type: "view_diff" as const }, { label: "采纳", type: "adopt" as const }]
-            : [{ label: "查看", type: "view_diff" as const }, { label: "忽略", type: "reject" as const }],
-        });
+    if (eventName === "workflow_state") {
+      const workflowState = parseWorkflowStatePayload(data);
+      if (workflowState) {
+        setStoreWorkflowState(workflowState);
       }
       return;
     }
+    if (eventName === "governance_card") {
+      addGovernanceCard(normalizeWorkflowCardPayload(data, studioChatSource));
+      return;
+    }
     if (eventName === "staged_edit_notice") {
-      addStagedEdit(normalizeBackendStagedEdit(data));
+      addStagedEdit(normalizeWorkflowStagedEditPayload(data, studioChatSource));
       onExpandEditor?.();
       return;
     }
     if (eventName === "route_status") {
-      const rs = data as unknown as StudioRouteInfo & { workflow_mode?: string; initial_phase?: string };
-      setRouteInfo(rs);
-      const mode = rs.session_mode;
-      setStoreSessionMode(mode === "create_new_skill" ? "create" : mode === "optimize_existing_skill" ? "optimize" : mode === "audit_imported_skill" ? "audit" : null);
+      applyRouteStatus(data);
       return;
     }
     if (eventName === "assist_skills_status") {
@@ -507,6 +699,10 @@ export function StudioChat({
         setStreaming(false);
         setStreamStage(null);
         setSessionState(null);
+        setReconciledFacts([]);
+        setDirectionShift(null);
+        setFileNeedStatus(null);
+        setRepeatBlocked(null);
         setRouteInfo(null);
         setAuditResult(null);
         setPendingGovernanceActions([]);
@@ -610,6 +806,11 @@ export function StudioChat({
     setBackendLoaded(false);
     setBackendFailed(false);
     setSessionState(null);
+    setStudioRecovery(null);
+    setReconciledFacts([]);
+    setDirectionShift(null);
+    setFileNeedStatus(null);
+    setRepeatBlocked(null);
     setRouteInfo(null);
     setAuditResult(null);
     setPendingGovernanceActions([]);
@@ -638,113 +839,64 @@ export function StudioChat({
 
     const url = `/conversations/${convId}/messages`;
 
-    apiFetch<{ id: number; role: string; content: string; metadata?: Record<string, unknown> }[]>(url)
-      .then((dbMsgs) => {
-        let latestSummary: StudioSummary | null = null;
-        let latestDraft: StudioDraft | null = null;
-        let latestToolSuggestion: StudioToolSuggestion | null = null;
-        let latestFileSplit: StudioFileSplit | null = null;
-        let latestAuditResult: AuditResult | null = null;
-        let latestPendingPhaseSummary: ArchitectPhaseSummary | null = null;
-        let latestPendingPhase: string | null = null;
-        let latestArchitectReady: ArchitectReadyForDraft | null = null;
-        let latestArchitectQuestionPhase: string | null = null;
-        const governanceActions: GovernanceActionCard[] = [];
-        const nextPhaseProgress: PhaseProgress[] = [];
-        const nextArchitectQuestions: ArchitectQuestion[] = [];
-        const nextArchitectStructures: ArchitectStructure[] = [];
-        const nextArchitectPriorities: ArchitectPriorityMatrix[] = [];
-        const nextOodaDecisions: ArchitectOodaDecision[] = [];
-
-        const mapped: ChatMessage[] = dbMsgs.map((m) => {
-          if (m.role === "assistant") {
-            const parsed = parseStructuredStudioMessage(m.content);
-            if (parsed.summary) latestSummary = parsed.summary;
-            if (parsed.draft) latestDraft = parsed.draft;
-            if (parsed.toolSuggestion) latestToolSuggestion = parsed.toolSuggestion;
-            if (parsed.fileSplit) latestFileSplit = parsed.fileSplit;
-            if (parsed.auditResult) latestAuditResult = parsed.auditResult;
-            if (parsed.pendingPhaseSummary) {
-              latestPendingPhaseSummary = parsed.pendingPhaseSummary;
-              latestPendingPhase = parsed.pendingPhaseSummary.phase;
-            }
-            if (parsed.architectReady) latestArchitectReady = parsed.architectReady;
-            if (parsed.architectQuestions.length > 0) {
-              latestArchitectQuestionPhase = parsed.architectQuestions[parsed.architectQuestions.length - 1]?.phase || null;
-              nextArchitectQuestions.push(...parsed.architectQuestions);
-            }
-            if (parsed.pendingGovernanceActions.length > 0) {
-              governanceActions.push(...parsed.pendingGovernanceActions);
-            }
-            if (parsed.phaseProgress.length > 0) {
-              nextPhaseProgress.push(...parsed.phaseProgress);
-            }
-            if (parsed.architectStructures.length > 0) {
-              nextArchitectStructures.push(...parsed.architectStructures);
-            }
-            if (parsed.architectPriorities.length > 0) {
-              nextArchitectPriorities.push(...parsed.architectPriorities);
-            }
-            if (parsed.oodaDecisions.length > 0) {
-              nextOodaDecisions.push(...parsed.oodaDecisions);
-            }
-            return {
-              role: m.role as "user" | "assistant",
-              text: parsed.cleanText,
-              loading: false,
-            };
-          }
-          return {
-            role: m.role as "user" | "assistant",
-            text: m.content,
-            loading: false,
-          };
-        });
-        setMessages(mapped);
-        setPendingSummary(latestSummary);
-        if (latestDraft) {
-          setPendingDraft(latestDraft);
+    Promise.all([
+      apiFetch<{ id: number; role: string; content: string; metadata?: Record<string, unknown> }[]>(url),
+      skillId
+        ? apiFetch<{ studio_state?: Record<string, unknown> | null; recovery?: Record<string, unknown> | null }>(`/conversations/${convId}/studio-state?skill_id=${skillId}`).catch(() => ({ studio_state: null, recovery: null }))
+        : Promise.resolve({ studio_state: null, recovery: null }),
+    ])
+      .then(([dbMsgs, studioStateResponse]) => {
+        const workflowStateSnapshot = useStudioStore.getState().workflowState;
+        const recovered = recoverStudioHistory(dbMsgs, workflowStateSnapshot);
+        applyRecoveredStudioState(studioStateResponse?.studio_state || null);
+        setStudioRecovery(parseStudioRecoveryPayload(studioStateResponse?.recovery || null));
+        setMessages(recovered.messages);
+        setPendingSummary(recovered.pendingSummary);
+        if (recovered.pendingDraft) {
+          setPendingDraft(recovered.pendingDraft);
           setDrawerOpen(true);
           onExpandEditor?.();
         }
-        setPendingToolSuggestion(latestToolSuggestion);
-        setPendingFileSplit(latestFileSplit);
-        setAuditResult(latestAuditResult);
-        setPendingGovernanceActions(governanceActions);
-        setPhaseProgress(nextPhaseProgress);
-        setArchitectQuestions(nextArchitectQuestions);
-        setArchitectStructures(nextArchitectStructures);
-        setArchitectPriorities(nextArchitectPriorities[nextArchitectPriorities.length - 1] || null);
-        setOodaDecisions(nextOodaDecisions);
-        setPendingPhaseSummary(latestPendingPhaseSummary);
-        setArchitectReady(latestArchitectReady);
-        if (latestArchitectReady) {
+        setPendingToolSuggestion(recovered.pendingToolSuggestion);
+        setPendingFileSplit(recovered.pendingFileSplit);
+        setAuditResult(recovered.auditResult);
+        setPendingGovernanceActions(recovered.pendingGovernanceActions);
+        setPhaseProgress(recovered.phaseProgress);
+        setArchitectQuestions(recovered.architectQuestions);
+        setArchitectStructures(recovered.architectStructures);
+        setArchitectPriorities(recovered.architectPriorities);
+        setOodaDecisions(recovered.oodaDecisions);
+        setPendingPhaseSummary(recovered.pendingPhaseSummary);
+        setArchitectReady(recovered.architectReady);
+        setAnsweredQuestionIdx(recovered.answeredQuestionIdx);
+        setConfirmedPhases(recovered.confirmedPhases);
+        if (recovered.architectReady) {
           setArchitectPhase({
             phase: "ready_for_draft",
             mode_source: "create_new_skill",
-            ooda_round: nextOodaDecisions[nextOodaDecisions.length - 1]?.ooda_round || 0,
+            ooda_round: recovered.oodaDecisions[recovered.oodaDecisions.length - 1]?.ooda_round || 0,
           });
-        } else if (latestPendingPhase) {
+        } else if (recovered.pendingPhaseSummary?.phase) {
           setArchitectPhase({
-            phase: latestPendingPhase,
+            phase: recovered.pendingPhaseSummary.phase,
             mode_source: "create_new_skill",
-            ooda_round: nextOodaDecisions[nextOodaDecisions.length - 1]?.ooda_round || 0,
+            ooda_round: recovered.oodaDecisions[recovered.oodaDecisions.length - 1]?.ooda_round || 0,
           });
-        } else if (latestArchitectQuestionPhase) {
+        } else if (recovered.architectQuestions[recovered.architectQuestions.length - 1]?.phase) {
           setArchitectPhase({
-            phase: latestArchitectQuestionPhase,
+            phase: recovered.architectQuestions[recovered.architectQuestions.length - 1]?.phase || "",
             mode_source: "create_new_skill",
-            ooda_round: nextOodaDecisions[nextOodaDecisions.length - 1]?.ooda_round || 0,
+            ooda_round: recovered.oodaDecisions[recovered.oodaDecisions.length - 1]?.ooda_round || 0,
           });
         }
-        try { localStorage.setItem(_storageKey, JSON.stringify(mapped)); } catch { /* ignore */ }
+        try { localStorage.setItem(_storageKey, JSON.stringify(recovered.messages)); } catch { /* ignore */ }
         setBackendLoaded(true);
       })
       .catch(() => {
         setBackendFailed(true);
         setBackendLoaded(true);
       });
-  }, [convId, _storageKey, onExpandEditor, studioChatSource, syncGovernanceCards, syncStagedEdits]);
+  }, [convId, _storageKey, onExpandEditor, skillId, studioChatSource, syncGovernanceCards, syncStagedEdits]);
 
   useEffect(() => {
     if (!backendLoaded) return;
@@ -1014,6 +1166,7 @@ export function StudioChat({
     setInput("");
     setReconciledFacts([]);
     setDirectionShift(null);
+    setFileNeedStatus(null);
     setRepeatBlocked(null);
     setPendingGovernanceActions([]);
     setAuditResult(null);
@@ -1092,7 +1245,7 @@ export function StudioChat({
                 setActiveRunId(String(data.id));
                 setStreaming(data.status === "queued" || data.status === "running");
               } else if (curEvt === "status" && data.stage) {
-                setStreamStage(data.stage as string);
+                applyStatusStage(data.stage as string);
               } else if (curEvt === "studio_summary") {
                 setPendingSummary(data as StudioSummary);
               } else if (curEvt === "studio_draft") {
@@ -1125,10 +1278,12 @@ export function StudioChat({
                 setRepeatBlocked((data as { reason: string }).reason || null);
               } else if (curEvt === "studio_route") {
                 // 旧协议，复用 route_status 逻辑
-                const rs = data as StudioRouteInfo & { workflow_mode?: string; initial_phase?: string };
-                setRouteInfo(rs);
-                const mode = rs.session_mode;
-                setStoreSessionMode(mode === "create_new_skill" ? "create" : mode === "optimize_existing_skill" ? "optimize" : mode === "audit_imported_skill" ? "audit" : null);
+                applyRouteStatus(data as Record<string, unknown>);
+              } else if (curEvt === "workflow_state") {
+                const workflowState = parseWorkflowStatePayload(data as Record<string, unknown>);
+                if (workflowState) {
+                  setStoreWorkflowState(workflowState);
+                }
               } else if (curEvt === "studio_audit") {
                 setAuditResult(data as AuditResult);
               } else if (curEvt === "studio_governance_action") {
@@ -1136,39 +1291,9 @@ export function StudioChat({
               } else if (curEvt === "studio_phase_progress") {
                 setPhaseProgress((prev) => [...prev, data as PhaseProgress]);
               } else if (curEvt === "governance_card") {
-                // 兼容两种格式：
-                // 1) 完整 GovernanceCardData（后端已组装好 id/type/actions）
-                // 2) 简化格式 {title, description, severity, category, suggested_action}
-                const raw = data as Record<string, unknown>;
-                if (raw.id && raw.type && raw.actions) {
-                  addGovernanceCard({ ...(data as GovernanceCardData), source: studioChatSource });
-                } else {
-                  const card: GovernanceCardData = {
-                    id: `gov-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-                    source: studioChatSource,
-                    type: raw.suggested_action === "staged_edit" ? "staged_edit" : "followup_prompt",
-                    title: (raw.title as string) || "治理建议",
-                    content: {
-                      description: raw.description,
-                      summary: raw.summary,
-                      severity: raw.severity,
-                      category: raw.category,
-                      staged_edit_id: raw.staged_edit_id != null
-                        ? String(raw.staged_edit_id)
-                        : raw.id != null
-                          ? String(raw.id)
-                          : undefined,
-                    },
-                    status: "pending",
-                    actions: raw.suggested_action === "staged_edit"
-                      ? [{ label: "查看修改", type: "view_diff" as const }, { label: "采纳", type: "adopt" as const }]
-                      : [{ label: "查看", type: "view_diff" as const }, { label: "忽略", type: "reject" as const }],
-                  };
-                  addGovernanceCard(card);
-                }
+                addGovernanceCard(normalizeWorkflowCardPayload(data as Record<string, unknown>, studioChatSource));
               } else if (curEvt === "staged_edit_notice") {
-                const raw = data as Record<string, unknown>;
-                addStagedEdit(normalizeStagedEditPayload(raw, studioChatSource));
+                addStagedEdit(normalizeWorkflowStagedEditPayload(data as Record<string, unknown>, studioChatSource));
                 onExpandEditor?.();
               } else if (curEvt === "assist_skills_status") {
                 // 后端发 string[]（skill name），转为前端需要的 {id, name, status}[]
@@ -1179,10 +1304,7 @@ export function StudioChat({
                 setActiveAssistSkills(normalized);
               } else if (curEvt === "route_status") {
                 // 新协议：与 conversations.py 对齐
-                const rs = data as StudioRouteInfo & { workflow_mode?: string; initial_phase?: string };
-                setRouteInfo(rs);
-                const mode = rs.session_mode;
-                setStoreSessionMode(mode === "create_new_skill" ? "create" : mode === "optimize_existing_skill" ? "optimize" : mode === "audit_imported_skill" ? "audit" : null);
+                applyRouteStatus(data as Record<string, unknown>);
               } else if (curEvt === "architect_phase_status") {
                 setArchitectPhase(data as ArchitectPhaseStatus);
               } else if (curEvt === "architect_question") {
@@ -1430,6 +1552,13 @@ export function StudioChat({
   }
 
   const isFixingMode = !!(memo && memo.lifecycle_stage === "fixing" && memo.latest_test?.status === "failed");
+  const recoveryDraftImpact = deriveStudioRecoveryDraftImpact({
+    recoveryInfo: studioRecovery,
+    sessionState,
+    pendingDraft,
+    currentPrompt,
+    editorIsDirty,
+  });
 
   return (
     <div className="flex flex-1 min-w-0 border-l-2 border-[#1A202C] bg-white">
@@ -1460,6 +1589,10 @@ export function StudioChat({
                 setMessages([]);
                 setStreaming(false);
                 setSessionState(null);
+                setReconciledFacts([]);
+                setDirectionShift(null);
+                setFileNeedStatus(null);
+                setRepeatBlocked(null);
                 setPendingDraft(null);
                 setPendingSummary(null);
                 setPendingToolSuggestion(null);
@@ -1529,7 +1662,17 @@ export function StudioChat({
         )}
 
         {/* 路由状态面板 */}
-        <RouteStatusBar route={routeInfo} phaseProgress={phaseProgress} architectPhase={architectPhase} />
+        <RouteStatusBar
+          route={routeInfo}
+          phaseProgress={phaseProgress}
+          architectPhase={architectPhase}
+          recoveryInfo={studioRecovery}
+          recoveryDraftImpact={recoveryDraftImpact}
+          recoverySkillId={skillId}
+          recoveryConversationId={convId}
+          onNextAction={routeInfo?.next_action ? (() => { void handleWorkflowNextStep(); }) : null}
+          nextActionRunning={workflowNextActionRunning}
+        />
         <AssistSkillsBar skills={storeAssistSkills} />
 
         {/* 本轮已采纳标签 */}

@@ -918,6 +918,12 @@ export interface SkillMemo {
   next_task: SkillMemoTask | null;
   memo: Record<string, unknown>;
   latest_test: SkillMemoTestRecord | null;
+  workflow_recovery?: {
+    workflow_state?: Record<string, unknown> | null;
+    cards?: Record<string, unknown>[];
+    staged_edits?: Record<string, unknown>[];
+    updated_at?: string | null;
+  } | null;
 }
 
 export interface StudioMemoStatusEvent {

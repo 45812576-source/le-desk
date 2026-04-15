@@ -10,6 +10,7 @@ import type {
   GovernanceCardData,
   StagedEdit,
 } from "@/components/skill-studio/types";
+import type { WorkflowStateData } from "@/components/skill-studio/workflow-protocol";
 import type { SkillMemo } from "@/lib/types";
 
 // ─── Editor visibility state machine ─────────────────────────────────────────
@@ -36,6 +37,8 @@ export interface StudioSessionState {
   // 辅助 Skill
   activeAssistSkills: { id: number; name: string; status: string }[];
   setActiveAssistSkills: (skills: { id: number; name: string; status: string }[]) => void;
+  workflowState: WorkflowStateData | null;
+  setWorkflowState: (state: WorkflowStateData | null) => void;
 
   // 治理卡片队列
   governanceCards: GovernanceCardData[];
@@ -67,6 +70,7 @@ export interface StudioSessionState {
   setSessionState: (state: V2SessionState | null) => void;
   memo: SkillMemo | null;
   setMemo: (memo: SkillMemo | null) => void;
+  resetWorkflowArtifacts: () => void;
 
   // Reset
   reset: () => void;
@@ -79,6 +83,7 @@ const initialState = {
   editorManuallyCollapsed: false,
   sessionMode: null as SessionMode,
   activeAssistSkills: [] as { id: number; name: string; status: string }[],
+  workflowState: null as WorkflowStateData | null,
   governanceCards: [] as GovernanceCardData[],
   stagedEdits: [] as StagedEdit[],
   preflightRefreshToken: 0,
@@ -97,6 +102,7 @@ export const useStudioStore = create<StudioSessionState>((set) => ({
   setEditorManuallyCollapsed: (collapsed) => set({ editorManuallyCollapsed: collapsed }),
   setSessionMode: (mode) => set({ sessionMode: mode }),
   setActiveAssistSkills: (skills) => set({ activeAssistSkills: skills }),
+  setWorkflowState: (state) => set({ workflowState: state }),
 
   addGovernanceCard: (card) =>
     set((s) => ({
@@ -153,6 +159,13 @@ export const useStudioStore = create<StudioSessionState>((set) => ({
   setPendingFileSplit: (split) => set({ pendingFileSplit: split }),
   setSessionState: (state) => set({ sessionState: state }),
   setMemo: (memo) => set({ memo }),
+  resetWorkflowArtifacts: () => set({
+    sessionMode: null,
+    activeAssistSkills: [],
+    workflowState: null,
+    governanceCards: [],
+    stagedEdits: [],
+  }),
 
   reset: () => set(initialState),
 }));

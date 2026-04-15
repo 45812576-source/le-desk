@@ -17,6 +17,8 @@ import { PromptEditor } from "./PromptEditor";
 import { StudioChat } from "./StudioChat";
 import { AssetFileEditor } from "./AssetFileEditor";
 import { normalizeStagedEditPayload } from "./utils";
+import { normalizeWorkflowCardPayload, parseWorkflowStatePayload } from "./workflow-adapter";
+import type { WorkflowStateData } from "./workflow-protocol";
 
 // ─── Main page ────────────────────────────────────────────────────────────────
 
@@ -80,7 +82,11 @@ export function SkillStudio({
   const setEditorManuallyCollapsed = useStudioStore((s) => s.setEditorManuallyCollapsed);
   const syncGovernanceCards = useStudioStore((s) => s.syncGovernanceCards);
   const syncStagedEdits = useStudioStore((s) => s.syncStagedEdits);
+  const setStoreMemo = useStudioStore((s) => s.setMemo);
+  const setWorkflowState = useStudioStore((s) => s.setWorkflowState);
+  const resetWorkflowArtifacts = useStudioStore((s) => s.resetWorkflowArtifacts);
   const editorExpanded = editorVisibility !== "collapsed";
+  const hydratedRecoveryRef = useRef<string | null>(null);
 
   // Auto-expand editor when selecting a file to edit
   const prevSelectedFileRef = useRef(selectedFile);
@@ -147,20 +153,57 @@ export function SkillStudio({
         // Backend returns { skill_id, memo: null } when no memo exists
         if (data && data.lifecycle_stage) {
           setMemo(data);
+          setStoreMemo(data);
+          const recovery = data.workflow_recovery;
+          const recoveredWorkflowState = recovery?.workflow_state
+            ? parseWorkflowStatePayload(recovery.workflow_state as Record<string, unknown>)
+            : null;
+          setWorkflowState(recoveredWorkflowState);
+          const recoverySignature = `${skillId}:${recovery?.updated_at || "none"}`;
+          if (hydratedRecoveryRef.current !== recoverySignature) {
+            const recoveryCards = Array.isArray(recovery?.cards) ? recovery.cards : [];
+            const recoveryEdits = Array.isArray(recovery?.staged_edits) ? recovery.staged_edits : [];
+            const cards = recoveryCards.map((card) => normalizeWorkflowCardPayload(card, "memo-recovery"));
+            const edits = recoveryEdits.map((edit) => normalizeStagedEditPayload(edit, "memo-recovery"));
+            syncGovernanceCards("memo-recovery", cards);
+            syncStagedEdits("memo-recovery", edits);
+            hydratedRecoveryRef.current = recoverySignature;
+            if (cards.length > 0 || edits.some((edit) => edit.status === "pending")) {
+              setEditorManuallyCollapsed(false);
+              setEditorVisibility("auto_expanded");
+            }
+          }
         } else {
           setMemo(null);
+          setStoreMemo(null);
+          setWorkflowState(null);
+          syncGovernanceCards("memo-recovery", []);
+          syncStagedEdits("memo-recovery", []);
+          hydratedRecoveryRef.current = skillId ? `${skillId}:none` : null;
         }
       })
-      .catch(() => setMemo(null));
-  }, []);
+      .catch(() => {
+        setMemo(null);
+        setStoreMemo(null);
+        setWorkflowState(null);
+        syncGovernanceCards("memo-recovery", []);
+        syncStagedEdits("memo-recovery", []);
+        hydratedRecoveryRef.current = skillId ? `${skillId}:none` : null;
+      });
+  }, [setStoreMemo, setWorkflowState, setEditorManuallyCollapsed, setEditorVisibility, syncGovernanceCards, syncStagedEdits]);
 
   useEffect(() => {
     const skillId = selectedFile?.skillId;
     if (skillId) {
+      resetWorkflowArtifacts();
+      hydratedRecoveryRef.current = null;
       fetchMemo(skillId);
     }
-    return () => { setMemo(null); };
-  }, [selectedFile?.skillId, fetchMemo]);
+    return () => {
+      setMemo(null);
+      setStoreMemo(null);
+    };
+  }, [selectedFile?.skillId, fetchMemo, resetWorkflowArtifacts, setStoreMemo]);
 
   // ── Sandbox report 入口：首次进入时刷新 memo + 拉取报告，绑定整改上下文 ──
   useEffect(() => {
@@ -185,11 +228,21 @@ export function SkillStudio({
         if (Number.isFinite(reportIdForRemediation) && reportIdForRemediation > 0) {
           try {
             if (!cancelled) setSandboxRemediationLoading(true);
-            const remediation = await apiFetch<{ cards: GovernanceCardData[]; staged_edits: Record<string, unknown>[] }>(
+            const remediation = await apiFetch<{
+              workflow_state?: WorkflowStateData;
+              cards: GovernanceCardData[];
+              staged_edits: Record<string, unknown>[];
+            }>(
               `/sandbox/interactive/by-report/${reportIdForRemediation}/remediation-actions`,
               { method: "POST" }
             );
             if (!cancelled) {
+              const workflowState = remediation.workflow_state
+                ? parseWorkflowStatePayload(remediation.workflow_state as Record<string, unknown>)
+                : null;
+              if (workflowState) {
+                setWorkflowState(workflowState);
+              }
               const source = `sandbox-report:${reportIdForRemediation}`;
               syncGovernanceCards(source, remediation.cards || []);
               syncStagedEdits(source, (remediation.staged_edits || []).map(normalizeStagedEdit));
@@ -217,6 +270,11 @@ export function SkillStudio({
 
         if (memoData && memoData.lifecycle_stage) {
           setMemo(memoData);
+          setStoreMemo(memoData);
+          const workflowState = memoData.workflow_recovery?.workflow_state
+            ? parseWorkflowStatePayload(memoData.workflow_recovery.workflow_state as Record<string, unknown>)
+            : null;
+          setWorkflowState(workflowState);
           if (memoData.lifecycle_stage !== "fixing" && (!memoData.latest_test || memoData.latest_test.status !== "failed")) {
             setMemoSyncError("整改计划未导入 — Memo 中未检测到 fixing 状态");
           }

@@ -6,6 +6,10 @@ export interface WorkflowStateData extends Record<string, unknown> {
   workflow_mode: string;
   phase: string;
   next_action: string;
+  complexity_level?: "simple" | "medium" | "high";
+  execution_strategy?: "fast_only" | "fast_then_deep" | "deep_resume";
+  fast_status?: "pending" | "running" | "completed" | "failed";
+  deep_status?: "not_requested" | "pending" | "running" | "completed" | "failed" | "superseded";
   route_reason?: string;
   active_assist_skills?: string[];
   status?: string;

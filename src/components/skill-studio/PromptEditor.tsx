@@ -12,6 +12,7 @@ import { DiffViewer, LineNumberedEditor } from "./DiffViewer";
 import { PreflightReport } from "./PreflightReport";
 import { KnowledgeConfirmModal } from "./KnowledgeConfirmModal";
 import type { GovernanceCardData, PreflightResult, PreflightGate, StagedEdit, DiffOp } from "./types";
+import type { WorkflowStateData } from "./workflow-protocol";
 import { normalizeStagedEditPayload } from "./utils";
 
 function SkillIcon({ size }: { size: number }) {
@@ -131,6 +132,7 @@ export function PromptEditor({
   ));
   const syncGovernanceCards = useStudioStore((s) => s.syncGovernanceCards);
   const syncStagedEdits = useStudioStore((s) => s.syncStagedEdits);
+  const setWorkflowState = useStudioStore((s) => s.setWorkflowState);
   const preflightRefreshToken = useStudioStore((s) => s.preflightRefreshToken);
   const deferredPrompt = useDeferredValue(prompt);
   const isLargeText = prompt.length > 50 * 1024;
@@ -370,13 +372,18 @@ export function PromptEditor({
                     syncStagedEdits(preflightSource, []);
                   } else {
                     try {
-                      const remediation = await apiFetch<{ cards: GovernanceCardData[]; staged_edits: Record<string, unknown>[] }>(
+                      const remediation = await apiFetch<{
+                        workflow_state?: WorkflowStateData;
+                        cards: GovernanceCardData[];
+                        staged_edits: Record<string, unknown>[];
+                      }>(
                         `/sandbox/preflight/${skill.id}/remediation-actions`,
                         {
                           method: "POST",
                           body: JSON.stringify({ result: finalResult }),
                         }
                       );
+                      setWorkflowState(remediation.workflow_state ?? null);
                       syncGovernanceCards(preflightSource, remediation.cards || []);
                       syncStagedEdits(preflightSource, (remediation.staged_edits || []).map(normalizeStagedEdit));
                     } catch (remediationErr) {
