@@ -100,6 +100,11 @@ export function SkillMemoPanel({ memo, onStartTask, onDirectTest, onStartFixTask
           </div>
           <div className="px-3 py-1.5 text-[8px] text-gray-600 leading-relaxed border-t border-gray-100 whitespace-pre-wrap break-words">
             {memo.latest_test.summary}
+            {memo.latest_test.source_report_knowledge_title && (
+              <div className="mt-0.5 text-[7px] text-gray-500 whitespace-pre-wrap break-words">
+                知识库报告：{memo.latest_test.source_report_knowledge_title}
+              </div>
+            )}
             {memo.latest_test.details?.blocking_reasons && memo.latest_test.details.blocking_reasons.length > 0 && (
               <div className="mt-0.5 text-[7px] text-red-500 whitespace-pre-wrap break-words">
                 未通过: {memo.latest_test.details.blocking_reasons.join("、")}

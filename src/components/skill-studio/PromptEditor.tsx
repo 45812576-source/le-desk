@@ -308,6 +308,24 @@ export function PromptEditor({
       const resp = await fetch(`/api/proxy/sandbox/preflight/${skill.id}`, {
         headers: token ? { Authorization: `Bearer ${token}` } : {},
       });
+      if (!resp.ok) {
+        let message = `质量检测失败（${resp.status}）`;
+        try {
+          const data = await resp.json();
+          const detail = typeof data?.detail === "string"
+            ? data.detail
+            : typeof data?.message === "string"
+              ? data.message
+              : "";
+          if (detail) message = detail;
+        } catch {
+          try {
+            const text = await resp.text();
+            if (text) message = text;
+          } catch { /* noop */ }
+        }
+        throw new Error(message);
+      }
       const reader = resp.body?.getReader();
       if (!reader) return;
       const decoder = new TextDecoder();
@@ -374,6 +392,7 @@ export function PromptEditor({
     } catch (err) {
       console.error("Preflight failed", err);
       setPreflightStage(null);
+      setSaveMsg(err instanceof Error ? err.message : "质量检测失败");
     } finally {
       setPreflightRunning(false);
     }

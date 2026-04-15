@@ -902,6 +902,9 @@ export interface SkillMemoTestRecord {
   created_at: string;
   followup_task_ids: string[];
   source_report_id?: number;
+  source_report_knowledge_id?: number;
+  source_report_knowledge_title?: string;
+  artifact_fingerprint?: string | null;
 }
 
 export interface SkillMemo {
