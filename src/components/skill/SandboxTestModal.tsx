@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import { apiFetch } from "@/lib/api";
+import { consumeSandboxSessionStream } from "@/lib/sandbox-stream";
 import { PixelButton } from "@/components/pixel/PixelButton";
 import type {
   SandboxSession,
@@ -252,14 +253,14 @@ export function SandboxTestModal({
                 setLoading(true);
                 setError(null);
                 try {
-                  const data = await apiFetch<SandboxSession>(
-                    `/sandbox/interactive/${session.session_id}/run`,
-                    { method: "POST" }
+                  const data = await consumeSandboxSessionStream(
+                    `/sandbox/interactive/${session.session_id}/run-stream`,
+                    { onSession: setSession },
                   );
                   setSession(data);
                   if (data.status === "completed" && data.report_id) {
                     const rpt = await apiFetch<SandboxReport>(
-                      `/sandbox/interactive/${session.session_id}/report`
+                      `/sandbox/interactive/${data.session_id}/report`
                     );
                     setReport(rpt);
                     setWizardStep(5);
@@ -270,7 +271,7 @@ export function SandboxTestModal({
                   // 执行中断但 session 可能有 step_statuses，刷新 session
                   try {
                     const refreshed = await apiFetch<SandboxSession>(
-                      `/sandbox/interactive/${session.session_id}/session`
+                      `/sandbox/interactive/${session.session_id}`
                     );
                     setSession(refreshed);
                   } catch { /* ignore */ }
@@ -283,9 +284,9 @@ export function SandboxTestModal({
                 setLoading(true);
                 setError(null);
                 try {
-                  const data = await apiFetch<SandboxSession>(
-                    `/sandbox/interactive/${session.session_id}/retry-from-step`,
-                    { method: "POST", body: JSON.stringify({ step }) }
+                  const data = await consumeSandboxSessionStream(
+                    `/sandbox/interactive/${session.session_id}/retry-from-step-stream`,
+                    { body: JSON.stringify({ step }), onSession: setSession },
                   );
                   setSession(data);
                   if (data.status === "completed" && data.report_id) {
@@ -402,9 +403,9 @@ export function SandboxTestModal({
                 setLoading(true);
                 setError(null);
                 try {
-                  const data = await apiFetch<SandboxSession & { covered_issues: string[]; remaining_issues: string[] }>(
-                    `/sandbox/interactive/${session.session_id}/targeted-rerun`,
-                    { method: "POST", body: JSON.stringify({ fix_plan_item_ids: fixPlanItemIds }) }
+                  const data = await consumeSandboxSessionStream<SandboxSession & { covered_issues: string[]; remaining_issues: string[] }>(
+                    `/sandbox/interactive/${session.session_id}/targeted-rerun-stream`,
+                    { body: JSON.stringify({ fix_plan_item_ids: fixPlanItemIds }), onSession: setSession },
                   );
                   setSession(data);
                   if (data.status === "completed" && data.report_id) {
@@ -423,9 +424,9 @@ export function SandboxTestModal({
                 setLoading(true);
                 setError(null);
                 try {
-                  const data = await apiFetch<SandboxSession>(
-                    `/sandbox/interactive/${session.session_id}/retry-from-step`,
-                    { method: "POST", body: JSON.stringify({ step: "memo_sync" }) }
+                  const data = await consumeSandboxSessionStream(
+                    `/sandbox/interactive/${session.session_id}/retry-from-step-stream`,
+                    { body: JSON.stringify({ step: "memo_sync" }), onSession: setSession },
                   );
                   setSession(data);
                 } catch (err) {

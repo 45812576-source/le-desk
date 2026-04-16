@@ -4,7 +4,8 @@ import { useEffect, useRef, useState } from "react";
 import { ChevronDown, X } from "lucide-react";
 import { PixelButton } from "@/components/pixel/PixelButton";
 import { apiFetch, getToken, dispatchAuthExpired } from "@/lib/api";
-import type { SkillDetail, SkillMemo } from "@/lib/types";
+import { consumeSandboxSessionStream } from "@/lib/sandbox-stream";
+import type { SkillDetail, SkillMemo, SandboxSession } from "@/lib/types";
 import { SkillMemoPanel } from "@/components/skill/SkillMemoPanel";
 import { useStudioStore } from "@/lib/studio-store";
 import { SummaryCard } from "./cards/SummaryCard";
@@ -347,14 +348,14 @@ export function StudioChat({
         if (!payload) {
           throw new Error("缺少局部重测范围");
         }
-        await apiFetch(
-          `/sandbox/interactive/by-report/${payload.sourceReportId}/targeted-rerun`,
-          { method: "POST", body: JSON.stringify({ issue_ids: payload.issueIds }) }
+        const rerun = await consumeSandboxSessionStream<SandboxSession & Record<string, unknown>>(
+          `/sandbox/interactive/by-report/${payload.sourceReportId}/targeted-rerun-stream`,
+          { body: JSON.stringify({ issue_ids: payload.issueIds }) },
         );
         onMemoRefresh();
         setMessages((prev) => [...prev, {
           role: "assistant",
-          text: "已触发局部重测，稍后可在报告与 Memo 中查看新结果。",
+          text: `已完成局部重测，可在新报告与 Memo 中查看结果（session #${rerun.session_id}）。`,
           loading: false,
         }]);
         return;

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { PanelRightOpen, PanelRightClose, Pin } from "lucide-react";
 import { apiFetch } from "@/lib/api";
+import { consumeSandboxSessionStream } from "@/lib/sandbox-stream";
 import type { SkillDetail, SkillMemo, SandboxReport } from "@/lib/types";
 import type { Suggestion } from "@/components/skill/CommentsPanel";
 import { ImportSkillModal } from "@/components/skill/ImportSkillModal";
@@ -293,10 +294,10 @@ export function SkillStudio({
     if (!sandboxSessionId || retryingMemoSync) return;
     setRetryingMemoSync(true);
     try {
-      await apiFetch(`/sandbox/interactive/${sandboxSessionId}/retry-from-step`, {
-        method: "POST",
-        body: JSON.stringify({ step: "memo_sync" }),
-      });
+      await consumeSandboxSessionStream(
+        `/sandbox/interactive/${sandboxSessionId}/retry-from-step-stream`,
+        { body: JSON.stringify({ step: "memo_sync" }) },
+      );
       setMemoSyncError(null);
       if (initialSkillId) fetchMemo(initialSkillId);
     } catch (err) {

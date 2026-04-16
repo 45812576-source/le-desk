@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
-export const maxDuration = 300;
+export const maxDuration = 1800;
 
 const BACKEND_URL = process.env.BACKEND_URL || "http://localhost:8000";
 
@@ -35,14 +35,23 @@ export async function handler(
     body = await request.text();
   }
 
-  // SSE streaming endpoints need longer timeout (5min) for AI generation
-  // Sandbox interactive run involves multiple LLM calls (execution + evaluation + report)
-  // Preflight and ingest-paste are also SSE endpoints with multiple LLM calls
+  // SSE streaming endpoints need longer timeout for AI generation.
+  // Sandbox interactive run can involve many LLM/tool-bound cases, so keep it
+  // alive longer than normal chat streams and let the backend emit progress.
   const isStreamEndpoint = targetPath.includes("/stream") || targetPath.includes("/upload-stream");
-  const isLongRunEndpoint = targetPath.includes("/sandbox/interactive/") && targetPath.endsWith("/run");
+  const isLongRunEndpoint = targetPath.includes("/sandbox/interactive/") && (
+    targetPath.endsWith("/run") ||
+    targetPath.endsWith("/run-stream") ||
+    targetPath.endsWith("/retry-from-step") ||
+    targetPath.endsWith("/retry-from-step-stream") ||
+    targetPath.endsWith("/targeted-rerun") ||
+    targetPath.endsWith("/targeted-rerun-stream")
+  );
   const isPreflightEndpoint = targetPath.includes("/sandbox/preflight/");
   const isIngestEndpoint = targetPath.includes("/ingest-paste");
-  const timeout = (isStreamEndpoint || isLongRunEndpoint || isPreflightEndpoint || isIngestEndpoint) ? 300_000 : 115_000;
+  const timeout = isLongRunEndpoint
+    ? 1_800_000
+    : (isStreamEndpoint || isPreflightEndpoint || isIngestEndpoint) ? 300_000 : 115_000;
 
   let resp: Response;
   try {
