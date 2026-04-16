@@ -29,12 +29,16 @@ describe("Step2ToolReview", () => {
     const radios = screen.getAllByRole("radio");
 
     fireEvent.click(radios[0]);
+    expect((radios[0] as HTMLInputElement).checked).toBe(true);
     expect(screen.getByText("已标记为“必须调用”。")).toBeTruthy();
 
     fireEvent.click(radios[1]);
+    expect((radios[1] as HTMLInputElement).checked).toBe(true);
     expect(screen.getByText(/请说明无需调用的原因/)).toBeTruthy();
 
     fireEvent.click(radios[2]);
+    expect((radios[2] as HTMLInputElement).checked).toBe(true);
     expect(screen.getByText("已标记为“不确定（阻断）”，后续测试会按阻断处理。")).toBeTruthy();
+    expect(screen.queryByText("√")).toBeNull();
   });
 });

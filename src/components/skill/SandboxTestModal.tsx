@@ -804,9 +804,16 @@ export function Step2ToolReview({
                     ...prev,
                     [t.tool_id]: { ...prev[t.tool_id], decision: "must_call" },
                   }))}
-                  className="w-3 h-3 accent-[#00A3C4]"
+                  className="sr-only"
                 />
-                <span aria-hidden="true" className={`font-bold ${edit.decision === "must_call" ? "opacity-100" : "opacity-0"}`}>√</span>
+                <span
+                  aria-hidden="true"
+                  className={`w-3 h-3 rounded-full border flex items-center justify-center ${
+                    edit.decision === "must_call" ? "border-green-600 bg-white" : "border-gray-300 bg-white"
+                  }`}
+                >
+                  <span className={`w-1.5 h-1.5 rounded-full ${edit.decision === "must_call" ? "bg-green-600" : "bg-transparent"}`} />
+                </span>
                 <span className="font-bold text-green-700">必须调用</span>
               </label>
               <label className={`flex items-center gap-1.5 text-[9px] cursor-pointer px-2 py-1 rounded border transition-colors ${
@@ -823,9 +830,16 @@ export function Step2ToolReview({
                     ...prev,
                     [t.tool_id]: { ...prev[t.tool_id], decision: "no_need" },
                   }))}
-                  className="w-3 h-3 accent-[#00A3C4]"
+                  className="sr-only"
                 />
-                <span aria-hidden="true" className={`font-bold ${edit.decision === "no_need" ? "opacity-100" : "opacity-0"}`}>√</span>
+                <span
+                  aria-hidden="true"
+                  className={`w-3 h-3 rounded-full border flex items-center justify-center ${
+                    edit.decision === "no_need" ? "border-amber-600 bg-white" : "border-gray-300 bg-white"
+                  }`}
+                >
+                  <span className={`w-1.5 h-1.5 rounded-full ${edit.decision === "no_need" ? "bg-amber-600" : "bg-transparent"}`} />
+                </span>
                 <span className="font-bold text-amber-700">无需调用</span>
               </label>
               <label className={`flex items-center gap-1.5 text-[9px] cursor-pointer px-2 py-1 rounded border transition-colors ${
@@ -842,9 +856,16 @@ export function Step2ToolReview({
                     ...prev,
                     [t.tool_id]: { ...prev[t.tool_id], decision: "uncertain_block" },
                   }))}
-                  className="w-3 h-3 accent-[#00A3C4]"
+                  className="sr-only"
                 />
-                <span aria-hidden="true" className={`font-bold ${edit.decision === "uncertain_block" ? "opacity-100" : "opacity-0"}`}>√</span>
+                <span
+                  aria-hidden="true"
+                  className={`w-3 h-3 rounded-full border flex items-center justify-center ${
+                    edit.decision === "uncertain_block" ? "border-red-600 bg-white" : "border-gray-300 bg-white"
+                  }`}
+                >
+                  <span className={`w-1.5 h-1.5 rounded-full ${edit.decision === "uncertain_block" ? "bg-red-600" : "bg-transparent"}`} />
+                </span>
                 <span className="font-bold text-red-600">不确定（阻断）</span>
               </label>
             </div>
