@@ -690,7 +690,7 @@ function Step1InputSlots({
 
 // ─── Step 2: Tool 确认（三选一） ─────────────────────────────────────────────
 
-function Step2ToolReview({
+export function Step2ToolReview({
   session,
   onSubmit,
   loading,
@@ -790,7 +790,11 @@ function Step2ToolReview({
 
             {/* 三选一 */}
             <div className="px-3 py-2 flex items-center gap-4 border-t border-gray-50">
-              <label className="flex items-center gap-1.5 text-[9px] cursor-pointer">
+              <label className={`flex items-center gap-1.5 text-[9px] cursor-pointer px-2 py-1 rounded border transition-colors ${
+                edit.decision === "must_call"
+                  ? "border-green-500 bg-green-50 text-green-800"
+                  : "border-gray-200 bg-white text-gray-500"
+              }`}>
                 <input
                   type="radio"
                   name={`tool-${t.tool_id}`}
@@ -800,11 +804,16 @@ function Step2ToolReview({
                     ...prev,
                     [t.tool_id]: { ...prev[t.tool_id], decision: "must_call" },
                   }))}
-                  className="w-3 h-3"
+                  className="w-3 h-3 accent-[#00A3C4]"
                 />
+                <span aria-hidden="true" className={`font-bold ${edit.decision === "must_call" ? "opacity-100" : "opacity-0"}`}>√</span>
                 <span className="font-bold text-green-700">必须调用</span>
               </label>
-              <label className="flex items-center gap-1.5 text-[9px] cursor-pointer">
+              <label className={`flex items-center gap-1.5 text-[9px] cursor-pointer px-2 py-1 rounded border transition-colors ${
+                edit.decision === "no_need"
+                  ? "border-amber-500 bg-amber-50 text-amber-800"
+                  : "border-gray-200 bg-white text-gray-500"
+              }`}>
                 <input
                   type="radio"
                   name={`tool-${t.tool_id}`}
@@ -814,11 +823,16 @@ function Step2ToolReview({
                     ...prev,
                     [t.tool_id]: { ...prev[t.tool_id], decision: "no_need" },
                   }))}
-                  className="w-3 h-3"
+                  className="w-3 h-3 accent-[#00A3C4]"
                 />
+                <span aria-hidden="true" className={`font-bold ${edit.decision === "no_need" ? "opacity-100" : "opacity-0"}`}>√</span>
                 <span className="font-bold text-amber-700">无需调用</span>
               </label>
-              <label className="flex items-center gap-1.5 text-[9px] cursor-pointer">
+              <label className={`flex items-center gap-1.5 text-[9px] cursor-pointer px-2 py-1 rounded border transition-colors ${
+                edit.decision === "uncertain_block"
+                  ? "border-red-500 bg-red-50 text-red-700"
+                  : "border-gray-200 bg-white text-gray-500"
+              }`}>
                 <input
                   type="radio"
                   name={`tool-${t.tool_id}`}
@@ -828,8 +842,9 @@ function Step2ToolReview({
                     ...prev,
                     [t.tool_id]: { ...prev[t.tool_id], decision: "uncertain_block" },
                   }))}
-                  className="w-3 h-3"
+                  className="w-3 h-3 accent-[#00A3C4]"
                 />
+                <span aria-hidden="true" className={`font-bold ${edit.decision === "uncertain_block" ? "opacity-100" : "opacity-0"}`}>√</span>
                 <span className="font-bold text-red-600">不确定（阻断）</span>
               </label>
             </div>
@@ -848,6 +863,12 @@ function Step2ToolReview({
                   placeholder="例：知识库 #12 已包含等效数据，无需调用此工具"
                   className="w-full border border-gray-300 rounded px-2 py-1 text-[9px] resize-none"
                 />
+              </div>
+            )}
+
+            {edit.decision === "uncertain_block" && (
+              <div className="px-3 py-2 border-t border-gray-50">
+                <div className="text-[8px] text-red-600">已标记为“不确定（阻断）”，后续测试会按阻断处理。</div>
               </div>
             )}
 
@@ -886,6 +907,11 @@ function Step2ToolReview({
                     </div>
                   );
                 })}
+              </div>
+            )}
+            {edit.decision === "must_call" && t.input_provenance.length === 0 && (
+              <div className="px-3 py-2 border-t border-gray-50">
+                <div className="text-[8px] text-green-700">已标记为“必须调用”。</div>
               </div>
             )}
           </div>
