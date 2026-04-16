@@ -314,10 +314,16 @@ export function PromptEditor({
     setPreflightRunning(true);
     setPreflightResult(null);
     setPreflightStage("启动检测...");
+    setSaveMsg("");
     const token = getToken();
     try {
       const resp = await fetch(`/api/proxy/sandbox/preflight/${skill.id}`, {
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        headers: {
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          Accept: "text/event-stream",
+          "Cache-Control": "no-cache",
+        },
+        cache: "no-store",
       });
       if (!resp.ok) {
         let message = `质量检测失败（${resp.status}）`;
@@ -338,17 +344,19 @@ export function PromptEditor({
         throw new Error(message);
       }
       const reader = resp.body?.getReader();
-      if (!reader) return;
+      if (!reader) {
+        throw new Error("质量检测流未建立，请重试");
+      }
       const decoder = new TextDecoder();
       let buf = "";
       const gates: PreflightGate[] = [];
+      let curEvent = "";
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
         buf += decoder.decode(value, { stream: true });
         const lines = buf.split("\n");
         buf = lines.pop() || "";
-        let curEvent = "";
         for (const line of lines) {
           if (line.startsWith("event: ")) { curEvent = line.slice(7).trim(); continue; }
           if (line.startsWith("data: ")) {
@@ -402,6 +410,7 @@ export function PromptEditor({
                 }
               }
             } catch { /* ignore parse error */ }
+            curEvent = "";
           }
         }
       }
