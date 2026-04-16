@@ -52,7 +52,7 @@ export default function PreviewTab({ detail, capabilities }: Props) {
   const [addingRow, setAddingRow] = useState(false);
 
   const fetchSampleData = useCallback(async () => {
-    const data = await apiFetch<SampleResponse>(`/data/${detail.table_name}/sample?max_rows=200`);
+    const data = await apiFetch<SampleResponse>(`/data/${encodeURIComponent(detail.table_name)}/sample?max_rows=200`);
     return {
       columns: data.columns ?? [],
       rows: data.rows ?? [],
@@ -87,19 +87,29 @@ export default function PreviewTab({ detail, capabilities }: Props) {
       const nextCols = data.columns ?? [];
       const nextRows = data.rows ?? [];
       const nextTotal = data.total ?? 0;
-      if (nextRows.length === 0 && nextTotal === 0 && (detail.record_count ?? 0) > 0) {
+      if (nextRows.length === 0 && nextTotal === 0) {
         try {
           const sample = await fetchSampleData();
           if (sample.rows.length > 0) {
             setCols(sample.columns);
             setRows(sample.rows);
-            setTotal(detail.record_count ?? sample.total);
+            setTotal(Math.max(detail.record_count ?? 0, sample.total, sample.rows.length));
             setStrategy(sample.sampleStrategy);
             setNotice("分页接口未返回数据，已自动降级显示采样结果。");
             return;
           }
+          if (sample.total > 0) {
+            setCols(sample.columns);
+            setRows([]);
+            setTotal(sample.total);
+            setStrategy(sample.sampleStrategy);
+            setNotice("表内存在数据，但采样接口未返回可展示行；请检查后端数据读取链路。");
+            return;
+          }
         } catch {
-          setNotice("表内存在数据，但分页接口未返回结果；请检查后端数据读取链路。");
+          if ((detail.record_count ?? 0) > 0) {
+            setNotice("表内存在数据，但分页接口未返回结果；请检查后端数据读取链路。");
+          }
         }
       }
       setCols(nextCols);
@@ -391,7 +401,7 @@ export default function PreviewTab({ detail, capabilities }: Props) {
             ))}
             {rows.length === 0 && (
               <tr>
-                <td colSpan={visibleCols.length + (capabilities?.can_edit_rows ? 1 : 0)} className="text-center py-8 text-[10px] text-gray-400 uppercase tracking-widest">
+                <td colSpan={Math.max(1, visibleCols.length + (capabilities?.can_edit_rows ? 1 : 0))} className="text-center py-8 text-[10px] text-gray-400 uppercase tracking-widest">
                   暂无数据
                 </td>
               </tr>
