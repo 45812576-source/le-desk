@@ -524,6 +524,11 @@ export function SkillStudio({
   }
 
   const showAssetEditor = selectedFile?.fileType === "asset" && selectedSkill !== null;
+  const selectedEditorFilename = selectedFile?.fileType === "asset"
+    ? (selectedFile as { filename: string }).filename
+    : selectedFile?.fileType === "prompt"
+      ? "SKILL.md"
+      : null;
 
   return (
     <div className="h-full flex flex-col overflow-hidden">
@@ -640,7 +645,7 @@ export function SkillStudio({
           currentPrompt={prompt}
           currentDescription={selectedSkill?.description ?? ""}
           editorIsDirty={editorIsDirty}
-          selectedSourceFile={selectedFile?.fileType === "asset" ? (selectedFile as { filename: string }).filename : null}
+          selectedSourceFile={selectedEditorFilename}
           allSkills={searchableSkills}
           memo={memo}
           onApplyDraft={handleApplyDraft}
@@ -724,6 +729,8 @@ export function SkillStudio({
                     setSelectedFile({ skillId: selectedSkill.id, fileType: "prompt" });
                   }}
                   onFileSaved={handleFileSaved}
+                  onContentChange={setPrompt}
+                  onBaselineChange={setSavedPrompt}
                 />
               ) : (
                 <PromptEditor
@@ -735,6 +742,7 @@ export function SkillStudio({
                   pendingDiffBase={pendingDiffBase}
                   saveRef={editorSaveRef}
                   onPromptChange={setPrompt}
+                  onBaselineChange={setSavedPrompt}
                   onSaved={handleSaved}
                   onFork={handleFork}
                   onFileSaved={handleFileSaved}

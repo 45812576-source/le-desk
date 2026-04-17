@@ -16,6 +16,10 @@ import {
   GovernanceJobProgressStrip,
   type GovernanceJobProgress,
   GranularRulesCard,
+  type MountContext,
+  MountContextCard,
+  type MountedPermissions,
+  MountedPermissionsCard,
   PermissionContractReviewCard,
   type PermissionContractReview,
   PermissionDeclarationCard,
@@ -33,6 +37,16 @@ type ApiEnvelope<T> = {
   ok: boolean;
   data: T;
   error?: { code: string; message: string; details?: Record<string, unknown> };
+};
+
+type LegacyPoliciesResponse = {
+  bundle_id?: number;
+  bundle_version: number;
+  governance_version?: number;
+  review_status: string;
+  items: RoleAssetPolicyItem[];
+  deprecated?: boolean;
+  read_only?: boolean;
 };
 
 type GovernanceAsyncJob = {
@@ -68,8 +82,11 @@ export function SkillGovernancePanel({
   const [summary, setSummary] = useState<GovernanceSummary | null>(null);
   const [roles, setRoles] = useState<ServiceRoleItem[]>([]);
   const [assets, setAssets] = useState<BoundAssetItem[]>([]);
+  const [mountContext, setMountContext] = useState<MountContext | null>(null);
+  const [mountedPermissions, setMountedPermissions] = useState<MountedPermissions | null>(null);
   const [bundle, setBundle] = useState<RolePolicyBundle | null>(null);
   const [policies, setPolicies] = useState<RoleAssetPolicyItem[]>([]);
+  const [legacyPolicyReadOnly, setLegacyPolicyReadOnly] = useState(false);
   const [declaration, setDeclaration] = useState<PermissionDeclaration | null>(null);
   const [readiness, setReadiness] = useState<GovernanceReadiness | null>(null);
   const [casePlan, setCasePlan] = useState<PermissionCasePlan | null>(null);
@@ -87,16 +104,32 @@ export function SkillGovernancePanel({
     () => buildDeclarationStaleReasons(declaration),
     [declaration],
   );
+  const canGenerateDeclaration = useMemo(
+    () => Boolean((mountContext?.roles?.length || roles.length) && (mountContext?.assets?.length || assets.length)),
+    [assets.length, mountContext?.assets?.length, mountContext?.roles?.length, roles.length],
+  );
 
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const [summaryResp, rolesResp, assetsResp, policiesResp, declarationResp, readinessResp, casePlanResp] = await Promise.all([
+      const [
+        summaryResp,
+        rolesResp,
+        assetsResp,
+        mountContextResp,
+        mountedPermissionsResp,
+        policiesResp,
+        declarationResp,
+        readinessResp,
+        casePlanResp,
+      ] = await Promise.all([
         apiFetch<ApiEnvelope<GovernanceSummary>>(`/skill-governance/${skill.id}/summary`).then(unwrap),
         apiFetch<ApiEnvelope<{ roles: ServiceRoleItem[] }>>(`/skill-governance/${skill.id}/service-roles`).then(unwrap),
         apiFetch<ApiEnvelope<{ assets: BoundAssetItem[] }>>(`/skill-governance/${skill.id}/bound-assets`).then(unwrap),
-        apiFetch<ApiEnvelope<{ bundle_id?: number; bundle_version: number; governance_version?: number; review_status: string; items: RoleAssetPolicyItem[] }>>(
+        apiFetch<ApiEnvelope<MountContext>>(`/skill-governance/${skill.id}/mount-context`).then(unwrap),
+        apiFetch<ApiEnvelope<MountedPermissions>>(`/skill-governance/${skill.id}/mounted-permissions`).then(unwrap),
+        apiFetch<ApiEnvelope<LegacyPoliciesResponse>>(
           `/skill-governance/${skill.id}/role-asset-policies?include_rules=true`,
         ).then(unwrap),
         apiFetch<ApiEnvelope<PermissionDeclaration>>(
@@ -112,6 +145,10 @@ export function SkillGovernancePanel({
       setSummary(summaryResp);
       setRoles(rolesResp.roles || []);
       setAssets(assetsResp.assets || []);
+      setMountContext(mountContextResp || null);
+      setMountedPermissions(mountedPermissionsResp || null);
+      const hasLegacyBundle = Boolean(policiesResp.bundle_id);
+      setLegacyPolicyReadOnly(Boolean(policiesResp.read_only || policiesResp.deprecated || hasLegacyBundle));
       setBundle(
         summaryResp.bundle
         || (policiesResp.bundle_id
@@ -122,6 +159,8 @@ export function SkillGovernancePanel({
               status: policiesResp.review_status,
               service_role_count: rolesResp.roles?.length || 0,
               bound_asset_count: assetsResp.assets?.length || 0,
+              deprecated: policiesResp.deprecated,
+              read_only: policiesResp.read_only,
             }
           : null),
       );
@@ -251,7 +290,7 @@ export function SkillGovernancePanel({
     try {
       const resp = await apiFetch<ApiEnvelope<{ job_id: string | number; status: string; declaration_id?: number }>>(`/skill-governance/${skill.id}/declarations/generate`, {
         method: "POST",
-        body: JSON.stringify({ bundle_id: bundle?.id, async_job: true }),
+        body: JSON.stringify({ async_job: true }),
       }).then(unwrap);
       await waitGovernanceJob(resp.job_id, label);
       await load();
@@ -453,25 +492,34 @@ export function SkillGovernancePanel({
         <GovernanceJobProgressStrip job={activeJob} />
         <ServiceRolesCard roles={roles} loading={loading} onSave={saveRoles} />
         <BoundAssetsCard assets={assets} loading={loading} />
-        <RoleAssetPolicyCard
-          bundle={bundle}
-          policies={policies}
-          loading={loading}
-          running={runningPolicyJob}
-          onGenerate={generatePolicies}
-          onConfirm={confirmPolicy}
-        />
-        <GranularRulesCard
-          policies={policies}
-          loading={loading}
-          onSaveRule={saveGranularRule}
-        />
+        <MountContextCard context={mountContext} loading={loading} />
+        <MountedPermissionsCard permissions={mountedPermissions} loading={loading} />
+        {(policies.length > 0 || bundle?.id) && (
+          <RoleAssetPolicyCard
+            bundle={bundle}
+            policies={policies}
+            loading={loading}
+            running={runningPolicyJob}
+            readOnly={legacyPolicyReadOnly}
+            onGenerate={generatePolicies}
+            onConfirm={confirmPolicy}
+          />
+        )}
+        {policies.some((policy) => (policy.granular_rules || []).length > 0) && (
+          <GranularRulesCard
+            policies={policies}
+            loading={loading}
+            readOnly={legacyPolicyReadOnly}
+            onSaveRule={saveGranularRule}
+          />
+        )}
         <PermissionDeclarationCard
           bundle={bundle}
           declaration={declaration}
           running={runningDeclarationJob}
           mounting={mountingDeclaration}
           staleReasons={declarationStaleReasons}
+          canGenerate={canGenerateDeclaration}
           onGenerate={generateDeclaration}
           onMount={mountDeclaration}
           onSaveText={saveDeclarationText}

@@ -887,6 +887,7 @@ export interface SkillMemoTask {
   target_ref?: string;
   retest_scope?: string[];
   acceptance_rule_text?: string;
+  evidence_snippets?: string[];
   source_report_id?: number;
 }
 

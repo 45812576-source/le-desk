@@ -7,6 +7,10 @@ import {
   CaseDraftListCard,
   GovernanceJobProgressStrip,
   GranularRulesCard,
+  MountContextCard,
+  MountedPermissionsCard,
+  type MountContext,
+  type MountedPermissions,
   PermissionContractReviewCard,
   PermissionDeclarationCard,
   type PermissionDeclaration,
@@ -215,7 +219,147 @@ const contractReview: PermissionContractReview = {
   ],
 };
 
+const mountContext: MountContext = {
+  skill_id: 7,
+  workspace_id: 1,
+  source_mode: "domain_projection",
+  projection_version: 5,
+  skill_content_version: 4,
+  roles: [
+    {
+      id: 1,
+      org_path: "公司经营发展中心/人力资源部",
+      position_name: "招聘主管",
+      position_level: "M0",
+      role_label: "招聘主管（M0）",
+      status: "active",
+    },
+  ],
+  assets: [
+    {
+      id: 21,
+      asset_type: "data_table",
+      asset_ref_type: "table",
+      asset_ref_id: 21,
+      asset_name: "候选人明细表",
+      binding_mode: "table_bound",
+      risk_flags: ["high_sensitive_fields"],
+      status: "active",
+    },
+  ],
+  permission_summary: {
+    table_count: 1,
+    knowledge_count: 1,
+    tool_count: 1,
+    high_risk_count: 2,
+    blocking_issues: [],
+  },
+  source_refs: [{ type: "skill_data_grant", id: 801 }],
+  deprecated_bundle: baseBundle,
+};
+
+const mountedPermissions: MountedPermissions = {
+  skill_id: 7,
+  source_mode: "domain_projection",
+  projection_version: 5,
+  table_permissions: [
+    {
+      asset_id: 21,
+      asset_name: "候选人明细表",
+      asset_ref: "data_table:table:21",
+      table_id: 21,
+      table_name: "候选人明细表",
+      view_id: 9,
+      view_name: "招聘视图",
+      role_group_id: 18,
+      role_group_name: "招聘岗位组",
+      grant_id: 801,
+      grant_mode: "allow",
+      allowed_actions: ["read"],
+      max_disclosure_level: "L2",
+      approval_required: false,
+      audit_level: "full",
+      row_access_mode: "department",
+      field_access_mode: "blocklist",
+      disclosure_level: "L2",
+      allowed_fields: [],
+      blocked_fields: ["候选人手机号"],
+      sensitive_fields: ["候选人手机号"],
+      masked_fields: ["候选人手机号"],
+      masking_rule_json: { candidate_phone: "partial" },
+      risk_flags: ["high_sensitive_fields"],
+      blocking_issues: [],
+      source_refs: [{ type: "skill_data_grant", id: 801 }],
+    },
+  ],
+  knowledge_permissions: [
+    {
+      asset_id: 31,
+      asset_name: "招聘话术库",
+      asset_ref: "knowledge_base:knowledge:31",
+      knowledge_id: 31,
+      title: "招聘话术库",
+      folder_id: 4,
+      folder_path: "招聘知识库/话术",
+      publish_version: 2,
+      snapshot_desensitization_level: "L2",
+      snapshot_data_type_hits: ["phone"],
+      snapshot_mask_rules: [{ data_type: "phone", mask_action: "summary_only" }],
+      manager_scope_ok: true,
+      grant_actions: [],
+      risk_flags: ["high_risk_chunks"],
+      blocking_issues: [],
+      source_refs: [{ type: "skill_knowledge_reference", id: 22 }],
+    },
+  ],
+  tool_permissions: [
+    {
+      asset_id: 41,
+      asset_name: "外呼同步 Tool",
+      asset_ref: "tool:tool:41",
+      tool_id: 41,
+      tool_name: "外呼同步 Tool",
+      tool_type: "mcp",
+      permission_count: 2,
+      write_capable: true,
+      risk_flags: ["write_capable_tool"],
+      blocking_issues: [],
+      source_refs: [{ type: "tool_registry", id: 41 }],
+    },
+  ],
+  risk_controls: [
+    {
+      type: "sensitive_field",
+      severity: "high",
+      asset_type: "data_table",
+      asset_name: "候选人明细表",
+      detail: "候选人手机号",
+      source_ref: { type: "business_table", id: 21 },
+    },
+  ],
+  blocking_issues: [],
+  deprecated_bundle: baseBundle,
+};
+
 describe("SkillGovernanceCards", () => {
+  it("MountContextCard and MountedPermissionsCard render domain projection summary", () => {
+    render(
+      <>
+        <MountContextCard context={mountContext} loading={false} />
+        <MountedPermissionsCard permissions={mountedPermissions} loading={false} />
+      </>,
+    );
+
+    expect(screen.getByText("源域挂载上下文")).toBeInTheDocument();
+    expect(screen.getAllByText("源域投影").length).toBeGreaterThan(0);
+    expect(screen.getByText("Projection v5")).toBeInTheDocument();
+    expect(screen.getByText("兼容 Bundle v3")).toBeInTheDocument();
+    expect(screen.getAllByText("候选人明细表").length).toBeGreaterThan(0);
+    expect(screen.getByText("招聘话术库")).toBeInTheDocument();
+    expect(screen.getByText("外呼同步 Tool")).toBeInTheDocument();
+    expect(screen.getByText(/受控字段：候选人手机号/)).toBeInTheDocument();
+  });
+
   it("GranularRulesCard supports grouped granular rule editing with override reason", async () => {
     const onSaveRule = vi.fn().mockResolvedValue(undefined);
     render(
@@ -265,6 +409,7 @@ describe("SkillGovernanceCards", () => {
         running={false}
         mounting={false}
         staleReasons={["高风险字段 / Chunk 规则已变更，需重新生成权限声明。"]}
+        canGenerate
         onGenerate={vi.fn().mockResolvedValue(undefined)}
         onMount={vi.fn().mockResolvedValue(undefined)}
         onSaveText={vi.fn().mockResolvedValue(undefined)}
@@ -311,6 +456,7 @@ describe("SkillGovernanceCards", () => {
         running={false}
         mounting={false}
         staleReasons={[]}
+        canGenerate
         onGenerate={vi.fn().mockResolvedValue(undefined)}
         onMount={vi.fn().mockResolvedValue(undefined)}
         onSaveText={vi.fn().mockResolvedValue(undefined)}
@@ -355,6 +501,25 @@ describe("SkillGovernanceCards", () => {
     expect(screen.getByText("聚合")).toBeInTheDocument();
   });
 
+  it("RoleAssetPolicyCard hides write actions in read-only legacy mode", () => {
+    render(
+      <RoleAssetPolicyCard
+        bundle={{ ...baseBundle, deprecated: true, read_only: true }}
+        policies={diffPolicies}
+        loading={false}
+        running={false}
+        readOnly
+        onGenerate={vi.fn().mockResolvedValue(undefined)}
+        onConfirm={vi.fn().mockResolvedValue(undefined)}
+      />,
+    );
+
+    expect(screen.getByText("历史兼容 / 只读")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "生成建议" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "确认" })).not.toBeInTheDocument();
+    expect(screen.getAllByText("只读历史").length).toBeGreaterThan(0);
+  });
+
   it("GranularRulesCard opens granular diff matrix", () => {
     render(
       <GranularRulesCard
@@ -369,6 +534,22 @@ describe("SkillGovernanceCards", () => {
     expect(screen.getByRole("button", { name: "字段 / Chunk 细则" })).toBeInTheDocument();
     expect(screen.getAllByText("候选人手机号").length).toBeGreaterThan(0);
     expect(screen.getByText("拒绝")).toBeInTheDocument();
+  });
+
+  it("GranularRulesCard becomes read-only in legacy mode", () => {
+    render(
+      <GranularRulesCard
+        policies={basePolicies}
+        loading={false}
+        readOnly
+        onSaveRule={vi.fn().mockResolvedValue(undefined)}
+      />,
+    );
+
+    expect(screen.getByText("历史兼容 / 只读")).toBeInTheDocument();
+    expect(screen.queryByText("保存细则")).not.toBeInTheDocument();
+    const selects = screen.getAllByRole("combobox");
+    selects.forEach((select) => expect(select).toBeDisabled());
   });
 
   it("CaseDraftListCard opens source refs dialog", () => {

@@ -24,6 +24,12 @@ export function normalizeWorkflowCardPayload(
       description: raw.description,
       severity: raw.severity,
       category: raw.category,
+      target_kind: raw.target_kind,
+      target_ref: raw.target_ref ?? raw.target_file,
+      acceptance_rule: raw.acceptance_rule ?? raw.acceptance_rule_text,
+      evidence_snippets: raw.evidence_snippets,
+      target_files: raw.target_files,
+      problem_refs: raw.problem_refs,
       staged_edit_id: raw.staged_edit_id != null
         ? String(raw.staged_edit_id)
         : raw.id != null

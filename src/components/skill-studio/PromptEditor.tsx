@@ -67,6 +67,7 @@ export function PromptEditor({
   pendingDiffBase,
   saveRef,
   onPromptChange,
+  onBaselineChange,
   onSaved,
   onFork,
   onFileSaved,
@@ -81,6 +82,7 @@ export function PromptEditor({
   pendingDiffBase?: string | null;
   saveRef?: React.MutableRefObject<(() => void) | null>;
   onPromptChange: (p: string) => void;
+  onBaselineChange?: (p: string) => void;
   onSaved: (skill: SkillDetail) => void;
   onFork: () => void;
   onFileSaved?: (filename: string, contentSize: number) => void;
@@ -161,11 +163,16 @@ export function PromptEditor({
       return;
     }
     apiFetch<SkillDetail>(`/skills/${skill.id}`)
-      .then((d) => {
+      .then(async (d) => {
         setName(d.name);
         setDescription(d.description ?? "");
-        const p = d.versions?.[0]?.system_prompt ?? d.system_prompt ?? "";
+        let p = d.versions?.[0]?.system_prompt ?? d.system_prompt ?? "";
+        try {
+          const file = await apiFetch<{ content: string }>(`/skills/${skill.id}/files/${encodeURIComponent("SKILL.md")}`);
+          p = file.content ?? p;
+        } catch { /* fallback to latest runtime prompt */ }
         onPromptChange(p);
+        onBaselineChange?.(p);
         setVersions(d.versions ?? []);
         setDiffBase(p);
         setShowDiff(false);
@@ -186,7 +193,7 @@ export function PromptEditor({
   }, [skill?.id]);
 
   useEffect(() => {
-    if (isNew) { setName(""); setDescription(""); setVersions([]); onPromptChange(""); setDiffBase(null); setShowDiff(false); }
+    if (isNew) { setName(""); setDescription(""); setVersions([]); onPromptChange(""); onBaselineChange?.(""); setDiffBase(null); setShowDiff(false); }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isNew]);
 
@@ -250,16 +257,17 @@ export function PromptEditor({
       if (isNew || !skill) {
         const created = await apiFetch<SkillDetail>("/skills", {
           method: "POST",
-          body: JSON.stringify({ name: name.trim(), description: description.trim(), system_prompt: prompt.trim(), mode: "hybrid", variables: [], auto_inject: true }),
+          body: JSON.stringify({ name: name.trim(), description: description.trim(), system_prompt: prompt.trim(), raw_skill_md: prompt.trim(), mode: "hybrid", variables: [], auto_inject: true }),
         });
         setSaveMsg("✓ 已创建");
         setDiffBase(prompt);
+        onBaselineChange?.(prompt);
         setShowDiff(false);
         onSaved(created);
       } else {
-        await apiFetch(`/skills/${skill.id}/versions`, {
-          method: "POST",
-          body: JSON.stringify({ system_prompt: prompt.trim(), change_note: changeNote.trim() || "手动编辑" }),
+        await apiFetch(`/skills/${skill.id}/files/${encodeURIComponent("SKILL.md")}`, {
+          method: "PUT",
+          body: JSON.stringify({ content: prompt, change_note: changeNote.trim() || "手动编辑 SKILL.md" }),
         });
         const trimmedName = name.trim();
         const trimmedDescription = description.trim();
@@ -298,6 +306,7 @@ export function PromptEditor({
         const assetCount = skill.source_files?.length ?? 0;
         setSaveMsg(`✓ 已保存新版本${assetCount > 0 ? `（含 ${assetCount} 个附属文件）` : ""}`);
         setDiffBase(prompt);
+        onBaselineChange?.(prompt);
         setShowDiff(false);
         const d = await apiFetch<SkillDetail>(`/skills/${skill.id}`);
         setVersions(d.versions ?? []);
@@ -538,7 +547,14 @@ export function PromptEditor({
         {showVersions && (
           <div className="mb-2 border-2 border-[#1A202C] max-h-40 overflow-y-auto flex-shrink-0">
             {versions.map((v) => (
-              <button key={v.id} onClick={() => { onPromptChange(v.system_prompt ?? ""); setShowVersions(false); setDiffBase(v.system_prompt ?? ""); setShowDiff(false); }}
+              <button key={v.id} onClick={() => {
+                const historicalSkillMd = `---\nname: ${name}\ndescription: ${description}\n---\n\n${v.system_prompt ?? ""}`;
+                onPromptChange(historicalSkillMd);
+                setShowVersions(false);
+                setDiffBase(historicalSkillMd);
+                onBaselineChange?.(historicalSkillMd);
+                setShowDiff(false);
+              }}
                 className="w-full text-left px-3 py-1.5 hover:bg-[#F0F4F8] border-b border-gray-100 last:border-0 flex items-center gap-2">
                 <span className="text-[9px] font-bold text-[#00A3C4]">v{v.version}</span>
                 <span className="text-[8px] text-gray-500 flex-1 truncate">{v.change_note || "无说明"}</span>

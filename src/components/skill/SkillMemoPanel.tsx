@@ -13,6 +13,7 @@ interface SkillMemoPanelProps {
   onStartFixTask?: (task: SkillMemoTask) => void;
   onTargetedRetest?: (taskId: string) => void;
   onViewReport?: () => void;
+  onOpenTarget?: (fileType: string, filename: string) => void;
   sandboxReportId?: string;
 }
 
@@ -31,7 +32,22 @@ const TYPE_LABELS: Record<string, string> = {
   run_targeted_retest: "重测",
 };
 
-export function SkillMemoPanel({ memo, onStartTask, onDirectTest, onStartFixTask, onTargetedRetest, onViewReport, sandboxReportId }: SkillMemoPanelProps) {
+function openTaskTarget(task: SkillMemoTask, onOpenTarget?: (fileType: string, filename: string) => void) {
+  if (!onOpenTarget) return;
+  const explicitTarget = typeof task.target_ref === "string" && task.target_ref.trim().length > 0
+    ? task.target_ref.trim()
+    : "";
+  const primaryTarget = explicitTarget || task.target_files[0] || "";
+  if (task.target_kind === "skill_prompt" || primaryTarget === "SKILL.md") {
+    onOpenTarget("prompt", "SKILL.md");
+    return;
+  }
+  if (primaryTarget) {
+    onOpenTarget("asset", primaryTarget);
+  }
+}
+
+export function SkillMemoPanel({ memo, onStartTask, onDirectTest, onStartFixTask, onTargetedRetest, onViewReport, onOpenTarget, sandboxReportId }: SkillMemoPanelProps) {
   const [showCompleted, setShowCompleted] = useState(false);
   const [expandedTaskIds, setExpandedTaskIds] = useState<Set<string>>(new Set());
 
@@ -49,6 +65,7 @@ export function SkillMemoPanel({ memo, onStartTask, onDirectTest, onStartFixTask
   const completedTasks = allMemoTasks.filter(t =>
     fixTaskTypes.includes(t.type) && (t.status === "done" || t.status === "skipped")
   );
+  const currentTask = memo.current_task;
 
   // 测试结论
   const testPassed = memo.latest_test
@@ -115,7 +132,7 @@ export function SkillMemoPanel({ memo, onStartTask, onDirectTest, onStartFixTask
       )}
 
       {/* ── 当前任务 ── */}
-      {memo.current_task && (
+      {currentTask && (
         <div className="mx-3 my-1 px-3 py-2 border-2 border-[#00D1FF] bg-[#F0FAFF]">
           <div className="flex items-center gap-2 mb-1">
             <span className="relative flex h-2 w-2">
@@ -124,11 +141,50 @@ export function SkillMemoPanel({ memo, onStartTask, onDirectTest, onStartFixTask
             </span>
             <span className="text-[8px] font-bold uppercase tracking-widest text-[#00A3C4]">当前任务</span>
           </div>
-          <div className="text-[8px] text-[#1A202C] font-medium whitespace-pre-wrap break-words">{memo.current_task.title}</div>
-          {memo.current_task.target_files.length > 0 && (
+          <div className="text-[8px] text-[#1A202C] font-medium whitespace-pre-wrap break-words">{currentTask.title}</div>
+          {currentTask.target_files.length > 0 && (
             <div className="mt-1 flex flex-wrap gap-1">
-              {memo.current_task.target_files.map(f => (
-                <span key={f} className="text-[7px] px-1 py-0.5 bg-[#E0F7FF] text-[#00A3C4] font-mono">{f}</span>
+              {currentTask.target_files.map(f => (
+                <button
+                  key={f}
+                  type="button"
+                  onClick={() => openTaskTarget({ ...currentTask, target_ref: f }, onOpenTarget)}
+                  className="text-[7px] px-1 py-0.5 bg-[#E0F7FF] text-[#00A3C4] font-mono hover:underline"
+                >
+                  {f}
+                </button>
+              ))}
+            </div>
+          )}
+          {(currentTask.target_ref || currentTask.target_kind) && (
+            <div className="mt-1 text-[7px] text-[#0F4C5C] flex items-center gap-1.5 flex-wrap">
+              <span className="font-bold uppercase tracking-widest text-[#00A3C4]">目标</span>
+              {currentTask.target_kind && (
+                <span className="px-1 py-0.5 bg-white/70 border border-[#BEE3F8]">{currentTask.target_kind}</span>
+              )}
+              {(currentTask.target_ref || currentTask.target_kind === "skill_prompt") && (
+                <button
+                  type="button"
+                  onClick={() => openTaskTarget(currentTask, onOpenTarget)}
+                  className="font-mono text-[#00A3C4] hover:underline"
+                >
+                  {currentTask.target_ref || "SKILL.md"}
+                </button>
+              )}
+            </div>
+          )}
+          {currentTask.acceptance_rule_text && (
+            <div className="mt-1 text-[8px] text-[#0F4C5C] bg-white/70 border-l-2 border-[#00A3C4] px-2 py-1 whitespace-pre-wrap break-words">
+              验收：{currentTask.acceptance_rule_text}
+            </div>
+          )}
+          {currentTask.evidence_snippets && currentTask.evidence_snippets.length > 0 && (
+            <div className="mt-1 space-y-1">
+              <div className="text-[7px] font-bold uppercase tracking-widest text-[#00A3C4]">证据</div>
+              {currentTask.evidence_snippets.slice(0, 3).map((snippet, index) => (
+                <div key={`${currentTask.id}-evidence-${index}`} className="text-[8px] text-gray-600 bg-white/70 border border-[#BEE3F8] px-2 py-1 whitespace-pre-wrap break-words">
+                  {snippet}
+                </div>
               ))}
             </div>
           )}
@@ -164,7 +220,7 @@ export function SkillMemoPanel({ memo, onStartTask, onDirectTest, onStartFixTask
                   <span className="text-[8px] text-gray-700 flex-1 min-w-0 whitespace-pre-wrap break-words leading-relaxed">
                     {task.title.replace(/^修复:\s*/, "")}
                   </span>
-                  {(task.description || task.acceptance_rule_text) && (
+                  {(task.description || task.acceptance_rule_text || task.target_ref || task.evidence_snippets?.length) && (
                     <button
                       type="button"
                       className="text-[7px] font-bold text-[#6B46C1] border border-[#E9D8FD] px-1 py-0.5 hover:bg-[#FAF5FF] flex-shrink-0"
@@ -192,6 +248,24 @@ export function SkillMemoPanel({ memo, onStartTask, onDirectTest, onStartFixTask
                 </div>
                 {expandedTaskIds.has(task.id) && (
                   <div className="ml-[56px] mt-1 space-y-1">
+                    {(task.target_ref || task.target_kind) && (
+                      <div className="text-[8px] text-gray-600 bg-gray-50 border-l-2 border-gray-300 px-2 py-1 whitespace-pre-wrap break-words">
+                        目标：
+                        {task.target_kind ? ` ${task.target_kind}` : ""}
+                        {(task.target_ref || task.target_kind === "skill_prompt") && (
+                          <>
+                            {" "}
+                            <button
+                              type="button"
+                              onClick={() => openTaskTarget(task, onOpenTarget)}
+                              className="font-mono text-[#00A3C4] hover:underline"
+                            >
+                              {task.target_ref || "SKILL.md"}
+                            </button>
+                          </>
+                        )}
+                      </div>
+                    )}
                     {task.description && (
                       <div className="text-[8px] text-gray-600 bg-gray-50 border-l-2 border-gray-300 px-2 py-1 whitespace-pre-wrap break-words">
                         {task.description}
@@ -200,6 +274,15 @@ export function SkillMemoPanel({ memo, onStartTask, onDirectTest, onStartFixTask
                     {task.acceptance_rule_text && (
                       <div className="text-[8px] text-[#00A3C4] bg-[#F0FAFF] border-l-2 border-[#00A3C4] px-2 py-1 whitespace-pre-wrap break-words">
                         验收：{task.acceptance_rule_text}
+                      </div>
+                    )}
+                    {task.evidence_snippets && task.evidence_snippets.length > 0 && (
+                      <div className="space-y-1">
+                        {task.evidence_snippets.slice(0, 3).map((snippet, index) => (
+                          <div key={`${task.id}-evidence-${index}`} className="text-[8px] text-gray-600 bg-gray-50 border-l-2 border-amber-300 px-2 py-1 whitespace-pre-wrap break-words">
+                            证据：{snippet}
+                          </div>
+                        ))}
                       </div>
                     )}
                   </div>

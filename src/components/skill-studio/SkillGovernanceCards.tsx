@@ -89,6 +89,8 @@ export type RolePolicyBundle = {
   status: GovernanceStatus | string;
   service_role_count: number;
   bound_asset_count: number;
+  deprecated?: boolean;
+  read_only?: boolean;
 };
 
 export type PermissionDeclaration = {
@@ -121,6 +123,108 @@ export type GovernanceSummary = {
     blocking_issues: string[];
     stale: boolean;
   };
+};
+
+export type MountContext = {
+  skill_id: number;
+  workspace_id: number;
+  source_mode: string;
+  projection_version: number;
+  skill_content_version: number;
+  roles: ServiceRoleItem[];
+  assets: BoundAssetItem[];
+  permission_summary: {
+    table_count: number;
+    knowledge_count: number;
+    tool_count: number;
+    high_risk_count: number;
+    blocking_issues: string[];
+  };
+  source_refs: Array<Record<string, unknown>>;
+  deprecated_bundle?: RolePolicyBundle | null;
+};
+
+export type MountedTablePermission = {
+  asset_id: number;
+  asset_name: string;
+  asset_ref: string;
+  table_id?: number | null;
+  table_name: string;
+  view_id?: number | null;
+  view_name?: string | null;
+  role_group_id?: number | null;
+  role_group_name?: string | null;
+  grant_id?: number | null;
+  grant_mode?: string | null;
+  allowed_actions: string[];
+  max_disclosure_level?: string | null;
+  approval_required: boolean;
+  audit_level?: string | null;
+  row_access_mode?: string | null;
+  field_access_mode?: string | null;
+  disclosure_level?: string | null;
+  allowed_fields: string[];
+  blocked_fields: string[];
+  sensitive_fields: string[];
+  masked_fields: string[];
+  masking_rule_json?: Record<string, unknown>;
+  risk_flags?: string[];
+  blocking_issues: string[];
+  source_refs: Array<Record<string, unknown>>;
+};
+
+export type MountedKnowledgePermission = {
+  asset_id: number;
+  asset_name: string;
+  asset_ref: string;
+  knowledge_id: number;
+  title: string;
+  folder_id?: number | null;
+  folder_path?: string | null;
+  publish_version?: number | null;
+  snapshot_desensitization_level?: string | null;
+  snapshot_data_type_hits: string[];
+  snapshot_mask_rules: Array<Record<string, unknown>>;
+  manager_scope_ok: boolean;
+  grant_actions: string[];
+  risk_flags?: string[];
+  blocking_issues: string[];
+  source_refs: Array<Record<string, unknown>>;
+};
+
+export type MountedToolPermission = {
+  asset_id: number;
+  asset_name: string;
+  asset_ref: string;
+  tool_id: number;
+  tool_name: string;
+  tool_type?: string | null;
+  permission_count: number;
+  write_capable: boolean;
+  risk_flags?: string[];
+  blocking_issues: string[];
+  source_refs: Array<Record<string, unknown>>;
+};
+
+export type MountedRiskControl = {
+  type: string;
+  severity: string;
+  asset_type: string;
+  asset_name: string;
+  detail: string;
+  source_ref?: Record<string, unknown> | null;
+};
+
+export type MountedPermissions = {
+  skill_id: number;
+  source_mode: string;
+  projection_version: number;
+  table_permissions: MountedTablePermission[];
+  knowledge_permissions: MountedKnowledgePermission[];
+  tool_permissions: MountedToolPermission[];
+  risk_controls: MountedRiskControl[];
+  blocking_issues: string[];
+  deprecated_bundle?: RolePolicyBundle | null;
 };
 
 export type GovernanceReadiness = {
@@ -713,6 +817,25 @@ function AssetRiskBadge({ flag }: { flag: string }) {
   );
 }
 
+function mountedIssueLabel(code: string) {
+  const mapping: Record<string, string> = {
+    missing_skill_data_grant: "缺少 Skill 数据授权",
+    skill_data_grant_denied: "Skill 数据授权被拒绝",
+    grant_missing_view_binding: "授权缺少视图绑定",
+    missing_role_group_binding: "授权未绑定角色组",
+    missing_table_permission_policy: "缺少表权限策略",
+    missing_skill_knowledge_reference: "缺少知识引用快照",
+    manager_scope_not_confirmed: "知识 manager scope 未确认",
+    missing_mask_snapshot: "缺少知识脱敏快照",
+  };
+  return mapping[code] || code;
+}
+
+function sourceModeLabel(sourceMode?: string | null) {
+  if (sourceMode === "domain_projection") return "源域投影";
+  return sourceMode || "未知";
+}
+
 function Card({
   title,
   children,
@@ -891,11 +1014,183 @@ export function BoundAssetsCard({ assets, loading }: { assets: BoundAssetItem[];
   );
 }
 
+export function MountContextCard({
+  context,
+  loading,
+}: {
+  context: MountContext | null;
+  loading: boolean;
+}) {
+  const summary = context?.permission_summary;
+  return (
+    <Card title="源域挂载上下文">
+      {loading && <p className="text-[9px] text-slate-400">加载源域上下文中...</p>}
+      {!loading && !context && <p className="text-[9px] text-slate-400">尚未生成源域挂载上下文。</p>}
+      {context && (
+        <div className="space-y-2">
+          <div className="flex items-center gap-1 flex-wrap">
+            {tinyBadge("border-[#00A3C4]/30 bg-white text-[#00A3C4]", sourceModeLabel(context.source_mode))}
+            {tinyBadge("border-slate-300 bg-slate-50 text-slate-600", `Projection v${context.projection_version}`)}
+            {tinyBadge("border-slate-300 bg-slate-50 text-slate-600", `Skill v${context.skill_content_version}`)}
+            {context.deprecated_bundle && tinyBadge("border-amber-300 bg-amber-50 text-amber-700", `兼容 Bundle v${context.deprecated_bundle.bundle_version}`)}
+          </div>
+          <div className="grid grid-cols-4 gap-1.5">
+            <div className="border border-slate-200 bg-slate-50 p-2">
+              <div className="text-[8px] text-slate-400">岗位</div>
+              <div className="text-[11px] font-bold text-slate-800">{context.roles.length}</div>
+            </div>
+            <div className="border border-slate-200 bg-slate-50 p-2">
+              <div className="text-[8px] text-slate-400">表权限</div>
+              <div className="text-[11px] font-bold text-slate-800">{summary?.table_count ?? 0}</div>
+            </div>
+            <div className="border border-slate-200 bg-slate-50 p-2">
+              <div className="text-[8px] text-slate-400">知识权限</div>
+              <div className="text-[11px] font-bold text-slate-800">{summary?.knowledge_count ?? 0}</div>
+            </div>
+            <div className="border border-slate-200 bg-slate-50 p-2">
+              <div className="text-[8px] text-slate-400">高风险</div>
+              <div className="text-[11px] font-bold text-slate-800">{summary?.high_risk_count ?? 0}</div>
+            </div>
+          </div>
+          {summary?.blocking_issues.length ? (
+            <div className="space-y-1">
+              {summary.blocking_issues.map((issue) => (
+                <div key={issue} className="text-[9px] text-amber-700">
+                  - {mountedIssueLabel(issue)}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-[9px] text-emerald-700">当前上下文已从表权限、知识权限和工具权限域完成投影。</p>
+          )}
+        </div>
+      )}
+    </Card>
+  );
+}
+
+export function MountedPermissionsCard({
+  permissions,
+  loading,
+}: {
+  permissions: MountedPermissions | null;
+  loading: boolean;
+}) {
+  return (
+    <Card title="已挂载权限摘要">
+      {loading && <p className="text-[9px] text-slate-400">加载权限投影中...</p>}
+      {!loading && !permissions && <p className="text-[9px] text-slate-400">尚未拿到已挂载权限投影。</p>}
+      {permissions && (
+        <div className="space-y-3">
+          <div className="flex items-center gap-1 flex-wrap">
+            {tinyBadge("border-[#00A3C4]/30 bg-white text-[#00A3C4]", sourceModeLabel(permissions.source_mode))}
+            {tinyBadge("border-slate-300 bg-slate-50 text-slate-600", `${permissions.table_permissions.length} 张表`)}
+            {tinyBadge("border-slate-300 bg-slate-50 text-slate-600", `${permissions.knowledge_permissions.length} 条知识`)}
+            {tinyBadge("border-slate-300 bg-slate-50 text-slate-600", `${permissions.tool_permissions.length} 个 Tool`)}
+            {tinyBadge("border-slate-300 bg-slate-50 text-slate-600", `${permissions.risk_controls.length} 个控制项`)}
+          </div>
+
+          {permissions.blocking_issues.length > 0 && (
+            <div className="border border-amber-300 bg-amber-50 p-2 space-y-1">
+              <div className="text-[8px] font-bold uppercase tracking-widest text-amber-700">Blocking Issues</div>
+              {permissions.blocking_issues.map((issue) => (
+                <div key={issue} className="text-[9px] text-amber-700">
+                  - {mountedIssueLabel(issue)}
+                </div>
+              ))}
+            </div>
+          )}
+
+          {permissions.table_permissions.map((item) => (
+            <div key={`table-${item.asset_id}`} className="border border-slate-200 p-2 space-y-1.5">
+              <div className="flex items-center gap-2">
+                <div className="min-w-0 flex-1">
+                  <div className="text-[10px] font-bold text-slate-800 truncate">{item.table_name}</div>
+                  <div className="text-[8px] text-slate-500 truncate">{item.view_name ? `视图：${item.view_name}` : "未绑定视图"}</div>
+                </div>
+                {tinyBadge(item.grant_mode === "deny" ? "border-red-300 bg-red-50 text-red-700" : "border-emerald-300 bg-emerald-50 text-emerald-700", item.grant_mode || "unbound")}
+              </div>
+              <div className="flex items-center gap-1 flex-wrap">
+                {item.max_disclosure_level && tinyBadge("border-blue-300 bg-blue-50 text-blue-700", `Grant ${item.max_disclosure_level}`)}
+                {item.disclosure_level && tinyBadge("border-slate-300 bg-slate-50 text-slate-600", `Policy ${item.disclosure_level}`)}
+                {item.row_access_mode && tinyBadge("border-slate-300 bg-slate-50 text-slate-600", item.row_access_mode)}
+                {item.field_access_mode && tinyBadge("border-slate-300 bg-slate-50 text-slate-600", item.field_access_mode)}
+              </div>
+              {item.masked_fields.length > 0 && (
+                <div className="text-[8px] text-slate-600">受控字段：{item.masked_fields.join("、")}</div>
+              )}
+              {item.blocking_issues.length > 0 && (
+                <div className="space-y-1">
+                  {item.blocking_issues.map((issue) => (
+                    <div key={issue} className="text-[8px] text-amber-700">
+                      - {mountedIssueLabel(issue)}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          ))}
+
+          {permissions.knowledge_permissions.map((item) => (
+            <div key={`knowledge-${item.asset_id}`} className="border border-slate-200 p-2 space-y-1.5">
+              <div className="flex items-center gap-2">
+                <div className="min-w-0 flex-1">
+                  <div className="text-[10px] font-bold text-slate-800 truncate">{item.title}</div>
+                  <div className="text-[8px] text-slate-500 truncate">{item.folder_path || "未记录目录路径"}</div>
+                </div>
+                {tinyBadge(item.manager_scope_ok ? "border-emerald-300 bg-emerald-50 text-emerald-700" : "border-amber-300 bg-amber-50 text-amber-700", item.manager_scope_ok ? "scope ok" : "scope pending")}
+              </div>
+              <div className="flex items-center gap-1 flex-wrap">
+                {item.snapshot_desensitization_level && tinyBadge("border-blue-300 bg-blue-50 text-blue-700", item.snapshot_desensitization_level)}
+                {item.snapshot_data_type_hits.map((hit) => tinyBadge("border-slate-300 bg-slate-50 text-slate-600", String(hit)))}
+              </div>
+              {item.blocking_issues.length > 0 && (
+                <div className="space-y-1">
+                  {item.blocking_issues.map((issue) => (
+                    <div key={issue} className="text-[8px] text-amber-700">
+                      - {mountedIssueLabel(issue)}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          ))}
+
+          {permissions.tool_permissions.map((item) => (
+            <div key={`tool-${item.asset_id}`} className="border border-slate-200 p-2 space-y-1.5">
+              <div className="flex items-center gap-2">
+                <div className="min-w-0 flex-1">
+                  <div className="text-[10px] font-bold text-slate-800 truncate">{item.tool_name}</div>
+                  <div className="text-[8px] text-slate-500 truncate">{item.tool_type || "unknown tool type"}</div>
+                </div>
+                {tinyBadge(item.write_capable ? "border-red-300 bg-red-50 text-red-700" : "border-emerald-300 bg-emerald-50 text-emerald-700", item.write_capable ? "write-capable" : "read-only")}
+              </div>
+              <div className="text-[8px] text-slate-600">权限项：{item.permission_count}</div>
+            </div>
+          ))}
+
+          {permissions.risk_controls.length > 0 && (
+            <div className="border border-red-200 bg-red-50 p-2 space-y-1">
+              <div className="text-[8px] font-bold uppercase tracking-widest text-red-700">Risk Controls</div>
+              {permissions.risk_controls.slice(0, 6).map((item, index) => (
+                <div key={`${item.type}-${item.asset_name}-${index}`} className="text-[8px] text-red-700">
+                  - {item.asset_name}：{item.detail}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </Card>
+  );
+}
+
 export function RoleAssetPolicyCard({
   bundle,
   policies,
   loading,
   running,
+  readOnly = false,
   onGenerate,
   onConfirm,
 }: {
@@ -903,6 +1198,7 @@ export function RoleAssetPolicyCard({
   policies: RoleAssetPolicyItem[];
   loading: boolean;
   running: boolean;
+  readOnly?: boolean;
   onGenerate: () => Promise<void>;
   onConfirm: (policy: RoleAssetPolicyItem) => Promise<void>;
 }) {
@@ -923,7 +1219,7 @@ export function RoleAssetPolicyCard({
 
   return (
     <Card
-      title="岗位 × 资产默认策略"
+      title={readOnly ? "历史岗位 × 资产策略" : "岗位 × 资产默认策略"}
       action={
         <div className="flex items-center gap-1">
           <button
@@ -934,14 +1230,16 @@ export function RoleAssetPolicyCard({
           >
             查看差异矩阵
           </button>
-          <button
-            type="button"
-            onClick={onGenerate}
-            disabled={running}
-            className="text-[8px] font-bold text-white bg-[#00A3C4] px-2 py-0.5 disabled:opacity-50"
-          >
-            {running ? "生成中" : policies.length ? "重新生成" : "生成建议"}
-          </button>
+          {!readOnly && (
+            <button
+              type="button"
+              onClick={onGenerate}
+              disabled={running}
+              className="text-[8px] font-bold text-white bg-[#00A3C4] px-2 py-0.5 disabled:opacity-50"
+            >
+              {running ? "生成中" : policies.length ? "重新生成" : "生成建议"}
+            </button>
+          )}
         </div>
       }
     >
@@ -949,7 +1247,8 @@ export function RoleAssetPolicyCard({
         <div className="flex items-center gap-1 flex-wrap">
           {tinyBadge("border-slate-300 bg-slate-50 text-slate-600", `Bundle v${bundle?.bundle_version ?? 0}`)}
           {tinyBadge("border-slate-300 bg-slate-50 text-slate-600", statusLabel(bundle?.status))}
-          {lowRiskSuggested.length > 0 && (
+          {readOnly && tinyBadge("border-amber-300 bg-amber-50 text-amber-700", "历史兼容 / 只读")}
+          {!readOnly && lowRiskSuggested.length > 0 && (
             <button
               type="button"
               onClick={bulkConfirmLowRisk}
@@ -961,7 +1260,11 @@ export function RoleAssetPolicyCard({
           )}
         </div>
         {loading && <p className="text-[9px] text-slate-400">加载策略中...</p>}
-        {!loading && policies.length === 0 && <p className="text-[9px] text-slate-400">选择岗位并确认资产后，生成默认策略建议。</p>}
+        {!loading && policies.length === 0 && (
+          <p className="text-[9px] text-slate-400">
+            {readOnly ? "当前没有可展示的历史策略。新的权限边界请以上方源域投影为准。" : "选择岗位并确认资产后，生成默认策略建议。"}
+          </p>
+        )}
         {policies.map((policy) => (
           <div key={policy.id} className="border border-slate-200 p-2 space-y-1.5">
             <div className="flex items-center gap-2">
@@ -976,14 +1279,18 @@ export function RoleAssetPolicyCard({
               {tinyBadge("border-blue-300 bg-blue-50 text-blue-700", outputStyleLabel(policy.default_output_style))}
               {tinyBadge("border-slate-300 bg-slate-50 text-slate-600", statusLabel(policy.review_status))}
               {(policy.granular_rules?.length || 0) > 0 && tinyBadge("border-amber-300 bg-amber-50 text-amber-700", `${policy.granular_rules?.length} 条细则`)}
-              <button
-                type="button"
-                onClick={() => onConfirm(policy)}
-                disabled={policy.review_status === "confirmed"}
-                className="ml-auto text-[8px] font-bold border border-[#00A3C4]/40 text-[#00A3C4] px-2 py-0.5 disabled:opacity-40"
-              >
-                {policy.review_status === "confirmed" ? "已确认" : "确认"}
-              </button>
+              {readOnly ? (
+                <span className="ml-auto text-[8px] font-bold text-amber-700">只读历史</span>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => onConfirm(policy)}
+                  disabled={policy.review_status === "confirmed"}
+                  className="ml-auto text-[8px] font-bold border border-[#00A3C4]/40 text-[#00A3C4] px-2 py-0.5 disabled:opacity-40"
+                >
+                  {policy.review_status === "confirmed" ? "已确认" : "确认"}
+                </button>
+              )}
             </div>
           </div>
         ))}
@@ -1009,10 +1316,12 @@ type GranularRuleViewItem = GranularRuleItem & {
 export function GranularRulesCard({
   policies,
   loading,
+  readOnly = false,
   onSaveRule,
 }: {
   policies: RoleAssetPolicyItem[];
   loading: boolean;
+  readOnly?: boolean;
   onSaveRule: (
     policyId: number,
     ruleId: number,
@@ -1136,7 +1445,7 @@ export function GranularRulesCard({
 
   return (
     <Card
-      title="高风险字段 / Chunk 规则"
+      title={readOnly ? "历史字段 / Chunk 细则" : "高风险字段 / Chunk 规则"}
       action={
         <button
           type="button"
@@ -1150,6 +1459,7 @@ export function GranularRulesCard({
     >
       <div className="space-y-2">
         <div className="flex items-center gap-1 flex-wrap">
+          {readOnly && tinyBadge("border-amber-300 bg-amber-50 text-amber-700", "历史兼容 / 只读")}
           <button
             type="button"
             onClick={() => setTab("field")}
@@ -1180,6 +1490,11 @@ export function GranularRulesCard({
           </button>
         </div>
         {loading && <p className="text-[9px] text-slate-400">加载细则中...</p>}
+        {!loading && readOnly && (
+          <p className="text-[9px] text-slate-500">
+            旧 granular 细则仅保留历史查看；新的高风险边界请以上方 mounted permissions 与声明 / case plan 为准。
+          </p>
+        )}
         {!loading && groupedItems.length === 0 && (
           <p className="text-[9px] text-slate-400">当前筛选下没有需要处理的字段 / Chunk 细则。</p>
         )}
@@ -1244,6 +1559,7 @@ export function GranularRulesCard({
                     <div className="grid grid-cols-1 gap-1.5 md:grid-cols-[110px_110px_auto]">
                       <select
                         value={draft.suggested_policy}
+                        disabled={readOnly}
                         onChange={(event) => updateDraft(item, { suggested_policy: event.target.value })}
                         className="text-[9px] border border-slate-200 px-2 py-1 outline-none focus:border-[#00A3C4] bg-white"
                       >
@@ -1253,6 +1569,7 @@ export function GranularRulesCard({
                       </select>
                       <select
                         value={draft.mask_style}
+                        disabled={readOnly}
                         onChange={(event) => updateDraft(item, { mask_style: event.target.value })}
                         className="text-[9px] border border-slate-200 px-2 py-1 outline-none focus:border-[#00A3C4] bg-white"
                       >
@@ -1264,6 +1581,7 @@ export function GranularRulesCard({
                         <input
                           type="checkbox"
                           checked={draft.confirmed}
+                          disabled={readOnly}
                           onChange={(event) => updateDraft(item, { confirmed: event.target.checked })}
                         />
                         确认此细则
@@ -1272,6 +1590,7 @@ export function GranularRulesCard({
                     {needsOverride && (
                       <textarea
                         value={draft.author_override_reason}
+                        disabled={readOnly}
                         onChange={(event) => updateDraft(item, { author_override_reason: event.target.value })}
                         placeholder="高风险放开需填写原因"
                         className="w-full h-20 text-[9px] leading-relaxed border border-amber-300 p-2 outline-none focus:border-[#00A3C4]"
@@ -1283,14 +1602,17 @@ export function GranularRulesCard({
                       </div>
                     ) : null}
                     <div className="flex items-center gap-1">
-                      <button
-                        type="button"
-                        onClick={() => saveRule(item)}
-                        disabled={savingRuleId === item.id || !dirty || (needsOverride && !draft.author_override_reason.trim())}
-                        className="text-[8px] font-bold text-white bg-[#00A3C4] px-2 py-1 disabled:opacity-40"
-                      >
-                        {savingRuleId === item.id ? "保存中" : "保存细则"}
-                      </button>
+                      {!readOnly && (
+                        <button
+                          type="button"
+                          onClick={() => saveRule(item)}
+                          disabled={savingRuleId === item.id || !dirty || (needsOverride && !draft.author_override_reason.trim())}
+                          className="text-[8px] font-bold text-white bg-[#00A3C4] px-2 py-1 disabled:opacity-40"
+                        >
+                          {savingRuleId === item.id ? "保存中" : "保存细则"}
+                        </button>
+                      )}
+                      {readOnly && <span className="text-[8px] font-bold text-amber-700">只读历史</span>}
                       <span className="text-[8px] text-slate-400">
                         {granularPolicyLabel(draft.suggested_policy)} / {maskStyleLabel(draft.mask_style || null)}
                       </span>
@@ -1318,6 +1640,7 @@ export function PermissionDeclarationCard({
   running,
   mounting,
   staleReasons,
+  canGenerate,
   onGenerate,
   onMount,
   onSaveText,
@@ -1327,6 +1650,7 @@ export function PermissionDeclarationCard({
   running: boolean;
   mounting: boolean;
   staleReasons: string[];
+  canGenerate: boolean;
   onGenerate: () => Promise<void>;
   onMount: () => Promise<void>;
   onSaveText: (declarationId: number, text: string) => Promise<void>;
@@ -1351,7 +1675,6 @@ export function PermissionDeclarationCard({
     }
   }
 
-  const canGenerate = Boolean(bundle?.id);
   const isMounted = Boolean(declaration?.mounted_skill_version && declaration?.status === "confirmed");
 
   return (
@@ -1369,7 +1692,7 @@ export function PermissionDeclarationCard({
       }
     >
       <div className="space-y-2">
-        {!canGenerate && <p className="text-[9px] text-amber-600">需先生成岗位 × 资产策略。</p>}
+        {!canGenerate && <p className="text-[9px] text-amber-600">需先配置服务岗位并绑定至少一个源域资产。</p>}
         {declaration && (
           <div className="flex items-center gap-1">
             {tinyBadge(declaration.status === "stale" ? "border-amber-300 bg-amber-50 text-amber-700" : "border-emerald-300 bg-emerald-50 text-emerald-700", statusLabel(declaration.status))}

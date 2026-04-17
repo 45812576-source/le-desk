@@ -312,6 +312,25 @@ export function StudioChat({
     return null;
   }
 
+  function handleOpenGovernanceTarget(card: GovernanceCardData) {
+    const targetKind = typeof card.content.target_kind === "string" ? card.content.target_kind : "";
+    const targetRef = typeof card.content.target_ref === "string" ? card.content.target_ref.trim() : "";
+    const targetFiles = Array.isArray(card.content.target_files)
+      ? card.content.target_files.filter((item): item is string => typeof item === "string" && item.trim().length > 0)
+      : [];
+    const primaryTarget = targetRef || targetFiles[0] || "";
+
+    if (targetKind === "skill_prompt" || primaryTarget === "SKILL.md") {
+      onEditorTarget("prompt", "SKILL.md");
+      onExpandEditor?.();
+      return;
+    }
+    if (primaryTarget) {
+      onEditorTarget("asset", primaryTarget);
+      onExpandEditor?.();
+    }
+  }
+
   async function handleWorkflowNextStep(prepared?: WorkflowActionResult | null) {
     if (!skillId || workflowNextActionRunning) return;
     setWorkflowNextActionRunning(true);
@@ -1987,6 +2006,7 @@ export function StudioChat({
                 ]);
               }
             }}
+            onOpenGovernanceTarget={handleOpenGovernanceTarget}
             onDismissGovernance={(card) => updateCardStatus(card.id, "dismissed")}
             onDismissAudit={() => setAuditResult(null)}
             onAdoptGovernanceAction={async (a) => {
@@ -2150,6 +2170,7 @@ export function StudioChat({
                   }
                 }}
                 onViewReport={onViewReport}
+                onOpenTarget={onEditorTarget}
                 sandboxReportId={sandboxReportId}
               />
             )}

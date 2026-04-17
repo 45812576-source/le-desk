@@ -6,6 +6,8 @@ import type {
   BoundAssetItem,
   GovernanceReadiness,
   GovernanceSummary,
+  MountContext,
+  MountedPermissions,
   PermissionCasePlan,
   PermissionContractReview,
   PermissionDeclaration,
@@ -26,6 +28,8 @@ type ApiState = {
   summary: GovernanceSummary;
   roles: ServiceRoleItem[];
   assets: BoundAssetItem[];
+  mountContext: MountContext;
+  mountedPermissions: MountedPermissions;
   bundle: RolePolicyBundle;
   policies: RoleAssetPolicyItem[];
   declaration: PermissionDeclaration;
@@ -188,6 +192,93 @@ function buildState(overrides: Partial<ApiState> = {}): ApiState {
         status: "active",
       },
     ],
+    mountContext: {
+      skill_id: 7,
+      workspace_id: 1,
+      source_mode: "domain_projection",
+      projection_version: 5,
+      skill_content_version: 4,
+      roles: [
+        {
+          id: 1,
+          org_path: "公司经营发展中心/人力资源部",
+          position_name: "招聘主管",
+          position_level: "M0",
+          role_label: "招聘主管（M0）",
+          status: "active",
+        },
+      ],
+      assets: [
+        {
+          id: 21,
+          asset_type: "data_table",
+          asset_ref_type: "table",
+          asset_ref_id: 21,
+          asset_name: "候选人明细表",
+          binding_mode: "table_bound",
+          risk_flags: ["high_sensitive_fields"],
+          status: "active",
+        },
+      ],
+      permission_summary: {
+        table_count: 1,
+        knowledge_count: 0,
+        tool_count: 0,
+        high_risk_count: 1,
+        blocking_issues: [],
+      },
+      source_refs: [{ type: "skill_data_grant", id: 801 }],
+      deprecated_bundle: bundle,
+    },
+    mountedPermissions: {
+      skill_id: 7,
+      source_mode: "domain_projection",
+      projection_version: 5,
+      table_permissions: [
+        {
+          asset_id: 21,
+          asset_name: "候选人明细表",
+          asset_ref: "data_table:table:21",
+          table_id: 21,
+          table_name: "候选人明细表",
+          view_id: 9,
+          view_name: "招聘视图",
+          role_group_id: 18,
+          role_group_name: "招聘岗位组",
+          grant_id: 801,
+          grant_mode: "allow",
+          allowed_actions: ["read"],
+          max_disclosure_level: "L2",
+          approval_required: false,
+          audit_level: "full",
+          row_access_mode: "department",
+          field_access_mode: "blocklist",
+          disclosure_level: "L2",
+          allowed_fields: [],
+          blocked_fields: ["候选人手机号"],
+          sensitive_fields: ["候选人手机号"],
+          masked_fields: ["候选人手机号"],
+          masking_rule_json: { candidate_phone: "partial" },
+          risk_flags: ["high_sensitive_fields"],
+          blocking_issues: [],
+          source_refs: [{ type: "skill_data_grant", id: 801 }],
+        },
+      ],
+      knowledge_permissions: [],
+      tool_permissions: [],
+      risk_controls: [
+        {
+          type: "sensitive_field",
+          severity: "high",
+          asset_type: "data_table",
+          asset_name: "候选人明细表",
+          detail: "候选人手机号",
+          source_ref: { type: "business_table", id: 21 },
+        },
+      ],
+      blocking_issues: [],
+      deprecated_bundle: bundle,
+    },
     bundle,
     policies: [
       {
@@ -301,12 +392,20 @@ function installApiMock(state: ApiState) {
     if (url.endsWith("/bound-assets")) {
       return ok({ assets: state.assets });
     }
+    if (url.endsWith("/mount-context")) {
+      return ok(state.mountContext);
+    }
+    if (url.endsWith("/mounted-permissions")) {
+      return ok(state.mountedPermissions);
+    }
     if (url.includes("/role-asset-policies") && url.includes("include_rules=true") && options?.method !== "PUT") {
       return ok({
         bundle_id: state.bundle.id,
         bundle_version: state.bundle.bundle_version,
         governance_version: state.bundle.governance_version,
         review_status: state.bundle.status,
+        deprecated: true,
+        read_only: true,
         items: state.policies,
       });
     }
@@ -580,6 +679,36 @@ describe("SkillGovernancePanel", () => {
     vi.clearAllMocks();
   });
 
+  it("shows domain projection cards even when legacy bundle is absent", async () => {
+    const state = buildState({
+      summary: {
+        ...buildState().summary,
+        bundle: null,
+      },
+      mountContext: {
+        ...buildState().mountContext,
+        deprecated_bundle: null,
+      },
+      mountedPermissions: {
+        ...buildState().mountedPermissions,
+        deprecated_bundle: null,
+      },
+    });
+    installApiMock(state);
+
+    render(
+      <SkillGovernancePanel
+        skill={skill}
+        onClose={vi.fn()}
+      />,
+    );
+
+    expect(await screen.findByText("源域挂载上下文")).toBeInTheDocument();
+    expect(screen.getByText("已挂载权限摘要")).toBeInTheDocument();
+    expect(screen.getByText("Projection v5")).toBeInTheDocument();
+    expect(screen.getAllByText("候选人明细表").length).toBeGreaterThan(0);
+  });
+
   it("loads contract review after latest case plan resolves", async () => {
     const state = buildState();
     installApiMock(state);
@@ -599,7 +728,7 @@ describe("SkillGovernancePanel", () => {
     expect(screen.getByText("Sandbox 尚未生成报告")).toBeInTheDocument();
   });
 
-  it("marks declaration stale and disables case-plan generation after granular save", async () => {
+  it("renders legacy policy and granular cards as read-only history", async () => {
     const state = buildState();
     installApiMock(state);
 
@@ -611,26 +740,10 @@ describe("SkillGovernancePanel", () => {
     );
 
     expect(await screen.findByText("候选人手机号")).toBeInTheDocument();
-
-    const selects = screen.getAllByRole("combobox");
-    fireEvent.change(selects[0], { target: { value: "raw" } });
-    fireEvent.change(selects[1], { target: { value: "raw" } });
-    fireEvent.change(screen.getByPlaceholderText("高风险放开需填写原因"), {
-      target: { value: "招聘主管需核验重复候选人联系方式" },
-    });
-    fireEvent.click(screen.getByText("保存细则"));
-
-    await waitFor(() => {
-      expect(mockApiFetch).toHaveBeenCalledWith(
-        "/skill-governance/7/granular-rules/confirm",
-        expect.objectContaining({ method: "PUT" }),
-      );
-    });
-
-    await waitFor(() => {
-      expect(screen.getAllByText(/高风险字段 \/ Chunk 规则已变更/).length).toBeGreaterThan(0);
-    });
-    expect(screen.getByRole("button", { name: "重新生成测试集 v1" })).toBeDisabled();
+    expect(screen.getAllByText("历史兼容 / 只读").length).toBeGreaterThan(0);
+    expect(screen.queryByRole("button", { name: "确认" })).not.toBeInTheDocument();
+    expect(screen.queryByText("保存细则")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "生成建议" })).not.toBeInTheDocument();
   });
 
   it("refreshes the latest plan after regenerating case drafts", async () => {
@@ -658,7 +771,7 @@ describe("SkillGovernancePanel", () => {
     expect(screen.getByRole("button", { name: "重新生成测试集 v2" })).toBeInTheDocument();
   });
 
-  it("walks the permission assistant loop and shows stale after role changes", async () => {
+  it("uses projection flow while legacy policy cards stay read-only", async () => {
     const state = buildState({
       bundle: {
         ...buildState().bundle,
@@ -693,34 +806,15 @@ describe("SkillGovernancePanel", () => {
 
     expect((await screen.findAllByText("招聘主管（M0）")).length).toBeGreaterThan(0);
     expect(screen.getAllByText("候选人明细表").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("历史兼容 / 只读").length).toBeGreaterThan(0);
+    expect(screen.queryByRole("button", { name: "确认" })).not.toBeInTheDocument();
+    expect(screen.queryByText("保存细则")).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getAllByRole("button", { name: "重新生成" })[0]);
-    await waitFor(() => {
-      expect(mockApiFetch).toHaveBeenCalledWith(
-        "/skill-governance/7/suggest-role-asset-policies",
-        expect.objectContaining({ method: "POST" }),
-      );
-    });
-
-    fireEvent.click(await screen.findByRole("button", { name: "确认" }));
-    await waitFor(() => {
-      expect(mockApiFetch).toHaveBeenCalledWith(
-        "/skill-governance/7/role-asset-policies/confirm",
-        expect.objectContaining({ method: "PUT" }),
-      );
-    });
-
-    fireEvent.click(screen.getByLabelText("确认此细则"));
-    fireEvent.click(screen.getByText("保存细则"));
-    await waitFor(() => {
-      expect(screen.getAllByText(/高风险字段 \/ Chunk 规则已变更/).length).toBeGreaterThan(0);
-    });
-
-    fireEvent.click(screen.getAllByRole("button", { name: "重新生成" })[1]);
+    fireEvent.click(screen.getByRole("button", { name: "重新生成" }));
     await waitFor(() => {
       expect(mockApiFetch).toHaveBeenCalledWith(
         "/skill-governance/7/declarations/generate",
-        expect.objectContaining({ method: "POST" }),
+        expect.objectContaining({ method: "POST", body: JSON.stringify({ async_job: true }) }),
       );
     });
 

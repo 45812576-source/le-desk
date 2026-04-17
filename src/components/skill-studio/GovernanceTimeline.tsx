@@ -310,6 +310,7 @@ export function GovernanceTimeline({
   oodaDecisions = [],
   architectReady,
   onGovernanceAction,
+  onOpenGovernanceTarget,
   onDismissGovernance,
   onDismissAudit,
   onAdoptGovernanceAction,
@@ -338,6 +339,7 @@ export function GovernanceTimeline({
   architectStructures?: ArchitectStructure[];
   architectPriorities?: ArchitectPriorityMatrix[];
   onGovernanceAction: (card: GovernanceCardData, action: GovernanceAction) => void;
+  onOpenGovernanceTarget?: (card: GovernanceCardData) => void;
   onDismissGovernance: (card: GovernanceCardData) => void;
   onDismissAudit: () => void;
   onAdoptGovernanceAction: (action: GovernanceActionCard) => void;
@@ -465,6 +467,7 @@ export function GovernanceTimeline({
           key={card.id}
           card={card}
           onAction={onGovernanceAction}
+          onOpenTarget={onOpenGovernanceTarget}
           onDismiss={onDismissGovernance}
         />
       ))}
@@ -481,6 +484,7 @@ export function GovernanceTimeline({
               key={card.id}
               card={card}
               onAction={onGovernanceAction}
+              onOpenTarget={onOpenGovernanceTarget}
             />
           ))}
         </div>

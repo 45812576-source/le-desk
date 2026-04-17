@@ -39,11 +39,15 @@ export function AssetFileEditor({
   filename,
   onDeleted,
   onFileSaved,
+  onContentChange,
+  onBaselineChange,
 }: {
   skill: SkillDetail;
   filename: string;
   onDeleted: () => void;
   onFileSaved?: (filename: string, contentSize: number) => void;
+  onContentChange?: (content: string) => void;
+  onBaselineChange?: (content: string) => void;
 }) {
   const [content, setContent] = useState("");
   const [loading, setLoading] = useState(true);
@@ -69,11 +73,21 @@ export function AssetFileEditor({
     setShowDiff(false);
     if (!isText) { setLoading(false); return; }
     apiFetch<{ content: string }>(`/skills/${skill.id}/files/${encodeURIComponent(filename)}`)
-      .then((d) => { setContent(d.content); setDiffBase(d.content); })
+      .then((d) => {
+        setContent(d.content);
+        setDiffBase(d.content);
+        onContentChange?.(d.content);
+        onBaselineChange?.(d.content);
+      })
       .catch(() => setMsg("加载失败"))
       .finally(() => setLoading(false));
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [skill.id, filename]);
+
+  function handleContentChange(next: string) {
+    setContent(next);
+    onContentChange?.(next);
+  }
 
   async function handleSave() {
     setSaving(true); setMsg(null);
@@ -85,6 +99,7 @@ export function AssetFileEditor({
       setMsg("✓ 已保存");
       setDiffBase(content);
       setShowDiff(false);
+      onBaselineChange?.(content);
       onFileSaved?.(filename, new Blob([content]).size);
     } catch (err) {
       setMsg(err instanceof Error ? err.message : "保存失败");
@@ -178,7 +193,7 @@ export function AssetFileEditor({
         ) : (
           <LineNumberedEditor
             value={content}
-            onChange={setContent}
+            onChange={handleContentChange}
             disabled={isReadOnly}
             placeholder="文件内容..."
           />

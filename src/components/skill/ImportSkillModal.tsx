@@ -73,6 +73,7 @@ export function ImportSkillModal({ onImported, onCancel }: ImportSkillModalProps
 
   const isZip = selectedFile?.name.toLowerCase().endsWith(".zip");
   const hasFileTree = result?.file_tree && result.file_tree.length > 1;
+  const previewContent = result ? (result.original_content || result.system_prompt) : "";
 
   async function doConvert(mainFileOverride?: string) {
     setConverting(true);
@@ -196,6 +197,7 @@ export function ImportSkillModal({ onImported, onCancel }: ImportSkillModalProps
             name: editName.trim() || result.name,
             description: editDesc.trim() || result.description,
             system_prompt: result.system_prompt,
+            raw_skill_md: result.original_content || result.system_prompt,
             mode: "hybrid",
             variables: [],
             auto_inject: true,
@@ -438,17 +440,22 @@ export function ImportSkillModal({ onImported, onCancel }: ImportSkillModalProps
               {/* System prompt preview */}
               <div>
                 <label className="text-[8px] font-bold uppercase tracking-widest text-gray-400 mb-1 block">
-                  System Prompt 预览
+                  SKILL.md 原文预览
                 </label>
                 <div className="border-2 border-[#1A202C] bg-[#F8FAFB] max-h-48 overflow-y-auto">
                   <pre className="px-3 py-2 text-[9px] font-mono text-[#1A202C] whitespace-pre-wrap leading-relaxed">
-                    {result.system_prompt}
+                    {previewContent}
                   </pre>
                 </div>
                 <div className="flex items-center gap-2 mt-1">
                   <span className="text-[8px] text-gray-400">
-                    {result.system_prompt.length} 字
+                    {previewContent.length} 字
                   </span>
+                  {result.ai_converted && (
+                    <span className="text-[8px] text-gray-400">
+                      运行时 prompt 会从原文解析，不会用转换结果覆盖原文
+                    </span>
+                  )}
                 </div>
               </div>
 
@@ -510,7 +517,7 @@ export function ImportSkillModal({ onImported, onCancel }: ImportSkillModalProps
             <>
               <PixelButton
                 onClick={handleConfirmImport}
-                disabled={!editName.trim() || !result.system_prompt.trim()}
+                disabled={!editName.trim() || !previewContent.trim()}
               >
                 {hasFileTree ? `确认导入 (${result.file_tree!.length} 个文件)` : "确认导入"}
               </PixelButton>

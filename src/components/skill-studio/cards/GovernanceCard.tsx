@@ -121,10 +121,12 @@ export const GovernanceCard = memo(function GovernanceCard({
   card,
   onAction,
   onDismiss,
+  onOpenTarget,
 }: {
   card: GovernanceCardData;
   onAction: (card: GovernanceCardData, action: GovernanceAction) => void;
   onDismiss?: (card: GovernanceCardData) => void;
+  onOpenTarget?: (card: GovernanceCardData) => void;
 }) {
   const style = TYPE_STYLE[card.type] || TYPE_STYLE.staged_edit;
   const isDone = card.status !== "pending";
@@ -133,6 +135,17 @@ export const GovernanceCard = memo(function GovernanceCard({
   const actions = bindingAlternatives.length > 1
     ? card.actions.filter((action) => action.type !== "adopt")
     : card.actions;
+  const targetKind = typeof card.content.target_kind === "string" ? card.content.target_kind : "";
+  const targetRef = typeof card.content.target_ref === "string" ? card.content.target_ref : "";
+  const acceptanceRule = typeof card.content.acceptance_rule === "string"
+    ? card.content.acceptance_rule
+    : typeof card.content.acceptance_rule_text === "string"
+      ? card.content.acceptance_rule_text
+      : "";
+  const evidenceSnippets = Array.isArray(card.content.evidence_snippets)
+    ? card.content.evidence_snippets.filter((item): item is string => typeof item === "string" && item.trim().length > 0)
+    : [];
+  const hasOpenTarget = Boolean(onOpenTarget && (targetRef || targetKind === "skill_prompt"));
 
   return (
     <div className={`mx-3 my-1.5 p-2.5 border text-[9px] font-mono ${style.bg} ${style.border} ${isDone ? "opacity-60" : ""}`}>
@@ -180,6 +193,61 @@ export const GovernanceCard = memo(function GovernanceCard({
               {tag}
             </span>
           ))}
+        </div>
+      )}
+      {(targetRef || targetKind) && (
+        <div className="mb-1.5 rounded-sm border border-current/15 bg-white/70 px-1.5 py-1 dark:bg-zinc-900/70">
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <span className="text-[7px] font-bold uppercase tracking-widest text-gray-400">目标</span>
+            {targetKind && (
+              <span className="text-[7px] px-1 py-0.5 bg-white border border-current/15 text-gray-500 dark:bg-zinc-900 dark:text-zinc-300">
+                {targetKind}
+              </span>
+            )}
+            {targetRef ? (
+              <button
+                type="button"
+                onClick={() => onOpenTarget?.(card)}
+                disabled={!hasOpenTarget}
+                className={`text-left text-[8px] font-bold ${
+                  hasOpenTarget
+                    ? "text-[#00A3C4] hover:underline dark:text-cyan-300"
+                    : "text-gray-500 dark:text-zinc-300"
+                }`}
+              >
+                {targetRef}
+              </button>
+            ) : targetKind === "skill_prompt" ? (
+              <button
+                type="button"
+                onClick={() => onOpenTarget?.(card)}
+                disabled={!hasOpenTarget}
+                className="text-left text-[8px] font-bold text-[#00A3C4] hover:underline dark:text-cyan-300"
+              >
+                SKILL.md
+              </button>
+            ) : null}
+          </div>
+        </div>
+      )}
+      {acceptanceRule && (
+        <div className="mb-1.5 rounded-sm border-l-2 border-[#00A3C4] bg-[#F0FAFF] px-2 py-1 text-[8px] text-[#0F4C5C] dark:border-cyan-700 dark:bg-cyan-950/30 dark:text-cyan-100">
+          验收：{acceptanceRule}
+        </div>
+      )}
+      {evidenceSnippets.length > 0 && (
+        <div className="mb-1.5 space-y-1">
+          <div className="text-[7px] font-bold uppercase tracking-widest text-gray-400">证据</div>
+          <div className="space-y-1">
+            {evidenceSnippets.slice(0, 3).map((snippet, index) => (
+              <div
+                key={`${card.id}-evidence-${index}`}
+                className="rounded-sm border border-current/15 bg-white/70 px-1.5 py-1 text-[8px] text-gray-600 dark:bg-zinc-900/70 dark:text-zinc-300"
+              >
+                {snippet}
+              </div>
+            ))}
+          </div>
         </div>
       )}
       {!isDone && bindingPayload && bindingAlternatives.length > 1 && (
