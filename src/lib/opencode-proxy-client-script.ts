@@ -25,8 +25,16 @@ export function createOpencodeInjectScript({
     } catch(e) { return url; }
   }
 
+  function _normalizeMalformedProxyPath(url) {
+    if (!url || typeof url !== "string") return url;
+    if (url.startsWith("//api/opencode-rpc/")) return url.slice(1);
+    if (url.startsWith("//api/opencode/")) return url.slice(1);
+    return url;
+  }
+
   function _resolveSameOriginPath(url) {
     if (!url || typeof url !== "string") return null;
+    url = _normalizeMalformedProxyPath(url);
     try {
       var resolved = new URL(url, location.href);
       if (resolved.origin !== location.origin) return null;
@@ -65,6 +73,7 @@ export function createOpencodeInjectScript({
 
   function _rewriteRpcPath(url) {
     if (!url || typeof url !== "string") return url;
+    url = _normalizeMalformedProxyPath(url);
     var path = _resolveSameOriginPath(url) || url;
     if (path.startsWith("/api/")) return _addPort(path);
     if (!path.startsWith("/")) return url;
@@ -254,11 +263,13 @@ export function createOpencodeInjectScript({
 
   try {
     var _rewriteAttr = function(el, attr) {
-      var val = el.getAttribute(attr);
+      var val = _normalizeMalformedProxyPath(el.getAttribute(attr));
       if (val && val.startsWith("/assets/")) {
         el.setAttribute(attr, "/api/opencode" + val);
       } else if (val && val.startsWith("./assets/")) {
         el.setAttribute(attr, "/api/opencode/assets/" + val.slice(9));
+      } else if (val && (val.startsWith("/api/opencode/") || val.startsWith("/api/opencode-rpc/"))) {
+        el.setAttribute(attr, val);
       } else if (val && val.startsWith("/") && !val.startsWith("/api/")) {
         el.setAttribute(attr, "/api/opencode" + val);
       }

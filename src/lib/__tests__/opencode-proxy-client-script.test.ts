@@ -23,4 +23,15 @@ describe("createOpencodeInjectScript", () => {
     expect(script).toContain("HTMLFormElement.prototype.requestSubmit");
     expect(script).toContain("_rewriteForm(this, submitter);");
   });
+
+  it("normalizes malformed protocol-relative proxy asset paths", () => {
+    const script = createOpencodeInjectScript({
+      ocPort: "17255",
+      normalizeSessionApiPathPattern: "^\\/foo(\\/session\\/[^?#]+(?:[?#].*)?)$",
+    });
+
+    expect(script).toContain('url.startsWith("//api/opencode/")');
+    expect(script).toContain("return url.slice(1);");
+    expect(script).toContain('val && (val.startsWith("/api/opencode/") || val.startsWith("/api/opencode-rpc/"))');
+  });
 });

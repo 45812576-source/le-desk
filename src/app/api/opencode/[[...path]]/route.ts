@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { NORMALIZE_SESSION_API_PATH_PATTERN } from "@/lib/opencode-session-routing";
 import { createOpencodeInjectScript } from "@/lib/opencode-proxy-client-script";
+import { rewriteOpenCodeCssAssetPaths, rewriteOpenCodeScriptAssetPaths } from "@/lib/opencode-asset-routing";
 
 const OPENCODE_BASE_PORT = 17171;
 const BACKEND_URL = process.env.BACKEND_URL || "http://localhost:8000";
@@ -130,9 +131,9 @@ export async function GET(
     // 注意：new URL(path, base) 要求 base 是绝对 URL，不能用相对路径
     // 只替换 baseUrl 上下文，避免破坏 placeholder 等普通字符串
     js = js.replace(new RegExp("baseUrl:" + '"http:' + "//localhost:4096" + '"', "g"), 'baseUrl:location.origin+"/api/opencode-rpc"');
-    // Vite 打包的 JS 中硬编码了 "/assets/..." 路径用于 CSS preload 和动态 import
+    // Vite 打包的 JS 中硬编码了 /assets、./assets、assets 路径用于 CSS preload 和动态 import
     // 这些不经过 fetch patch，必须在源码级别重写到代理路径
-    js = js.replace(/(["'])(?:\.\/)?assets\//g, '$1/api/opencode/assets/');
+    js = rewriteOpenCodeScriptAssetPaths(js);
     const respHeaders = new Headers();
     respHeaders.set("content-type", contentType || "application/javascript");
     // 包含 hash 的 JS 文件（如 /assets/index-AbCdEf.js）用 immutable 缓存
@@ -148,7 +149,7 @@ export async function GET(
   const isCss = contentType.includes("text/css") || subpath.endsWith(".css");
   if (isCss) {
     let css = await upstream.text();
-    css = css.replace(/url\(\s*\/assets\//g, "url(/api/opencode/assets/");
+    css = rewriteOpenCodeCssAssetPaths(css);
     const respHeaders = new Headers();
     respHeaders.set("content-type", contentType || "text/css");
     respHeaders.set("cache-control", "public, max-age=31536000, immutable");
