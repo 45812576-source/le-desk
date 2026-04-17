@@ -118,6 +118,26 @@ const initialState = {
   memo: null as SkillMemo | null,
 };
 
+function preserveResolvedCardStatus(
+  existing: GovernanceCardData | undefined,
+  incoming: GovernanceCardData,
+): GovernanceCardData {
+  if (!existing || existing.status === "pending" || incoming.status !== "pending") {
+    return incoming;
+  }
+  return { ...incoming, status: existing.status };
+}
+
+function preserveResolvedEditStatus(
+  existing: StagedEdit | undefined,
+  incoming: StagedEdit,
+): StagedEdit {
+  if (!existing || existing.status === "pending" || incoming.status !== "pending") {
+    return incoming;
+  }
+  return { ...incoming, status: existing.status };
+}
+
 export const useStudioStore = create<StudioSessionState>((set) => ({
   ...initialState,
 
@@ -166,12 +186,16 @@ export const useStudioStore = create<StudioSessionState>((set) => ({
         : [...s.governanceCards, card],
     })),
   syncGovernanceCards: (source, cards) =>
-    set((s) => ({
-      governanceCards: [
-        ...s.governanceCards.filter((card) => card.source !== source),
-        ...cards.map((card) => ({ ...card, source })),
-      ],
-    })),
+    set((s) => {
+      const preserved = s.governanceCards.filter((card) => card.source !== source);
+      const existingById = new Map(s.governanceCards.map((card) => [card.id, card] as const));
+      return {
+        governanceCards: [
+          ...preserved,
+          ...cards.map((card) => preserveResolvedCardStatus(existingById.get(card.id), { ...card, source })),
+        ],
+      };
+    }),
   updateCardStatus: (id, status) =>
     set((s) => ({
       governanceCards: s.governanceCards.map((c) =>
@@ -186,12 +210,16 @@ export const useStudioStore = create<StudioSessionState>((set) => ({
         : [...s.stagedEdits, edit],
     })),
   syncStagedEdits: (source, edits) =>
-    set((s) => ({
-      stagedEdits: [
-        ...s.stagedEdits.filter((edit) => edit.source !== source),
-        ...edits.map((edit) => ({ ...edit, source })),
-      ],
-    })),
+    set((s) => {
+      const preserved = s.stagedEdits.filter((edit) => edit.source !== source);
+      const existingById = new Map(s.stagedEdits.map((edit) => [edit.id, edit] as const));
+      return {
+        stagedEdits: [
+          ...preserved,
+          ...edits.map((edit) => preserveResolvedEditStatus(existingById.get(edit.id), { ...edit, source })),
+        ],
+      };
+    }),
   adoptStagedEdit: (id) =>
     set((s) => ({
       stagedEdits: s.stagedEdits.map((e) =>

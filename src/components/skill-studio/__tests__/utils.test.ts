@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyOps, getMetadataFieldPreview, normalizeStagedEditPayload } from "../utils";
+import { applyOps, getMetadataFieldPreview, normalizeStagedEditPayload, resolveStagedEditEditorTarget } from "../utils";
 
 describe("normalizeStagedEditPayload", () => {
   it("keeps append ops and falls back to SKILL.md for prompt edits", () => {
@@ -60,5 +60,22 @@ describe("getMetadataFieldPreview", () => {
     }, "description");
 
     expect(next).toBeNull();
+  });
+});
+
+
+describe("resolveStagedEditEditorTarget", () => {
+  it("routes metadata edits back to the prompt editor", () => {
+    expect(resolveStagedEditEditorTarget({
+      fileType: "metadata",
+      filename: "metadata",
+    })).toEqual({ fileType: "prompt", filename: "SKILL.md" });
+  });
+
+  it("routes source file edits to the matching asset file", () => {
+    expect(resolveStagedEditEditorTarget({
+      fileType: "source_file",
+      filename: "examples/checklist.md",
+    })).toEqual({ fileType: "asset", filename: "examples/checklist.md" });
   });
 });

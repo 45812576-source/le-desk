@@ -217,6 +217,18 @@ export function getMetadataFieldPreview(edit: Pick<StagedEdit, "fileType" | "dif
   return nextValue;
 }
 
+export function resolveStagedEditEditorTarget(
+  edit: Pick<StagedEdit, "fileType" | "filename">,
+): { fileType: "prompt" | "asset"; filename: string } | null {
+  if (edit.fileType === "system_prompt" || edit.fileType === "prompt" || edit.fileType === "metadata") {
+    return { fileType: "prompt", filename: "SKILL.md" };
+  }
+  if (edit.fileType === "source_file" && edit.filename) {
+    return { fileType: "asset", filename: edit.filename };
+  }
+  return null;
+}
+
 // ─── Token estimation ─────────────────────────────────────────────────────────
 
 export const TOKEN_COMPRESS_THRESHOLD = 180_000;

@@ -15,7 +15,7 @@ import { FileSplitCard } from "./cards/FileSplitCard";
 import { GovernanceTimeline } from "./GovernanceTimeline";
 import { RouteStatusBar } from "./RouteStatusBar";
 import { AssistSkillsBar } from "./AssistSkillsBar";
-import { applyOps, estimateMessagesTokens, getMetadataFieldPreview, TOKEN_COMPRESS_THRESHOLD } from "./utils";
+import { applyOps, estimateMessagesTokens, getMetadataFieldPreview, resolveStagedEditEditorTarget, TOKEN_COMPRESS_THRESHOLD } from "./utils";
 import { parseStructuredStudioMessage } from "./message-parser";
 import { recoverStudioHistory } from "./history-recovery";
 import { deriveStudioRecoveryDraftImpact, parseStudioRecoveryPayload, parseStudioStatePayload } from "./studio-state-adapter";
@@ -474,8 +474,12 @@ export function StudioChat({
       });
       applyWorkflowStatePatch(result.workflow_state_patch);
       adoptStagedEdit(editId);
-      // Apply diff ops to prompt
       const edit = storeStagedEdits.find((e) => e.id === editId);
+      const editorTarget = edit ? resolveStagedEditEditorTarget(edit) : null;
+      if (editorTarget) {
+        onEditorTarget(editorTarget.fileType, editorTarget.filename);
+        onExpandEditor?.();
+      }
       if ((edit?.fileType === "system_prompt" || edit?.fileType === "prompt") && edit.diff && edit.diff.length > 0) {
         const newPrompt = applyOps(currentPrompt, edit.diff);
         onApplyDraft({ system_prompt: newPrompt, change_note: edit.changeNote || "采纳编辑" });
@@ -503,12 +507,6 @@ export function StudioChat({
         requestPreflightRefresh();
       } else {
         await handleWorkflowNextStep(result);
-      }
-      // Auto-collapse if no more pending staged edits
-      const remaining = storeStagedEdits.filter((e) => e.id !== editId && e.status === "pending");
-      if (remaining.length === 0) {
-        setEditorManuallyCollapsed(false);
-        setEditorVisibility("collapsed");
       }
     } catch (err) {
       console.error("Adopt staged edit failed:", err);

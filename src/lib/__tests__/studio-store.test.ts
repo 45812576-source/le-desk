@@ -1,10 +1,15 @@
 import { beforeEach, describe, expect, it } from "vitest";
 
+import type { GovernanceCardData, StagedEdit } from "@/components/skill-studio/types";
 import { useStudioStore } from "../studio-store";
+
+function resetStore() {
+  useStudioStore.getState().reset();
+}
 
 describe("studio-store run tracking", () => {
   beforeEach(() => {
-    useStudioStore.getState().reset();
+    resetStore();
   });
 
   it("tracks active run and archives superseded run", () => {
@@ -45,5 +50,50 @@ describe("studio-store run tracking", () => {
     expect(useStudioStore.getState().activeRunId).toBeNull();
     expect(useStudioStore.getState().archivedRuns).toEqual([]);
     expect(useStudioStore.getState().appliedPatchSeqs).toEqual([]);
+  });
+});
+
+describe("studio-store reconciliation", () => {
+  beforeEach(() => {
+    resetStore();
+  });
+
+  it("keeps an adopted governance card resolved when recovery replays it as pending", () => {
+    const card: GovernanceCardData = {
+      id: "gov-1",
+      source: "memo-recovery",
+      type: "staged_edit",
+      title: "修复 prompt 描述",
+      content: {},
+      status: "adopted",
+      actions: [],
+    };
+
+    useStudioStore.setState({ governanceCards: [card] });
+    useStudioStore.getState().syncGovernanceCards("memo-recovery", [{
+      ...card,
+      status: "pending",
+    }]);
+
+    expect(useStudioStore.getState().governanceCards[0]?.status).toBe("adopted");
+  });
+
+  it("keeps an adopted staged edit resolved when recovery replays it as pending", () => {
+    const edit: StagedEdit = {
+      id: "se-1",
+      source: "memo-recovery",
+      fileType: "metadata",
+      filename: "metadata",
+      diff: [],
+      status: "adopted",
+    };
+
+    useStudioStore.setState({ stagedEdits: [edit] });
+    useStudioStore.getState().syncStagedEdits("memo-recovery", [{
+      ...edit,
+      status: "pending",
+    }]);
+
+    expect(useStudioStore.getState().stagedEdits[0]?.status).toBe("adopted");
   });
 });
