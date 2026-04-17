@@ -532,6 +532,72 @@ function installApiMock(state: ApiState) {
         review_status: "confirmed",
       });
     }
+    if (url.includes("/role-packages/") && options?.method === "PUT") {
+      const body = options.body ? JSON.parse(options.body) : {};
+      const fieldRules = body.package?.field_rules || [];
+      state.policies = state.policies.map((policy) => ({
+        ...policy,
+        granular_rules: (policy.granular_rules || []).map((rule) => {
+          const rulePayload = fieldRules.find((item: { rule_id: number }) => item.rule_id === rule.id);
+          return rulePayload
+            ? {
+                ...rule,
+                suggested_policy: rulePayload.suggested_policy ?? rule.suggested_policy,
+                mask_style: rulePayload.mask_style ?? rule.mask_style,
+                author_override_reason: rulePayload.author_override_reason ?? rule.author_override_reason,
+                confirmed: rulePayload.confirmed ?? rule.confirmed,
+              }
+            : rule;
+        }),
+      }));
+      state.mountedPermissions = {
+        ...state.mountedPermissions,
+        knowledge_permissions: state.mountedPermissions.knowledge_permissions.map((permission) => {
+          const packagePermission = (body.package?.knowledge_permissions || []).find((item: { asset_id: number }) => item.asset_id === permission.asset_id);
+          return packagePermission
+            ? {
+                ...permission,
+                snapshot_desensitization_level: packagePermission.desensitization_level,
+                grant_actions: packagePermission.enabled ? packagePermission.grant_actions : [],
+                blocking_issues: packagePermission.enabled ? [] : ["disabled_by_role_package"],
+              }
+            : permission;
+        }),
+      };
+      state.mountContext = {
+        ...state.mountContext,
+        assets: state.mountContext.assets.map((asset) => {
+          const packageAsset = (body.package?.asset_mounts || []).find((item: { asset_id: number }) => item.asset_id === asset.id);
+          return packageAsset
+            ? {
+                ...asset,
+                binding_mode: packageAsset.binding_mode,
+                status: packageAsset.enabled ? "active" : "disabled",
+              }
+            : asset;
+        }),
+      };
+      state.declaration = {
+        ...state.declaration,
+        status: "stale",
+        stale_reason_codes: ["role_package_changed"],
+      };
+      state.summary = {
+        ...state.summary,
+        declaration: state.declaration,
+        summary: {
+          ...state.summary.summary,
+          stale: true,
+          blocking_issues: ["missing_confirmed_declaration"],
+        },
+      };
+      return ok({
+        role_key: body.role_key,
+        package_version: 1,
+        governance_version: state.bundle.governance_version,
+        stale_downstream: body.stale_downstream,
+      });
+    }
     if (url.endsWith("/declarations/latest")) {
       return ok(state.declaration);
     }
@@ -944,6 +1010,79 @@ describe("SkillGovernancePanel", () => {
     expect(await screen.findByText("AI 推荐角色 List")).toBeInTheDocument();
     expect(screen.getAllByText(/已降级到编辑人部门角色/).length).toBeGreaterThan(0);
     expect(screen.getByText("fallback")).toBeInTheDocument();
+  });
+
+
+  it("saves editable role package writeback", async () => {
+    const base = buildState();
+    const state = buildState({
+      mountedPermissions: {
+        ...base.mountedPermissions,
+        knowledge_permissions: [
+          {
+            asset_id: 31,
+            asset_name: "候选人知识库",
+            asset_ref: "knowledge_base:31",
+            knowledge_id: 31,
+            title: "候选人知识库",
+            folder_id: 3,
+            folder_path: "知识库/招聘",
+            publish_version: 2,
+            snapshot_desensitization_level: "L2",
+            snapshot_data_type_hits: ["candidate_profile"],
+            snapshot_mask_rules: [],
+            manager_scope_ok: true,
+            grant_actions: ["read"],
+            risk_flags: ["privacy"],
+            blocking_issues: [],
+            source_refs: [{ type: "knowledge", id: 31 }],
+          },
+        ],
+      },
+    });
+    installApiMock(state);
+
+    render(
+      <SkillGovernancePanel
+        skill={skill}
+        onClose={vi.fn()}
+      />,
+    );
+
+    fireEvent.change(await screen.findByLabelText("字段策略 候选人手机号"), {
+      target: { value: "raw" },
+    });
+    fireEvent.change(screen.getByLabelText("知识遮蔽 候选人知识库"), {
+      target: { value: "L3" },
+    });
+    fireEvent.click(screen.getByLabelText("启用资产 候选人明细表"));
+    fireEvent.click(screen.getByRole("button", { name: "保存 package" }));
+
+    await waitFor(() => {
+      expect(mockApiFetch).toHaveBeenCalledWith(
+        expect.stringContaining("/skill-governance/7/role-packages/"),
+        expect.objectContaining({ method: "PUT" }),
+      );
+    });
+
+    const call = mockApiFetch.mock.calls.find(([url]) => String(url).includes("/role-packages/"));
+    expect(call).toBeTruthy();
+    const body = JSON.parse((call?.[1] as { body: string }).body);
+    expect(body.writeback_mode).toBe("upsert_role_package");
+    expect(body.package.field_rules[0]).toMatchObject({
+      rule_id: 301,
+      target_ref: "candidate_phone",
+      suggested_policy: "raw",
+    });
+    expect(body.package.knowledge_permissions[0]).toMatchObject({
+      knowledge_id: 31,
+      desensitization_level: "L3",
+      enabled: true,
+    });
+    expect(body.package.asset_mounts[0]).toMatchObject({
+      asset_id: 21,
+      enabled: false,
+    });
   });
 
 });
