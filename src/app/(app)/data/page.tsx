@@ -8,7 +8,6 @@ import { ThemedPageIcon } from "@/components/layout/PageShell";
 import { useTheme } from "@/lib/theme";
 import { Table2 } from "lucide-react";
 import { apiFetch } from "@/lib/api";
-import { useAuth } from "@/lib/auth";
 
 
 import type { DataAssetFolder, DataAssetTable, Tab } from "./components/shared/types";
@@ -38,11 +37,11 @@ function ManageTab({
   initialDetailTab?: string | null;
 }) {
   const isV2 = useV2DataAssets();
-  const { user } = useAuth();
   const [folders, setFolders] = useState<DataAssetFolder[]>([]);
   const [tables, setTables] = useState<DataAssetTable[]>([]);
   const [selectedFolderId, setSelectedFolderId] = useState<number | null>(null);
   const [selectedTableId, setSelectedTableId] = useState<number | null>(initialSelectedTableId);
+  const [detailTabHint, setDetailTabHint] = useState<string | null>(initialDetailTab);
   const [quickFilter, setQuickFilter] = useState<QuickFilter>("all");
   const [assetFilter, setAssetFilter] = useState<AssetFilter>({});
   const [loadingFolders, setLoadingFolders] = useState(true);
@@ -105,23 +104,26 @@ function ManageTab({
     } finally {
       setLoadingTables(false);
     }
-  }, [selectedFolderId, quickFilter, user?.id]);
+  }, [selectedFolderId, quickFilter]);
 
   useEffect(() => { fetchFolders(); }, [fetchFolders]);
   useEffect(() => { fetchTables(); }, [fetchTables]);
   useEffect(() => {
     setSelectedTableId(initialSelectedTableId);
-  }, [initialSelectedTableId]);
+    setDetailTabHint(initialDetailTab);
+  }, [initialSelectedTableId, initialDetailTab]);
 
   function handleSelectFolder(id: number | null) {
     setSelectedFolderId(id);
     setSelectedTableId(null);
+    setDetailTabHint(null);
   }
 
   function handleQuickFilterChange(filter: QuickFilter) {
     setQuickFilter(filter);
     setSelectedFolderId(null);
     setSelectedTableId(null);
+    setDetailTabHint(null);
   }
 
   const showUnfiled = quickFilter === "unfiled" && selectedFolderId === null;
@@ -163,7 +165,15 @@ function ManageTab({
             <AssetList
               tables={tables}
               selectedTableId={selectedTableId}
-              onSelectTable={setSelectedTableId}
+              onSelectTable={(id) => {
+                setSelectedTableId(id);
+                setDetailTabHint(null);
+              }}
+              onOpenTableTab={(id, tab) => {
+                setSelectedTableId(id);
+                setDetailTabHint(tab);
+              }}
+              onTablesChange={fetchTables}
               loading={loadingTables}
               filter={assetFilter}
               onFilterChange={setAssetFilter}
@@ -177,7 +187,7 @@ function ManageTab({
                 tableId={selectedTableId}
                 onRefresh={() => { fetchTables(); }}
                 onDeleteTable={() => { setSelectedTableId(null); fetchTables(); }}
-                initialTab={initialDetailTab}
+                initialTab={detailTabHint ?? initialDetailTab}
               />
             ) : isV2 ? (
               <RiskSummaryPanel />

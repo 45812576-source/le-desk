@@ -10,6 +10,7 @@ function UploadFilePanel({ onAdded }: { onAdded: () => void }) {
   const [file, setFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState("");
+  const [uploadNotice, setUploadNotice] = useState("");
   const [result, setResult] = useState<{ display_name: string; rows_inserted: number; columns: number } | null>(null);
 
   function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
@@ -17,6 +18,7 @@ function UploadFilePanel({ onAdded }: { onAdded: () => void }) {
     if (!f) return;
     setFile(f);
     setError("");
+    setUploadNotice("");
     setResult(null);
   }
 
@@ -24,6 +26,7 @@ function UploadFilePanel({ onAdded }: { onAdded: () => void }) {
     if (!file) { setError("请先选择文件"); return; }
     setUploading(true);
     setError("");
+    setUploadNotice("");
     try {
       const formData = new FormData();
       formData.append("file", file);
@@ -50,7 +53,7 @@ function UploadFilePanel({ onAdded }: { onAdded: () => void }) {
         return;
       }
       const data = await tryParseJson();
-      setResult(
+      const nextResult =
         data && typeof data.display_name === "string"
           ? {
               display_name: data.display_name,
@@ -61,8 +64,15 @@ function UploadFilePanel({ onAdded }: { onAdded: () => void }) {
               display_name: file.name.replace(/\.(csv|xlsx|xls)$/i, ""),
               rows_inserted: 0,
               columns: 0,
-            }
-      );
+            };
+      setResult(nextResult);
+      if (nextResult.columns === 0) {
+        setUploadNotice("文件已上传，但没有识别到字段；请确认首行是否为表头，或文件是否为空白模板。");
+      } else if (nextResult.rows_inserted === 0) {
+        setUploadNotice(`已识别 ${nextResult.columns} 个字段，但没有导入数据行；如果这是模板文件，可以继续补数据后再给 Skill 使用。`);
+      } else {
+        setUploadNotice(`已导入 ${nextResult.columns} 个字段 / ${nextResult.rows_inserted} 行数据，可以去数据资产页继续看样例和字段覆盖。`);
+      }
       setFile(null);
       if (fileRef.current) fileRef.current.value = "";
       onAdded();
@@ -100,6 +110,13 @@ function UploadFilePanel({ onAdded }: { onAdded: () => void }) {
           />
 
           {error && <p className="text-[10px] text-red-500 font-bold">{error}</p>}
+          {uploadNotice && (
+            <p className={`text-[10px] font-bold ${
+              uploadNotice.includes("可以去数据资产页继续看样例") ? "text-green-600" : "text-amber-600"
+            }`}>
+              {uploadNotice}
+            </p>
+          )}
 
           {result && (
             <div className="border-2 border-[#00CC99] bg-[#00CC99]/5 p-3">

@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useMemo, useState } from "react";
+import { apiFetch } from "@/lib/api";
 import type { DataAssetTable, DataAssetTableV2, RiskLevel } from "./shared/types";
 import { RISK_LEVEL_COLORS } from "./shared/types";
 import { useV2DataAssets } from "./shared/feature-flags";
@@ -16,10 +17,72 @@ const SYNC_STATUS: Record<string, { label: string; color: string }> = {
   idle: { label: "空闲", color: "text-gray-400" },
   syncing: { label: "同步中", color: "text-[#00A3C4] animate-pulse" },
   success: { label: "已同步", color: "text-green-500" },
+  ok: { label: "已同步", color: "text-green-500" },
   partial_success: { label: "部分同步", color: "text-yellow-500" },
   failed: { label: "同步失败", color: "text-red-500" },
   disabled: { label: "已禁用", color: "text-gray-400" },
 };
+
+interface AvailabilityState {
+  key: "sync_issue" | "empty" | "pending_sync" | "review_needed" | "ready";
+  label: string;
+  tone: string;
+  detail: string;
+}
+
+function getAvailabilityState(table: DataAssetTable): AvailabilityState {
+  if (table.sync_status === "failed") {
+    return {
+      key: "sync_issue",
+      label: "同步异常",
+      tone: "border-red-200 bg-red-50 text-red-600",
+      detail: "需要先修复同步，再判断这张表是否还能给 Skill 用。",
+    };
+  }
+
+  if (table.sync_status === "partial_success") {
+    return {
+      key: "review_needed",
+      label: "部分可用",
+      tone: "border-yellow-200 bg-yellow-50 text-yellow-700",
+      detail: "部分数据可能没同步完整，建议先检查样例预览。",
+    };
+  }
+
+  if (table.record_count === 0) {
+    return {
+      key: "empty",
+      label: "空表",
+      tone: "border-gray-200 bg-gray-50 text-gray-500",
+      detail: "当前没有可展示记录，贴给 Skill 编辑人也无法验证字段覆盖情况。",
+    };
+  }
+
+  if (table.record_count === null && table.source_type !== "blank" && !table.last_synced_at) {
+    return {
+      key: "pending_sync",
+      label: "待同步",
+      tone: "border-yellow-200 bg-yellow-50 text-yellow-700",
+      detail: "还没完成首次同步，暂时不能确认表里到底有多少数据。",
+    };
+  }
+
+  if ((table.record_count ?? 0) > 0 && table.sync_status !== "success" && table.sync_status !== "ok" && table.sync_status !== "idle") {
+    return {
+      key: "review_needed",
+      label: "有数据待验证",
+      tone: "border-yellow-200 bg-yellow-50 text-yellow-700",
+      detail: "登记上有数据，但还需要点进去确认预览链路是否正常。",
+    };
+  }
+
+  return {
+    key: "ready",
+    label: "可预览",
+    tone: "border-green-200 bg-green-50 text-green-600",
+    detail: "可以直接进入详情页看字段、样例和视图范围。",
+  };
+}
 
 export type AssetFilter = {
   source_type?: string;
@@ -27,21 +90,34 @@ export type AssetFilter = {
   has_warnings?: boolean;
   has_skill_binding?: boolean;
   risk_level?: RiskLevel;
+  availability?: "sync_issue" | "empty" | "pending_sync" | "review_needed" | "ready";
 };
 
 interface Props {
   tables: DataAssetTable[];
   selectedTableId: number | null;
   onSelectTable: (id: number) => void;
+  onOpenTableTab?: (id: number, tab: "overview" | "preview") => void;
+  onTablesChange?: () => void;
   loading: boolean;
   filter?: AssetFilter;
   onFilterChange?: (filter: AssetFilter) => void;
 }
 
-export default function AssetList({ tables, selectedTableId, onSelectTable, loading, filter, onFilterChange }: Props) {
+export default function AssetList({
+  tables,
+  selectedTableId,
+  onSelectTable,
+  onOpenTableTab,
+  onTablesChange,
+  loading,
+  filter,
+  onFilterChange,
+}: Props) {
   const isV2 = useV2DataAssets();
   const [search, setSearch] = useState("");
   const [showFilters, setShowFilters] = useState(false);
+  const [syncingTableId, setSyncingTableId] = useState<number | null>(null);
 
   const filtered = useMemo(() => {
     let result = tables;
@@ -67,6 +143,9 @@ export default function AssetList({ tables, selectedTableId, onSelectTable, load
     }
     if (filter?.risk_level) {
       result = result.filter((t) => (t as DataAssetTableV2).risk_level === filter.risk_level);
+    }
+    if (filter?.availability) {
+      result = result.filter((t) => getAvailabilityState(t).key === filter.availability);
     }
     return result;
   }, [tables, search, filter]);
@@ -131,6 +210,22 @@ export default function AssetList({ tables, selectedTableId, onSelectTable, load
             >
               Skill 绑定
             </button>
+            {[
+              { key: "sync_issue", label: "同步异常", activeCls: "border-red-300 text-red-600 bg-red-50" },
+              { key: "empty", label: "空表", activeCls: "border-gray-300 text-gray-600 bg-gray-50" },
+              { key: "pending_sync", label: "待同步", activeCls: "border-yellow-300 text-yellow-700 bg-yellow-50" },
+              { key: "ready", label: "可预览", activeCls: "border-green-300 text-green-600 bg-green-50" },
+            ].map((item) => (
+              <button
+                key={item.key}
+                onClick={() => onFilterChange({ ...filter, availability: filter?.availability === item.key ? undefined : item.key as AssetFilter["availability"] })}
+                className={`text-[8px] font-bold px-1.5 py-0.5 border rounded transition-colors ${
+                  filter?.availability === item.key ? item.activeCls : "border-gray-200 text-gray-400"
+                }`}
+              >
+                {item.label}
+              </button>
+            ))}
             {isV2 && (["high", "critical"] as RiskLevel[]).map((rl) => (
               <button
                 key={rl}
@@ -158,6 +253,24 @@ export default function AssetList({ tables, selectedTableId, onSelectTable, load
             const isSelected = selectedTableId === t.id;
             const riskLevel = (t as DataAssetTableV2).risk_level;
             const riskColor = riskLevel ? RISK_LEVEL_COLORS[riskLevel] : null;
+            const availability = getAvailabilityState(t);
+            const canQuickSync = t.source_type !== "blank" && (availability.key === "sync_issue" || availability.key === "review_needed");
+            const canOpenPreview = availability.key === "ready" || (availability.key === "review_needed" && (t.record_count ?? 0) > 0);
+
+            async function handleQuickSync(event: React.MouseEvent<HTMLButtonElement>) {
+              event.stopPropagation();
+              setSyncingTableId(t.id);
+              try {
+                await apiFetch(`/data-assets/tables/${t.id}/sync`, { method: "POST" });
+                onTablesChange?.();
+                onOpenTableTab?.(t.id, "overview");
+              } catch {
+                onOpenTableTab?.(t.id, "overview");
+              } finally {
+                setSyncingTableId(null);
+              }
+            }
+
             return (
               <div
                 key={t.id}
@@ -175,6 +288,9 @@ export default function AssetList({ tables, selectedTableId, onSelectTable, load
                     <span className="text-[7px] font-bold px-1 py-px bg-green-50 text-green-600 border border-green-200 rounded">已发布</span>
                   )}
                   <span className={`text-[8px] font-bold px-1.5 py-px border rounded ${src.color}`}>{src.label}</span>
+                  <span className={`text-[8px] font-bold px-1.5 py-px border rounded ${availability.tone}`} title={availability.detail}>
+                    {availability.label}
+                  </span>
                 </div>
                 <div className="flex items-center gap-3 text-[8px] text-gray-400">
                   <span>{t.field_count} 字段</span>
@@ -214,9 +330,46 @@ export default function AssetList({ tables, selectedTableId, onSelectTable, load
                     </span>
                   )}
                 </div>
+                <div className="text-[8px] text-gray-500 mt-1 line-clamp-2">
+                  {availability.detail}
+                </div>
                 <div className="flex items-center gap-1 mt-0.5">
                   <p className="text-[8px] text-gray-400 font-mono truncate">{t.table_name}</p>
+                  {t.last_synced_at && (
+                    <span className="text-[7px] text-gray-300">· {new Date(t.last_synced_at).toLocaleString("zh-CN")}</span>
+                  )}
                   {t.governance_status && <GovernanceBadge status={t.governance_status} />}
+                  <div className="ml-auto flex items-center gap-1">
+                    {canOpenPreview && (
+                      <button
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          onOpenTableTab?.(t.id, "preview");
+                        }}
+                        className="text-[8px] text-[#00CC99] hover:underline"
+                      >
+                        查看预览
+                      </button>
+                    )}
+                    <button
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        onOpenTableTab?.(t.id, "overview");
+                      }}
+                      className="text-[8px] text-[#00A3C4] hover:underline"
+                    >
+                      查看诊断
+                    </button>
+                    {canQuickSync && (
+                      <button
+                        onClick={handleQuickSync}
+                        disabled={syncingTableId === t.id}
+                        className="text-[8px] text-[#00CC99] hover:text-[#00A87A] disabled:text-gray-300"
+                      >
+                        {syncingTableId === t.id ? "同步中..." : "重新同步"}
+                      </button>
+                    )}
+                  </div>
                 </div>
               </div>
             );

@@ -13,12 +13,13 @@ function DbPanel({ onAdded }: { onAdded: () => void }) {
   const [probing, setProbing] = useState(false);
   const [probeResult, setProbeResult] = useState<ProbeResult | null>(null);
   const [error, setError] = useState("");
+  const [probeNotice, setProbeNotice] = useState("");
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
 
   async function handleProbe() {
     if (!dbUrl.trim() || !tableName.trim()) { setError("请填写数据库地址和表名"); return; }
-    setError(""); setProbing(true); setProbeResult(null); setSaved(false);
+    setError(""); setProbeNotice(""); setProbing(true); setProbeResult(null); setSaved(false);
     try {
       const data = await apiFetch<ProbeResult>("/business-tables/probe", {
         method: "POST",
@@ -26,6 +27,13 @@ function DbPanel({ onAdded }: { onAdded: () => void }) {
       });
       setProbeResult(data);
       if (!displayName.trim()) setDisplayName(data.table_name);
+      if (data.columns.length === 0) {
+        setProbeNotice("数据库连通了，但没有读到字段；请确认表名是否正确，或当前账号是否有读取元数据权限。");
+      } else if (data.preview_rows.length === 0) {
+        setProbeNotice(`已连通数据库并识别 ${data.columns.length} 个字段，但样例为空；可能是原表为空，或当前账号没有可读数据行。`);
+      } else {
+        setProbeNotice(`已连通数据库并读到 ${data.columns.length} 个字段 / ${data.preview_rows.length} 行样例，可以直接导入。`);
+      }
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "连接失败");
     } finally {
@@ -82,6 +90,13 @@ function DbPanel({ onAdded }: { onAdded: () => void }) {
                 className="w-full border-2 border-[#1A202C] px-3 py-2 text-[11px] focus:outline-none focus:border-[#00D1FF]" />
             </div>
           </div>
+          {probeNotice && (
+            <p className={`text-[10px] font-bold ${
+              probeNotice.includes("可以直接导入") ? "text-green-600" : "text-amber-600"
+            }`}>
+              {probeNotice}
+            </p>
+          )}
           {error && <p className="text-[10px] text-red-500 font-bold">{error}</p>}
           <div className="flex items-center gap-2 pt-1">
             <PixelButton onClick={handleProbe} disabled={probing}>

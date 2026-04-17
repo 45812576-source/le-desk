@@ -180,12 +180,12 @@ function ViewProfileCard({ view, detail }: { view: TableViewDetail; detail: Tabl
         <div className="space-y-1.5">
           {/* 面向谁 */}
           <div>
-            <span className="text-gray-400 font-bold uppercase">面向:</span>{" "}
-            {roleGroupNames.length > 0 ? roleGroupNames.join(", ") : <span className="text-gray-400">所有角色</span>}
+            <span className="text-gray-400 font-bold uppercase">使用范围:</span>{" "}
+            {roleGroupNames.length > 0 ? roleGroupNames.join(", ") : <span className="text-gray-400">默认可复用</span>}
           </div>
           {/* 用途 */}
           <div>
-            <span className="text-gray-400 font-bold uppercase">用途:</span>{" "}
+            <span className="text-gray-400 font-bold uppercase">适用场景:</span>{" "}
             {view.view_purpose || <span className="text-gray-400">未说明</span>}
           </div>
           {/* 字段列表 */}
@@ -231,7 +231,7 @@ function ViewProfileCard({ view, detail }: { view: TableViewDetail; detail: Tabl
           )}
           {/* 影响范围 */}
           <div className="text-[7px] text-gray-400 pt-1 border-t border-gray-200">
-            影响: {boundSkills.length} Skill · {boundGrants.length} 授权
+            当前被 {boundSkills.length} 个 Skill 使用 · {boundGrants.length} 条授权投影
             {view.row_limit !== null && ` · 行上限 ${view.row_limit}`}
           </div>
         </div>
@@ -331,7 +331,7 @@ export default function ViewsTab({ detail, onRefresh, capabilities }: Props) {
   return (
     <div>
       <div className="flex items-center justify-between px-4 py-2 border-b-2 border-[#1A202C] bg-[#EBF4F7]">
-        <span className="text-[9px] font-bold uppercase tracking-widest text-[#00A3C4]">视图 ({detail.views.length})</span>
+        <span className="text-[9px] font-bold uppercase tracking-widest text-[#00A3C4]">视图范围 ({detail.views.length})</span>
         <PixelButton size="sm" onClick={() => setCreating(true)} disabled={creating || !canManageViews}>
           + 新建视图
         </PixelButton>
@@ -341,7 +341,7 @@ export default function ViewsTab({ detail, onRefresh, capabilities }: Props) {
         <div className="px-4 py-2 text-[8px] text-yellow-700 bg-yellow-50 border-b border-yellow-200">
           {detail.publish_status === "published"
             ? "已发布数据表的视图调整需由管理员处理。"
-            : "只有该草稿表的创建者可以维护视图。"}
+            : "这里只有 Skill 编辑阶段的使用范围视图；运行时权限仍由 SkillStudio 控制。"}
         </div>
       )}
 
@@ -405,13 +405,13 @@ export default function ViewsTab({ detail, onRefresh, capabilities }: Props) {
                       </div>
                       <div className="flex items-center gap-2 mt-0.5 text-[8px] text-gray-400">
                         <span>{v.view_type}</span>
-                        {v.view_purpose && <span>· {v.view_purpose}</span>}
+                        {v.view_purpose && <span>· 场景: {v.view_purpose}</span>}
                         <span>· {v.visibility_scope}</span>
                         {v.visible_field_ids?.length > 0 && (
                           <span>· {v.visible_field_ids.length} 字段</span>
                         )}
                         {v.allowed_role_group_ids?.length > 0 && (
-                          <span>· {v.allowed_role_group_ids.length} 角色组</span>
+                          <span>· {v.allowed_role_group_ids.length} 使用组</span>
                         )}
                       </div>
                     </div>

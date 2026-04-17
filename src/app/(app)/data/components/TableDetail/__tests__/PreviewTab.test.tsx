@@ -73,7 +73,55 @@ describe("PreviewTab", () => {
     await waitFor(() => {
       expect(screen.getByText("采样可见行")).toBeInTheDocument();
     });
-    expect(screen.getByText("分页接口未返回数据，已自动降级显示采样结果。")).toBeInTheDocument();
+    expect(screen.getAllByText("分页接口未返回数据，已自动降级显示采样结果。").length).toBeGreaterThan(0);
+    expect(screen.getByText("预览诊断")).toBeInTheDocument();
     expect(mockApiFetch).toHaveBeenCalledWith("/data/usr_preview_cache_empty/sample?max_rows=200");
+  });
+
+  it("登记有记录但预览无结果时，显示诊断建议", async () => {
+    mockApiFetch.mockImplementation((path: string) => {
+      if (path.includes("/rows?")) {
+        return Promise.resolve({ total: 0, page: 1, page_size: 20, columns: [], rows: [] });
+      }
+      if (path.includes("/sample?")) {
+        return Promise.resolve({
+          total: 0,
+          columns: [],
+          rows: [],
+          sample_strategy: { enum_fields: [], sampled: 0, max_rows: 200 },
+        });
+      }
+      return Promise.reject(new Error(`unexpected path: ${path}`));
+    });
+
+    const detail = makeTableDetail({
+      table_name: "usr_preview_missing_rows",
+      record_count: 12,
+      fields: [],
+      role_groups: [],
+    });
+
+    render(
+      <PreviewTab
+        detail={detail}
+        capabilities={{
+          can_edit_schema: false,
+          can_edit_rows: false,
+          can_edit_meta: false,
+          can_export: false,
+          can_manage_views: false,
+          can_manage_role_groups: false,
+          can_manage_bindings: false,
+          can_manage_publish: false,
+          can_delete_table: false,
+        }}
+      />
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("表里登记有数据，但预览没取回来")).toBeInTheDocument();
+    });
+    expect(screen.getByText(/登记记录数为 12/)).toBeInTheDocument();
+    expect(screen.getByText("重新同步")).toBeInTheDocument();
   });
 });

@@ -1,17 +1,31 @@
 "use client";
 
 import React from "react";
-import type { TableDetail, TableDetailV2 } from "../shared/types";
-import { RISK_LEVEL_LABELS, RISK_LEVEL_COLORS } from "../shared/types";
+import type { TableDetail } from "../shared/types";
 
 interface Props {
   detail: TableDetail;
 }
 
 export default function HeaderBar({ detail }: Props) {
-  const v2 = detail as TableDetailV2;
-  const riskLevel = v2.risk_assessment?.overall_level;
-  const sensitiveCount = detail.fields.filter((f) => f.is_sensitive).length;
+  const usageCount = new Set([
+    ...detail.bindings.map((binding) => binding.skill_id),
+    ...detail.skill_grants.map((grant) => grant.skill_id),
+  ]).size;
+
+  const syncStatusLabel = (() => {
+    switch (detail.sync_status) {
+      case "ok":
+      case "success":
+        return "已同步";
+      case "syncing":
+        return "同步中";
+      case "failed":
+        return "同步失败";
+      default:
+        return detail.sync_status || "未同步";
+    }
+  })();
 
   return (
     <div className="px-4 py-2 border-b-2 border-[#1A202C] flex-shrink-0">
@@ -32,18 +46,13 @@ export default function HeaderBar({ detail }: Props) {
         <span>{detail.fields.length} 字段</span>
         {detail.record_count !== null && <span>{detail.record_count} 行</span>}
         <span>{detail.views.length} 视图</span>
-        <span>{detail.bindings.length} Skill</span>
-        <span>{detail.role_groups?.length || 0} 角色组</span>
-        {sensitiveCount > 0 && (
-          <span className="text-orange-500">{sensitiveCount} 敏感字段</span>
+        <span>{usageCount} 关联 Skill</span>
+        <span>{syncStatusLabel}</span>
+        {detail.last_synced_at && (
+          <span>更新于 {new Date(detail.last_synced_at).toLocaleString("zh-CN")}</span>
         )}
-        {riskLevel && (
-          <span className={`font-bold px-1.5 py-px rounded ${RISK_LEVEL_COLORS[riskLevel]}`}>
-            {RISK_LEVEL_LABELS[riskLevel]}
-          </span>
-        )}
-        {detail.risk_warnings.length > 0 && (
-          <span className="text-yellow-500">{detail.risk_warnings.length} 警告</span>
+        {detail.sync_error && (
+          <span className="text-red-500">有异常</span>
         )}
       </div>
     </div>

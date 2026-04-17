@@ -1,8 +1,52 @@
 import { NextRequest, NextResponse } from "next/server";
+import { resolveDataAssetSummary } from "@/lib/data-asset-summary";
+import {
+  isApprovalListPath,
+  mergeLocalApprovals,
+  resolveApprovalRequest,
+  resolveOrgMemoryRequest,
+} from "@/lib/org-memory-api-store";
+import {
+  buildOrgMemoryRolloutSubject,
+  buildOrgMemoryRequestHeaders,
+  buildOrgMemoryResponseHeaders,
+  canUseLocalWriteFallback,
+  canUseLocalApprovalFallback,
+  canUseLocalOrgMemoryFallback,
+  getOrgMemoryRolloutBucket,
+  isOrgMemoryPath,
+  readOrgMemoryProxyConfig,
+  shouldRouteOrgMemoryToBackend,
+  shouldMergeLocalApprovals,
+  shouldUseLocalFallbackForStatus,
+} from "@/lib/org-memory-proxy";
 
 export const maxDuration = 1800;
 
 const BACKEND_URL = process.env.BACKEND_URL || "http://localhost:8000";
+
+function parseSummaryRoute(targetPath: string): { tableId: number; mode: "summary" | "summarize" } | null {
+  const matched = targetPath.match(/^\/data-assets\/tables\/(\d+)\/(summary|summarize)$/);
+  if (!matched) return null;
+
+  const tableId = Number(matched[1]);
+  if (!Number.isFinite(tableId)) return null;
+
+  return {
+    tableId,
+    mode: matched[2] as "summary" | "summarize",
+  };
+}
+
+function parseJsonObject(text: string | undefined): Record<string, unknown> {
+  if (!text) return {};
+  try {
+    const parsed = JSON.parse(text);
+    return typeof parsed === "object" && parsed !== null ? parsed as Record<string, unknown> : {};
+  } catch {
+    return {};
+  }
+}
 
 export async function handler(
   request: NextRequest,
@@ -22,6 +66,21 @@ export async function handler(
     headers["Authorization"] = auth;
   }
 
+  const summaryRoute = parseSummaryRoute(targetPath);
+  if (summaryRoute && (request.method === "GET" || request.method === "POST")) {
+    try {
+      const summary = await resolveDataAssetSummary({
+        tableId: summaryRoute.tableId,
+        backendUrl: BACKEND_URL,
+        authorization: auth,
+      });
+      return NextResponse.json(summary);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unknown error";
+      return NextResponse.json({ detail: `资产摘要生成失败: ${message}` }, { status: 502 });
+    }
+  }
+
   let body: BodyInit | undefined;
 
   if (request.method === "GET" || request.method === "HEAD") {
@@ -33,6 +92,38 @@ export async function handler(
   } else {
     headers["Content-Type"] = contentType || "application/json";
     body = await request.text();
+  }
+
+  const requestPayload = parseJsonObject(typeof body === "string" ? body : undefined);
+  const orgMemoryProxyConfig = readOrgMemoryProxyConfig();
+  const isOrgMemoryRequest = isOrgMemoryPath(targetPath);
+  const rolloutSubject = buildOrgMemoryRolloutSubject({
+    authorization: auth,
+    userAgent: request.headers.get("user-agent"),
+    path: targetPath,
+  });
+  const rolloutBucket = isOrgMemoryRequest ? getOrgMemoryRolloutBucket(rolloutSubject) : null;
+  const routeTarget = isOrgMemoryRequest
+    ? (shouldRouteOrgMemoryToBackend(orgMemoryProxyConfig, rolloutSubject, request.method) ? "backend" : "local")
+    : null;
+  const allowLocalWriteFallback = canUseLocalWriteFallback(orgMemoryProxyConfig);
+  if (isOrgMemoryRequest) {
+    Object.assign(headers, buildOrgMemoryRequestHeaders(orgMemoryProxyConfig));
+  }
+
+  const localOrgMemoryResult = isOrgMemoryRequest && routeTarget === "local"
+    ? await resolveOrgMemoryRequest(request.method, targetPath, requestPayload, {
+        authorization: auth,
+      })
+    : null;
+  if (localOrgMemoryResult) {
+    return NextResponse.json(localOrgMemoryResult.body, {
+      status: localOrgMemoryResult.status || 200,
+      headers: buildOrgMemoryResponseHeaders(orgMemoryProxyConfig, "local-primary", {
+        bucket: rolloutBucket,
+        routeTarget: "local",
+      }),
+    });
   }
 
   // SSE streaming endpoints need longer timeout for AI generation.
@@ -62,6 +153,37 @@ export async function handler(
       signal: AbortSignal.timeout(timeout),
     });
   } catch (err) {
+    const localOrgMemoryFallback = isOrgMemoryRequest
+      && routeTarget === "backend"
+      && canUseLocalOrgMemoryFallback(orgMemoryProxyConfig)
+      && (allowLocalWriteFallback || request.method === "GET" || request.method === "HEAD")
+      ? await resolveOrgMemoryRequest(request.method, targetPath, requestPayload, {
+          authorization: auth,
+        })
+      : null;
+    if (localOrgMemoryFallback) {
+      return NextResponse.json(localOrgMemoryFallback.body, {
+        status: localOrgMemoryFallback.status || 200,
+        headers: buildOrgMemoryResponseHeaders(orgMemoryProxyConfig, "local-fallback", {
+          bucket: rolloutBucket,
+          routeTarget: "backend",
+        }),
+      });
+    }
+    const localApprovalFallback = canUseLocalApprovalFallback(orgMemoryProxyConfig)
+      && (allowLocalWriteFallback || request.method === "GET" || request.method === "HEAD")
+      ? await resolveApprovalRequest(
+          request.method,
+          targetPath,
+          url,
+          requestPayload,
+        )
+      : null;
+    if (localApprovalFallback) {
+      return NextResponse.json(localApprovalFallback.body, {
+        status: localApprovalFallback.status || 200,
+      });
+    }
     const message = err instanceof Error ? err.message : "Unknown error";
     return NextResponse.json(
       { detail: `后端服务不可达: ${message}` },
@@ -69,17 +191,59 @@ export async function handler(
     );
   }
 
+  if (!resp.ok && shouldUseLocalFallbackForStatus(resp.status)) {
+    const localOrgMemoryFallback = isOrgMemoryRequest
+      && routeTarget === "backend"
+      && canUseLocalOrgMemoryFallback(orgMemoryProxyConfig)
+      && (allowLocalWriteFallback || request.method === "GET" || request.method === "HEAD")
+      ? await resolveOrgMemoryRequest(request.method, targetPath, requestPayload, {
+          authorization: auth,
+        })
+      : null;
+    if (localOrgMemoryFallback) {
+      return NextResponse.json(localOrgMemoryFallback.body, {
+        status: localOrgMemoryFallback.status || 200,
+        headers: buildOrgMemoryResponseHeaders(orgMemoryProxyConfig, "local-fallback", {
+          bucket: rolloutBucket,
+          routeTarget: "backend",
+        }),
+      });
+    }
+
+    const localApprovalFallback = canUseLocalApprovalFallback(orgMemoryProxyConfig)
+      && (allowLocalWriteFallback || request.method === "GET" || request.method === "HEAD")
+      ? await resolveApprovalRequest(
+          request.method,
+          targetPath,
+          url,
+          requestPayload,
+        )
+      : null;
+    if (localApprovalFallback) {
+      return NextResponse.json(localApprovalFallback.body, {
+        status: localApprovalFallback.status || 200,
+      });
+    }
+  }
+
   // SSE streaming: pass through the ReadableStream directly
   const respContentType = resp.headers.get("Content-Type") || "";
   if (respContentType.includes("text/event-stream")) {
+    const streamHeaders: Record<string, string> = {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache",
+      Connection: "keep-alive",
+      "X-Accel-Buffering": "no",
+    };
+    if (isOrgMemoryRequest) {
+      Object.assign(streamHeaders, buildOrgMemoryResponseHeaders(orgMemoryProxyConfig, "backend", {
+        bucket: rolloutBucket,
+        routeTarget: routeTarget || "backend",
+      }));
+    }
     return new Response(resp.body, {
       status: resp.status,
-      headers: {
-        "Content-Type": "text/event-stream",
-        "Cache-Control": "no-cache",
-        Connection: "keep-alive",
-        "X-Accel-Buffering": "no",
-      },
+      headers: streamHeaders,
     });
   }
 
@@ -98,6 +262,12 @@ export async function handler(
     const binaryHeaders: Record<string, string> = { "Content-Type": respContentType };
     const disposition = resp.headers.get("Content-Disposition");
     if (disposition) binaryHeaders["Content-Disposition"] = disposition;
+    if (isOrgMemoryRequest) {
+      Object.assign(binaryHeaders, buildOrgMemoryResponseHeaders(orgMemoryProxyConfig, "backend", {
+        bucket: rolloutBucket,
+        routeTarget: routeTarget || "backend",
+      }));
+    }
     return new NextResponse(respBody, {
       status: resp.status,
       headers: binaryHeaders,
@@ -105,11 +275,34 @@ export async function handler(
   }
 
   const respBody = await resp.text();
+  if (resp.ok && isApprovalListPath(targetPath) && shouldMergeLocalApprovals(orgMemoryProxyConfig)) {
+    try {
+      const mergedBody = await mergeLocalApprovals(targetPath, url, JSON.parse(respBody));
+      return NextResponse.json(mergedBody, {
+        status: resp.status,
+        headers: isOrgMemoryRequest
+          ? buildOrgMemoryResponseHeaders(orgMemoryProxyConfig, "backend", {
+              bucket: rolloutBucket,
+              routeTarget: routeTarget || "backend",
+            })
+          : undefined,
+      });
+    } catch {
+    }
+  }
+
+  const textHeaders: Record<string, string> = {
+    "Content-Type": respContentType || "application/json",
+  };
+  if (isOrgMemoryRequest) {
+    Object.assign(textHeaders, buildOrgMemoryResponseHeaders(orgMemoryProxyConfig, "backend", {
+      bucket: rolloutBucket,
+      routeTarget: routeTarget || "backend",
+    }));
+  }
   return new NextResponse(respBody, {
     status: resp.status,
-    headers: {
-      "Content-Type": respContentType || "application/json",
-    },
+    headers: textHeaders,
   });
 }
 

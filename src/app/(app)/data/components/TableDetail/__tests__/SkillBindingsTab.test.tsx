@@ -5,16 +5,13 @@
  * - 空绑定提示
  * - 绑定列表渲染
  * - legacy_unbound 状态显示
- * - 删除绑定
+ * - 只读投影说明
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import "@testing-library/jest-dom";
 
 const mockApiFetch = vi.fn();
-vi.mock("@/lib/api", () => ({
-  apiFetch: (...args: unknown[]) => mockApiFetch(...args),
-}));
 
 vi.mock("@/components/pixel/PixelBadge", () => ({
   PixelBadge: ({ children, color }: { children: React.ReactNode; color?: string }) => (
@@ -22,20 +19,30 @@ vi.mock("@/components/pixel/PixelBadge", () => ({
   ),
 }));
 
+vi.mock("@/lib/api", () => ({
+  apiFetch: (...args: unknown[]) => mockApiFetch(...args),
+}));
+
 import SkillBindingsTab from "../SkillBindingsTab";
-import { makeTableDetail, BINDINGS } from "@/__tests__/fixtures/data-assets";
+import { makeTableDetail } from "@/__tests__/fixtures/data-assets";
 
 describe("SkillBindingsTab", () => {
   const onRefresh = vi.fn();
 
   beforeEach(() => {
     vi.clearAllMocks();
+    mockApiFetch.mockImplementation((path: string) => {
+      if (path === "/org-management/departments") {
+        return Promise.resolve([{ id: 10, name: "销售部", parent_id: null }]);
+      }
+      return Promise.reject(new Error(`unexpected path: ${path}`));
+    });
   });
 
   it("无绑定时显示空提示", () => {
-    const detail = makeTableDetail({ bindings: [] });
+    const detail = makeTableDetail({ bindings: [], skill_grants: [], role_groups: [], permission_policies: [] });
     render(<SkillBindingsTab detail={detail} onRefresh={onRefresh} />);
-    expect(screen.getByText(/暂无 Skill 绑定/)).toBeInTheDocument();
+    expect(screen.getByText(/暂无关联 Skill/)).toBeInTheDocument();
   });
 
   it("渲染所有绑定", () => {
@@ -58,8 +65,8 @@ describe("SkillBindingsTab", () => {
   it("legacy_unbound 显示待迁移提示", () => {
     const detail = makeTableDetail();
     render(<SkillBindingsTab detail={detail} onRefresh={onRefresh} />);
-    expect(screen.getByText("待迁移")).toBeInTheDocument();
-    expect(screen.getByText(/旧 Skill，尚未绑定具体视图/)).toBeInTheDocument();
+    expect(screen.getByText("待补视图")).toBeInTheDocument();
+    expect(screen.getAllByText(/未绑定视图/).length).toBeGreaterThan(0);
   });
 
   it("绑定显示视图名", () => {
@@ -70,23 +77,20 @@ describe("SkillBindingsTab", () => {
     expect(screen.getAllByText(/汇总视图/).length).toBeGreaterThanOrEqual(1);
   });
 
-  it("删除绑定调用正确 API", async () => {
-    mockApiFetch.mockResolvedValueOnce({});
-    global.confirm = vi.fn(() => true);
+  it("显示只读投影提示和 SkillStudio 跳转", () => {
+    const detail = makeTableDetail();
+    render(<SkillBindingsTab detail={detail} onRefresh={onRefresh} />);
+    expect(screen.getByText(/只读投影页/)).toBeInTheDocument();
+    expect(screen.getAllByText("去 SkillStudio").length).toBeGreaterThan(0);
+  });
 
+  it("显示真实部门名称而不是部门 id", async () => {
     const detail = makeTableDetail();
     render(<SkillBindingsTab detail={detail} onRefresh={onRefresh} />);
 
-    // 找到删除按钮（✕）并点击
-    const deleteButtons = screen.getAllByTitle("解除绑定");
-    fireEvent.click(deleteButtons[0]);
-
     await waitFor(() => {
-      expect(mockApiFetch).toHaveBeenCalledWith(
-        `/data-assets/bindings/${BINDINGS[0].binding_id}`,
-        { method: "DELETE" },
-      );
+      expect(screen.getAllByText(/部门：销售部/).length).toBeGreaterThan(0);
     });
-    expect(onRefresh).toHaveBeenCalled();
+    expect(screen.queryByText(/部门：部门 #10/)).not.toBeInTheDocument();
   });
 });

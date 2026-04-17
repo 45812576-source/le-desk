@@ -5,8 +5,10 @@ import { useCallback, useEffect, useState } from "react";
 import { apiFetch } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import type { ApprovalRequest } from "@/lib/types";
+import { useSearchParams } from "next/navigation";
 import { Check, X, Clock, FileText, Send, Inbox, ChevronDown, ChevronRight, Play, Shield, AlertTriangle, Package, Database, Tag, Wrench, MessageSquare, ClipboardCheck, Info } from "lucide-react";
 import { SandboxTestModal } from "@/components/skill/SandboxTestModal";
+import { FALLBACK_APPROVAL_TEMPLATES } from "@/lib/approval-templates";
 import type { ApprovalTemplate, EvidenceItem, ApprovalCondition, SkillEvidenceDetail, ToolEvidenceDetail, WebAppEvidenceDetail, KnowledgeReviewDetail, KnowledgeEditDetail } from "@/lib/approval-templates";
 
 type MainTab = "incoming" | "outgoing" | "all";
@@ -17,6 +19,7 @@ const TYPE_TABS: { key: string; label: string }[] = [
   { key: "knowledge_review", label: "知识审核" },
   { key: "knowledge_edit", label: "知识编辑" },
   { key: "webapp_publish", label: "Web APP" },
+  { key: "org_memory_proposal,knowledge_scope_expand,knowledge_redaction_lower,skill_mount_org_memory", label: "组织 Memory" },
   { key: "scope_change,mask_override,schema_approval", label: "权限&脱敏" },
   { key: "export_sensitive,elevate_disclosure,grant_access,policy_change,field_sensitivity_change,small_sample_change", label: "数据安全" },
   { key: "permission_change", label: "权限变更" },
@@ -31,6 +34,10 @@ function requestTypeLabel(type: string): string {
     skill_ownership_transfer: "Skill 所有权转让",
     tool_publish: "工具发布",
     webapp_publish: "应用发布",
+    org_memory_proposal: "组织 Memory 草案",
+    knowledge_scope_expand: "知识共享范围扩张",
+    knowledge_redaction_lower: "知识匿名化要求降低",
+    skill_mount_org_memory: "Skill 挂载审批",
     scope_change: "权限变更",
     mask_override: "脱敏覆盖",
     schema_approval: "Schema 审批",
@@ -849,6 +856,12 @@ function TypeSpecificEvidence({
   const isKnowledgeReview = request.request_type === "knowledge_review";
   const isKnowledgeEdit = request.request_type === "knowledge_edit";
   const isPermissionChange = request.request_type === "permission_change";
+  const isOrgMemory = [
+    "org_memory_proposal",
+    "knowledge_scope_expand",
+    "knowledge_redaction_lower",
+    "skill_mount_org_memory",
+  ].includes(request.request_type);
 
   if (isSkill) {
     return <SkillEvidenceContent detail={detail as SkillEvidenceDetail} targetId={request.target_id} fileContents={fileContents} fileLoading={fileLoading} onLoadFile={onLoadFile} securityScanResult={request.security_scan_result} />;
@@ -867,6 +880,9 @@ function TypeSpecificEvidence({
   }
   if (isPermissionChange) {
     return <PermissionChangeContent detail={detail} />;
+  }
+  if (isOrgMemory) {
+    return <OrgMemoryEvidenceContent requestType={request.request_type} detail={detail} />;
   }
   return null;
 }
@@ -1076,6 +1092,191 @@ function PermissionChangeContent({ detail }: { detail: Record<string, unknown> }
   );
 }
 
+function OrgMemoryEvidenceContent({
+  requestType,
+  detail,
+}: {
+  requestType: string;
+  detail: Record<string, unknown>;
+}) {
+  const structureChanges = Array.isArray(detail.structure_changes)
+    ? (detail.structure_changes as Array<Record<string, unknown>>)
+    : [];
+  const classificationRules = Array.isArray(detail.classification_rules)
+    ? (detail.classification_rules as Array<Record<string, unknown>>)
+    : [];
+  const skillMounts = Array.isArray(detail.skill_mounts)
+    ? (detail.skill_mounts as Array<Record<string, unknown>>)
+    : [];
+  const approvalImpacts = Array.isArray(detail.approval_impacts)
+    ? (detail.approval_impacts as Array<Record<string, unknown>>)
+    : [];
+  const evidenceRefs = Array.isArray(detail.evidence_refs)
+    ? (detail.evidence_refs as Array<Record<string, unknown>>)
+    : [];
+  const appliedConfig = typeof detail.applied_config === "object" && detail.applied_config !== null
+    ? detail.applied_config as Record<string, unknown>
+    : null;
+  const configVersions = Array.isArray(detail.config_versions)
+    ? (detail.config_versions as Array<Record<string, unknown>>)
+    : [];
+
+  const summary =
+    String(detail.summary || detail.impact_summary || detail.description || "");
+
+  return (
+    <div className="space-y-2 mt-2 pt-2 border-t border-border">
+      <div className="text-[10px]">
+        <span className="text-muted-foreground font-medium">审批主题:</span>{" "}
+        <span className="text-foreground">
+          {requestTypeLabel(requestType)}
+        </span>
+      </div>
+      {summary && (
+        <div className="text-[10px] text-muted-foreground">
+          {summary}
+        </div>
+      )}
+
+      <div className="flex flex-wrap gap-2">
+        <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-700 font-medium">
+          结构 {structureChanges.length}
+        </span>
+        <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-cyan-100 text-cyan-700 font-medium">
+          分类 {classificationRules.length}
+        </span>
+        <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-purple-100 text-purple-700 font-medium">
+          挂载 {skillMounts.length}
+        </span>
+        <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700 font-medium">
+          审批影响 {approvalImpacts.length}
+        </span>
+      </div>
+
+      {classificationRules.length > 0 && (
+        <div className="space-y-1">
+          <div className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
+            共享范围与匿名化
+          </div>
+          {classificationRules.slice(0, 3).map((rule, index) => (
+            <div key={`${String(rule.target_scope || "rule")}-${index}`} className="rounded border border-border px-2.5 py-2 text-[10px]">
+              <div className="font-medium text-foreground">
+                {String(rule.target_scope || "未命名规则")}
+              </div>
+              <div className="mt-1 text-muted-foreground">
+                {String(rule.origin_scope || "—")} → {String(rule.allowed_scope || "—")} · {String(rule.redaction_mode || "—")}
+              </div>
+              {Boolean(rule.rationale) && (
+                <div className="mt-1 text-muted-foreground">
+                  {String(rule.rationale)}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {skillMounts.length > 0 && (
+        <div className="space-y-1">
+          <div className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
+            Skill 挂载建议
+          </div>
+          {skillMounts.slice(0, 3).map((item, index) => (
+            <div key={`${String(item.skill_name || "skill")}-${index}`} className="rounded border border-border px-2.5 py-2 text-[10px]">
+              <div className="font-medium text-foreground">
+                {String(item.skill_name || "未命名 Skill")}
+              </div>
+              <div className="mt-1 text-muted-foreground">
+                结论：{String(item.decision || "—")} · 共享上限：{String(item.max_allowed_scope || "—")} · 形态：{String(item.required_redaction_mode || "—")}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {approvalImpacts.length > 0 && (
+        <div className="space-y-1">
+          <div className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
+            审批影响
+          </div>
+          {approvalImpacts.slice(0, 3).map((impact, index) => (
+            <div key={`${String(impact.target_asset_name || "impact")}-${index}`} className="rounded border border-border px-2.5 py-2 text-[10px]">
+              <div className="font-medium text-foreground">
+                {String(impact.target_asset_name || "未命名资产")}
+              </div>
+              <div className="mt-1 text-muted-foreground">
+                {String(impact.risk_reason || impact.impact_type || "—")}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {evidenceRefs.length > 0 && (
+        <div className="space-y-1">
+          <div className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
+            证据链
+          </div>
+          {evidenceRefs.slice(0, 2).map((evidence, index) => (
+            <div key={`${String(evidence.section || "evidence")}-${index}`} className="rounded border border-dashed border-border px-2.5 py-2 text-[10px] text-muted-foreground">
+              <div className="font-medium text-foreground">
+                {String(evidence.label || "证据")} · {String(evidence.section || "未命名章节")}
+              </div>
+              <div className="mt-1">
+                {String(evidence.excerpt || "—")}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {appliedConfig && (
+        <div className="space-y-1">
+          <div className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
+            生效配置
+          </div>
+          <div className="rounded border border-green-200 bg-green-50 px-2.5 py-2 text-[10px]">
+            <div className="font-medium text-green-900">
+              配置 #{String(appliedConfig.id || "—")}
+            </div>
+            <div className="mt-1 text-green-800">
+              状态：{String(appliedConfig.status || "effective")} · 生效时间：{String(appliedConfig.applied_at || "—")}
+            </div>
+            <div className="mt-1 text-green-800">
+              目录 {Array.isArray(appliedConfig.knowledge_paths) ? appliedConfig.knowledge_paths.length : 0} 个 ·
+              分类规则 {String(appliedConfig.classification_rule_count || 0)} 条 ·
+              Skill 挂载 {String(appliedConfig.skill_mount_count || 0)} 个
+            </div>
+          </div>
+        </div>
+      )}
+
+      {configVersions.length > 0 && (
+        <div className="space-y-1">
+          <div className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
+            配置版本历史
+          </div>
+          {configVersions.slice(0, 4).map((version, index) => (
+            <div key={`${String(version.version || index)}-${String(version.id || index)}`} className="rounded border border-border px-2.5 py-2 text-[10px]">
+              <div className="font-medium text-foreground">
+                v{String(version.version || index + 1)} · {String(version.action || "apply")}
+              </div>
+              <div className="mt-1 text-muted-foreground">
+                {String(version.status || "effective")} · {String(version.applied_at || "—")}
+              </div>
+              {Boolean(version.note) && (
+                <div className="mt-1 text-muted-foreground">
+                  {String(version.note)}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ToolEvidenceContent({ detail }: { detail: ToolEvidenceDetail }) {
   return (
     <div className="space-y-1 mt-2 pt-2 border-t border-border">
@@ -1246,6 +1447,7 @@ function ApprovalCard({
   acting,
   onStructuredAction,
   expanded,
+  isTarget,
   onToggleExpand,
   fileContents,
   fileLoading,
@@ -1261,6 +1463,7 @@ function ApprovalCard({
   acting: number | null;
   onStructuredAction: (id: number, action: string, payload: Record<string, unknown>) => void;
   expanded: boolean;
+  isTarget?: boolean;
   onToggleExpand: () => void;
   fileContents: Record<string, string>;
   fileLoading: string | null;
@@ -1277,7 +1480,12 @@ function ApprovalCard({
   const fileExt = detail.file_ext as string | undefined;
 
   return (
-    <div className="border border-border rounded-lg bg-card hover:shadow-sm transition-shadow">
+    <div
+      id={`approval-request-${r.id}`}
+      className={`border rounded-lg bg-card hover:shadow-sm transition-shadow ${
+        isTarget ? "border-[#00A3C4] ring-2 ring-[#00D1FF]/40" : "border-border"
+      }`}
+    >
       <div className="flex items-start gap-3 p-4">
         <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0 text-xs font-bold text-primary">
           {(r.requester_name || "?").charAt(0)}
@@ -1293,6 +1501,7 @@ function ApprovalCard({
             {r.evidence_complete === false && <span className="text-[9px] px-1.5 py-0.5 rounded-full font-medium bg-red-100 text-red-600">资料不全</span>}
             {/* Fix 3: 待补充状态 */}
             {r.stage === "needs_info" && <span className="text-[9px] px-1.5 py-0.5 rounded-full font-medium bg-amber-100 text-amber-700">待补充</span>}
+            {isTarget && <span className="text-[9px] px-1.5 py-0.5 rounded-full font-medium bg-cyan-100 text-cyan-700">目标工单</span>}
           </div>
           <div className="flex items-center gap-1.5 mt-1">
             <FileText size={12} className="text-muted-foreground" />
@@ -1356,6 +1565,7 @@ function ApprovalCard({
 // ─── 主页面 ──────────────────────────────────────────────────────────────────
 export default function ApprovalsPage() {
   const { user } = useAuth();
+  const searchParams = useSearchParams();
   const isAdmin = user?.role === "super_admin" || user?.role === "dept_admin";
   const [mainTab, setMainTab] = useState<MainTab>("incoming");
   const [typeFilter, setTypeFilter] = useState("");
@@ -1372,10 +1582,25 @@ export default function ApprovalsPage() {
   const [sandboxItem, setSandboxItem] = useState<{ id: number; name: string } | null>(null);
   // 模板从后端拉取（单一真源）
   const [templates, setTemplates] = useState<Record<string, ApprovalTemplate>>({});
+  const requestIdParam = searchParams.get("request_id");
+  const tabParam = searchParams.get("tab");
+  const targetRequestId = requestIdParam ? Number(requestIdParam) || null : null;
+
+  useEffect(() => {
+    if (!tabParam) return;
+    if (tabParam === "incoming" || tabParam === "outgoing") {
+      setMainTab(tabParam);
+      return;
+    }
+    if (tabParam === "all" && isAdmin) {
+      setMainTab("all");
+    }
+  }, [isAdmin, tabParam]);
+
   useEffect(() => {
     apiFetch<Record<string, ApprovalTemplate>>("/approvals/templates")
-      .then(setTemplates)
-      .catch(() => {});
+      .then((data) => setTemplates({ ...FALLBACK_APPROVAL_TEMPLATES, ...data }))
+      .catch(() => setTemplates(FALLBACK_APPROVAL_TEMPLATES));
   }, []);
 
   const fetchData = useCallback(async () => {
@@ -1408,6 +1633,33 @@ export default function ApprovalsPage() {
     if (mainTab === "all") fetchAdminData();
     else fetchData();
   }, [fetchData, fetchAdminData, mainTab]);
+
+  useEffect(() => {
+    if (!requestIdParam) return;
+    const targetId = Number(requestIdParam);
+    if (!targetId) return;
+
+    if (mainTab === "incoming" && incoming.some((item) => item.id === targetId)) {
+      setExpandedId(targetId);
+      return;
+    }
+    if (mainTab === "outgoing" && outgoing.some((item) => item.id === targetId)) {
+      setExpandedId(targetId);
+      return;
+    }
+    if (mainTab === "all" && adminData.items.some((item) => item.id === targetId)) {
+      setExpandedId(targetId);
+    }
+  }, [adminData.items, incoming, mainTab, outgoing, requestIdParam]);
+
+  useEffect(() => {
+    if (!targetRequestId || expandedId !== targetRequestId) return;
+    const frame = window.requestAnimationFrame(() => {
+      const el = document.getElementById(`approval-request-${targetRequestId}`);
+      el?.scrollIntoView({ behavior: "smooth", block: "center" });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [expandedId, targetRequestId]);
 
   async function handleStructuredAction(requestId: number, action: string, payload: Record<string, unknown>) {
     setActing(requestId);
@@ -1487,6 +1739,11 @@ export default function ApprovalsPage() {
 
         <h1 className="text-xl font-bold text-foreground mb-1">审批管理</h1>
         <p className="text-sm text-muted-foreground mb-4">管理审批请求</p>
+        {targetRequestId && (
+          <div className="mb-4 rounded-lg border border-cyan-200 bg-cyan-50 px-4 py-3 text-sm text-cyan-800">
+            已定位到审批单 <span className="font-semibold">#{targetRequestId}</span>。
+          </div>
+        )}
 
         {/* Main Tabs */}
         <div className="flex gap-1 mb-4 border-b border-border">
@@ -1532,6 +1789,7 @@ export default function ApprovalsPage() {
                 acting={acting}
                 onStructuredAction={handleStructuredAction}
                 expanded={expandedId === r.id}
+                isTarget={targetRequestId === r.id}
                 onToggleExpand={() => setExpandedId(expandedId === r.id ? null : r.id)}
                 fileContents={fileContents}
                 fileLoading={fileLoading}
@@ -1554,6 +1812,7 @@ export default function ApprovalsPage() {
                     acting={acting}
                     onStructuredAction={handleStructuredAction}
                     expanded={expandedId === r.id}
+                    isTarget={targetRequestId === r.id}
                     onToggleExpand={() => setExpandedId(expandedId === r.id ? null : r.id)}
                     fileContents={fileContents}
                     fileLoading={fileLoading}
@@ -1576,6 +1835,7 @@ export default function ApprovalsPage() {
             setAdminStatusFilter={(s) => { setAdminStatusFilter(s); setAdminPage(1); }}
             expandedId={expandedId}
             setExpandedId={setExpandedId}
+            targetRequestId={targetRequestId}
             onStructuredAction={handleStructuredAction}
             acting={acting}
             fileContents={fileContents}
@@ -1598,6 +1858,7 @@ export default function ApprovalsPage() {
                 acting={null}
                 onStructuredAction={() => {}}
                 expanded={expandedId === r.id}
+                isTarget={targetRequestId === r.id}
                 onToggleExpand={() => setExpandedId(expandedId === r.id ? null : r.id)}
                 fileContents={fileContents}
                 fileLoading={fileLoading}
@@ -1653,6 +1914,7 @@ function AdminAllTab({
   setAdminStatusFilter,
   expandedId,
   setExpandedId,
+  targetRequestId,
   onStructuredAction,
   acting,
   fileContents,
@@ -1670,6 +1932,7 @@ function AdminAllTab({
   setAdminStatusFilter: (s: string) => void;
   expandedId: number | null;
   setExpandedId: (id: number | null) => void;
+  targetRequestId?: number | null;
   onStructuredAction: (id: number, action: string, payload: Record<string, unknown>) => void;
   acting: number | null;
   fileContents: Record<string, string>;
@@ -1709,7 +1972,13 @@ function AdminAllTab({
         const title = (detail.title || detail.name || `#${item.target_id}`) as string;
 
         return (
-          <div key={item.id} className="border border-border rounded-lg bg-card">
+          <div
+            id={`approval-request-${item.id}`}
+            key={item.id}
+            className={`border rounded-lg bg-card ${
+              targetRequestId === item.id ? "border-[#00A3C4] ring-2 ring-[#00D1FF]/40" : "border-border"
+            }`}
+          >
             {/* Summary row */}
             <div className="flex items-center gap-3 px-4 py-3">
               <span className="text-[10px] text-muted-foreground w-8 flex-shrink-0">#{item.id}</span>
@@ -1723,6 +1992,11 @@ function AdminAllTab({
                   item.stage === "super_pending" ? "bg-purple-100 text-purple-700" : "bg-amber-100 text-amber-700"
                 }`}>
                   {item.stage === "super_pending" ? "待超管终审" : item.stage === "dept_pending" ? "待首轮审批" : item.stage === "needs_info" ? "待补充材料" : item.stage}
+                </span>
+              )}
+              {targetRequestId === item.id && (
+                <span className="text-[9px] px-1.5 py-0.5 rounded-full font-medium bg-cyan-100 text-cyan-700 flex-shrink-0">
+                  目标工单
                 </span>
               )}
               <StatusBadge status={item.status} />
