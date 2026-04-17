@@ -3,7 +3,9 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { RefreshCcw, ShieldCheck, X } from "lucide-react";
 import { apiFetch } from "@/lib/api";
-import type { SkillDetail } from "@/lib/types";
+import { useAuth } from "@/lib/auth";
+import { loadOrgMemorySnapshots } from "@/lib/org-memory";
+import type { Department, OrgMemorySnapshot, SkillDetail } from "@/lib/types";
 import {
   BoundAssetsCard,
   buildDeclarationStaleReasons,
@@ -28,10 +30,15 @@ import {
   type RoleAssetPolicyItem,
   RoleAssetPolicyCard,
   type RolePolicyBundle,
-  ServiceRolesCard,
   type ServiceRoleItem,
   type TestCaseDraftItem,
 } from "./SkillGovernanceCards";
+import { RoleRecommendationWorkbench } from "./RoleRecommendationWorkbench";
+import type { PositionLite } from "./role-recommendation";
+import {
+  serializeRolePackageWriteback,
+  type RolePackageDraft,
+} from "./role-package";
 
 type ApiEnvelope<T> = {
   ok: boolean;
@@ -79,6 +86,7 @@ export function SkillGovernancePanel({
   onClose: () => void;
   onSkillMounted?: () => Promise<void> | void;
 }) {
+  const { user } = useAuth();
   const [summary, setSummary] = useState<GovernanceSummary | null>(null);
   const [roles, setRoles] = useState<ServiceRoleItem[]>([]);
   const [assets, setAssets] = useState<BoundAssetItem[]>([]);
@@ -99,6 +107,10 @@ export function SkillGovernancePanel({
   const [materializingCases, setMaterializingCases] = useState(false);
   const [activeJob, setActiveJob] = useState<GovernanceJobProgress | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [departments, setDepartments] = useState<Department[]>([]);
+  const [positions, setPositions] = useState<PositionLite[]>([]);
+  const [orgMemorySnapshots, setOrgMemorySnapshots] = useState<OrgMemorySnapshot[]>([]);
+  const [orgMemoryFallback, setOrgMemoryFallback] = useState(false);
 
   const declarationStaleReasons = useMemo(
     () => buildDeclarationStaleReasons(declaration),
@@ -123,6 +135,9 @@ export function SkillGovernancePanel({
         declarationResp,
         readinessResp,
         casePlanResp,
+        departmentsResp,
+        positionsResp,
+        orgMemoryResp,
       ] = await Promise.all([
         apiFetch<ApiEnvelope<GovernanceSummary>>(`/skill-governance/${skill.id}/summary`).then(unwrap),
         apiFetch<ApiEnvelope<{ roles: ServiceRoleItem[] }>>(`/skill-governance/${skill.id}/service-roles`).then(unwrap),
@@ -141,6 +156,9 @@ export function SkillGovernancePanel({
         apiFetch<ApiEnvelope<{ skill_id: number; readiness: GovernanceReadiness; plan: PermissionCasePlan | null; cases?: TestCaseDraftItem[] }>>(
           `/sandbox-case-plans/${skill.id}/latest`,
         ).then(unwrap),
+        apiFetch<Department[]>("/admin/departments").catch(() => []),
+        apiFetch<PositionLite[]>("/admin/permissions/positions").catch(() => []),
+        loadOrgMemorySnapshots().catch(() => ({ data: [], fallback: false })),
       ]);
       setSummary(summaryResp);
       setRoles(rolesResp.roles || []);
@@ -168,6 +186,10 @@ export function SkillGovernancePanel({
       setDeclaration(declarationResp?.id ? declarationResp : null);
       setReadiness(casePlanResp.readiness || readinessResp.readiness || null);
       setCasePlan(casePlanResp.plan ? { ...casePlanResp.plan, cases: casePlanResp.cases || casePlanResp.plan.cases || [] } : null);
+      setDepartments(departmentsResp || []);
+      setPositions(positionsResp || []);
+      setOrgMemorySnapshots(orgMemoryResp.data || []);
+      setOrgMemoryFallback(Boolean(orgMemoryResp.fallback));
       if (casePlanResp.plan?.id) {
         const reviewResp = await apiFetch<ApiEnvelope<PermissionContractReview>>(
           `/sandbox-case-plans/${casePlanResp.plan.id}/part2-review`,
@@ -236,6 +258,23 @@ export function SkillGovernancePanel({
         })),
       }),
     }).then(unwrap);
+    await load();
+  }
+
+  async function saveRolePackage(draft: RolePackageDraft) {
+    setError(null);
+    await apiFetch<ApiEnvelope<{
+      role_key: string;
+      package_version?: number;
+      governance_version?: number;
+      stale_downstream?: string[];
+    }>>(
+      `/skill-governance/${skill.id}/role-packages/${encodeURIComponent(draft.role_key)}`,
+      {
+        method: "PUT",
+        body: JSON.stringify(serializeRolePackageWriteback(draft)),
+      },
+    ).then(unwrap);
     await load();
   }
 
@@ -490,7 +529,22 @@ export function SkillGovernancePanel({
 
       <div className="flex-1 overflow-auto p-3 space-y-3 bg-[#F8FBFD]">
         <GovernanceJobProgressStrip job={activeJob} />
-        <ServiceRolesCard roles={roles} loading={loading} onSave={saveRoles} />
+        <RoleRecommendationWorkbench
+          skill={skill}
+          user={user}
+          roles={roles}
+          assets={assets}
+          policies={policies}
+          mountContext={mountContext}
+          mountedPermissions={mountedPermissions}
+          loading={loading}
+          orgMemoryFallback={orgMemoryFallback}
+          snapshots={orgMemorySnapshots}
+          departments={departments}
+          positions={positions}
+          onSave={saveRoles}
+          onSavePackage={saveRolePackage}
+        />
         <BoundAssetsCard assets={assets} loading={loading} />
         <MountContextCard context={mountContext} loading={loading} />
         <MountedPermissionsCard permissions={mountedPermissions} loading={loading} />

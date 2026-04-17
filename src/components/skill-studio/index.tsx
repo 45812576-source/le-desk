@@ -18,6 +18,7 @@ import { PromptEditor } from "./PromptEditor";
 import { StudioChat } from "./StudioChat";
 import { AssetFileEditor } from "./AssetFileEditor";
 import { SkillGovernancePanel } from "./SkillGovernancePanel";
+import { buildAssetEditorTarget, buildAssetLoadingTarget, buildEditorErrorTarget, buildPromptEditorTarget, editorTargetFromSelectedFile, selectedFileFromEditorTarget, type StudioEditorTarget } from "./editor-target";
 import { normalizeStagedEditPayload } from "./utils";
 import { normalizeWorkflowCardPayload, parseWorkflowStatePayload } from "./workflow-adapter";
 import type { WorkflowStateData } from "./workflow-protocol";
@@ -39,21 +40,35 @@ export function SkillStudio({
 }) {
   const [skills, setSkills] = useState<SkillDetail[]>([]);
   const [skillsLoading, setSkillsLoading] = useState(true);
-  const [selectedFile, _setSelectedFile] = useState<SelectedFile | null>(() => {
-    // URL 的 initialSkillId 是权威来源，优先于 localStorage
-    if (initialSkillId) return { skillId: initialSkillId, fileType: "prompt" as const };
+  const [editorTarget, _setEditorTarget] = useState<StudioEditorTarget>(() => {
+    if (initialSkillId) return buildPromptEditorTarget(initialSkillId, "initial_skill");
     try {
       const saved = localStorage.getItem("skill_studio_selected");
-      return saved ? JSON.parse(saved) : null;
-    } catch { return null; }
+      return saved ? editorTargetFromSelectedFile(JSON.parse(saved) as SelectedFile, "local_storage") : { kind: "empty" };
+    } catch { return { kind: "empty" }; }
   });
-  const setSelectedFile = useCallback((f: SelectedFile | null) => {
-    _setSelectedFile(f);
+  const selectedFile = selectedFileFromEditorTarget(editorTarget);
+  const [adoptedAssetPreview, setAdoptedAssetPreview] = useState<StagedEdit | null>(null);
+  const setEditorTarget = useCallback((target: StudioEditorTarget) => {
+    _setEditorTarget(target);
+    const nextSelection = selectedFileFromEditorTarget(target);
     try {
-      if (f) localStorage.setItem("skill_studio_selected", JSON.stringify(f));
+      if (nextSelection) localStorage.setItem("skill_studio_selected", JSON.stringify(nextSelection));
       else localStorage.removeItem("skill_studio_selected");
     } catch { /* ignore */ }
   }, []);
+  const setSelectedFile = useCallback((f: SelectedFile | null) => {
+    setAdoptedAssetPreview(null);
+    if (!f) {
+      setEditorTarget({ kind: "empty" });
+      return;
+    }
+    if (f.fileType === "prompt") {
+      setEditorTarget(buildPromptEditorTarget(f.skillId, "selected_file"));
+      return;
+    }
+    setEditorTarget(buildAssetLoadingTarget(f, selectedFile, "selected_file"));
+  }, [selectedFile, setEditorTarget]);
   const [isNew, setIsNew] = useState(false);
   const [showImportModal, setShowImportModal] = useState(false);
   const [skillListCollapsed, setSkillListCollapsed] = useState(false);
@@ -128,7 +143,7 @@ export function SkillStudio({
   // URL skill_id 变化时（路由跳转但组件未重新挂载），强制同步 selectedFile
   useEffect(() => {
     if (initialSkillId && selectedFile?.skillId !== initialSkillId) {
-      _setSelectedFile({ skillId: initialSkillId, fileType: "prompt" });
+      setEditorTarget(buildPromptEditorTarget(initialSkillId, "route_sync"));
       // 同步写入 localStorage
       try { localStorage.setItem("skill_studio_selected", JSON.stringify({ skillId: initialSkillId, fileType: "prompt" })); } catch { /* ignore */ }
     }
@@ -162,7 +177,7 @@ export function SkillStudio({
             ? parseWorkflowStatePayload(recovery.workflow_state as Record<string, unknown>)
             : null;
           setWorkflowState(recoveredWorkflowState);
-          const recoverySignature = `${skillId}:${recovery?.updated_at || "none"}`;
+          const recoverySignature = `${skillId}:${(recovery?.revision ?? recovery?.updated_at) || "none"}`;
           if (hydratedRecoveryRef.current !== recoverySignature) {
             const recoveryCards = Array.isArray(recovery?.cards) ? recovery.cards : [];
             const recoveryEdits = Array.isArray(recovery?.staged_edits) ? recovery.staged_edits : [];
@@ -260,7 +275,7 @@ export function SkillStudio({
                   edit.target_type === "source_file" && typeof edit.target_key === "string" && edit.target_key
                 );
                 if (firstSourceFileEdit?.target_key) {
-                  setSelectedFile({ skillId: initialSkillId, fileType: "asset", filename: String(firstSourceFileEdit.target_key) });
+                  setEditorTarget(buildAssetLoadingTarget({ skillId: initialSkillId, fileType: "asset", filename: String(firstSourceFileEdit.target_key) }, selectedFile, "sandbox_remediation"));
                 }
               }
             }
@@ -315,6 +330,7 @@ export function SkillStudio({
 
   // ── Memo: complete-from-save after file save ──
   async function handleFileSaved(filename: string, contentSize: number) {
+    if (filename !== "SKILL.md") setAdoptedAssetPreview(null);
     if (!selectedFile?.skillId || !memo?.current_task) return;
     try {
       const result = await apiFetch<{ ok: boolean; task_completed?: boolean }>(`/skills/${selectedFile.skillId}/memo/tasks/${memo.current_task.id}/complete-from-save`, {
@@ -330,13 +346,19 @@ export function SkillStudio({
   }
 
   // ── Memo: editor target switching ──
-  function handleEditorTarget(fileType: string, filename: string) {
+  function handleEditorTarget(fileType: string, filename: string, previewEdit?: StagedEdit | null) {
     if (!selectedFile?.skillId) return;
     if (fileType === "prompt" || filename === "SKILL.md") {
       setSelectedFile({ skillId: selectedFile.skillId, fileType: "prompt" });
-    } else {
-      setSelectedFile({ skillId: selectedFile.skillId, fileType: "asset", filename });
+      return;
     }
+
+    setSelectedFile({ skillId: selectedFile.skillId, fileType: "asset", filename });
+    setAdoptedAssetPreview(
+      previewEdit?.status === "adopted" && previewEdit.fileType === "source_file" && previewEdit.filename === filename
+        ? previewEdit
+        : null,
+    );
   }
 
   const fetchSkills = useCallback(() => {
@@ -525,12 +547,13 @@ export function SkillStudio({
     window.open(`/dev-studio?from_skill=${selectedSkill.id}`, "_blank");
   }
 
-  const showAssetEditor = selectedFile?.fileType === "asset" && selectedSkill !== null;
+  const showAssetEditor = (editorTarget.kind === "asset" || (editorTarget.kind === "loading" && editorTarget.next.fileType === "asset")) && selectedSkill !== null;
   const selectedEditorFilename = selectedFile?.fileType === "asset"
     ? (selectedFile as { filename: string }).filename
     : selectedFile?.fileType === "prompt"
       ? "SKILL.md"
       : null;
+  const editorErrorMessage = editorTarget.kind === "error" ? editorTarget.message : null;
 
   return (
     <div className="h-full flex flex-col overflow-hidden">
@@ -665,7 +688,8 @@ export function SkillStudio({
           fromSandbox={fromSandbox}
           onRefreshSkill={() => { if (selectedSkill) refreshSkill(selectedSkill.id); }}
           onExpandEditor={() => {
-            if (editorVisibility === "collapsed" && !editorManuallyCollapsed) {
+            setEditorManuallyCollapsed(false);
+            if (editorVisibility !== "pinned_open") {
               setEditorVisibility("auto_expanded");
             }
           }}
@@ -722,6 +746,11 @@ export function SkillStudio({
               </div>
 
               {/* Editor content */}
+              {editorErrorMessage && (
+                <div className="mx-4 mt-3 rounded border border-red-300 bg-red-50 px-3 py-2 text-[10px] font-bold text-red-600">
+                  {editorErrorMessage}
+                </div>
+              )}
               {showAssetEditor && selectedSkill ? (
                 <AssetFileEditor
                   skill={selectedSkill}
@@ -731,8 +760,19 @@ export function SkillStudio({
                     setSelectedFile({ skillId: selectedSkill.id, fileType: "prompt" });
                   }}
                   onFileSaved={handleFileSaved}
+                  adoptedPreviewEdit={adoptedAssetPreview}
                   onContentChange={setPrompt}
                   onBaselineChange={setSavedPrompt}
+                  onLoadStart={(nextFilename) => {
+                    setEditorTarget(buildAssetLoadingTarget({ skillId: selectedSkill.id, fileType: "asset", filename: nextFilename }, selectedFile, "asset_load_start"));
+                  }}
+                  onLoadSuccess={(nextFilename) => {
+                    setEditorTarget(buildAssetEditorTarget(selectedSkill.id, nextFilename, "asset_load_success"));
+                  }}
+                  onLoadError={(_nextFilename, message) => {
+                    setAdoptedAssetPreview(null);
+                    setEditorTarget(buildEditorErrorTarget(message, { skillId: selectedSkill.id, fileType: "prompt" }, "asset_load_failed"));
+                  }}
                 />
               ) : (
                 <PromptEditor

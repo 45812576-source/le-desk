@@ -924,6 +924,8 @@ export interface SkillMemo {
     workflow_state?: Record<string, unknown> | null;
     cards?: Record<string, unknown>[];
     staged_edits?: Record<string, unknown>[];
+    source?: string | null;
+    revision?: number | null;
     updated_at?: string | null;
   } | null;
 }

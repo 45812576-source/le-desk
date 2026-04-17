@@ -22,6 +22,28 @@ vi.mock("@/lib/api", () => ({
   apiFetch: (...args: unknown[]) => mockApiFetch(...args),
 }));
 
+vi.mock("@/lib/auth", () => ({
+  useAuth: () => ({
+    user: {
+      id: 1,
+      username: "tester",
+      display_name: "测试用户",
+      role: "employee",
+      department_id: 9,
+      position_id: 91,
+      report_to_id: null,
+      report_to_name: null,
+      is_active: true,
+      created_at: "2026-04-16T12:00:00",
+    },
+    token: "token",
+    loading: false,
+    login: vi.fn(),
+    logout: vi.fn(),
+    refreshUser: vi.fn(),
+  }),
+}));
+
 import { SkillGovernancePanel } from "../SkillGovernancePanel";
 
 type ApiState = {
@@ -381,6 +403,39 @@ function installApiMock(state: ApiState) {
     }
     if (url.endsWith("/service-roles")) {
       return ok({ roles: state.roles });
+    }
+    if (url === "/admin/departments") {
+      return Promise.resolve([
+        { id: 9, name: "人力资源部", parent_id: null, category: null, business_unit: null },
+        { id: 10, name: "财务部", parent_id: null, category: null, business_unit: null },
+      ]);
+    }
+    if (url === "/admin/permissions/positions") {
+      return Promise.resolve([
+        { id: 91, name: "招聘主管", department_id: 9 },
+        { id: 92, name: "财务分析师", department_id: 10 },
+      ]);
+    }
+    if (url === "/org-memory/snapshots") {
+      return Promise.resolve([
+        {
+          id: 301,
+          source_id: 101,
+          source_title: "人力资源组织说明",
+          snapshot_version: "snapshot-hr-1",
+          parse_status: "ready",
+          confidence_score: 0.91,
+          created_at: "2026-04-16T12:00:00",
+          summary: "招聘与绩效职责已解析",
+          entity_counts: { units: 1, roles: 1, people: 0, okrs: 1, processes: 1 },
+          units: [{ id: 1, name: "人力资源部", unit_type: "department", parent_name: "公司经营发展中心", leader_name: "李冉", responsibilities: ["招聘", "绩效考核", "面试流程"], evidence_refs: [] }],
+          roles: [{ id: 1, name: "招聘主管", department_name: "人力资源部", responsibilities: ["招聘", "候选人筛选", "绩效复盘"], evidence_refs: [] }],
+          people: [],
+          okrs: [{ id: 1, owner_name: "人力资源部", period: "2026Q2", objective: "提升招聘效率", key_results: ["优化面试流程"], evidence_refs: [] }],
+          processes: [{ id: 1, owner_name: "人力资源部", name: "招聘流程", participants: ["招聘主管"], outputs: ["候选人名单"], risk_points: ["候选人隐私"], evidence_refs: [] }],
+          low_confidence_items: [],
+        },
+      ]);
     }
     if (url.endsWith("/bound-assets/refresh") && options?.method === "POST") {
       return ok({
@@ -834,7 +889,7 @@ describe("SkillGovernancePanel", () => {
       target: { value: "P2" },
     });
     fireEvent.click(screen.getByRole("button", { name: "添加" }));
-    fireEvent.click(screen.getByRole("button", { name: "保存岗位" }));
+    fireEvent.click(screen.getByRole("button", { name: "保存角色 list" }));
 
     await waitFor(() => {
       expect(mockApiFetch).toHaveBeenCalledWith(
@@ -845,4 +900,50 @@ describe("SkillGovernancePanel", () => {
     expect((await screen.findAllByText(/服务岗位已变更，需重新生成权限声明/)).length).toBeGreaterThan(0);
     expect(screen.getByRole("button", { name: "采纳并挂载" })).toBeDisabled();
   });
+
+  it("shows AI recommendation list before package confirmation", async () => {
+    const state = buildState();
+    installApiMock(state);
+
+    render(
+      <SkillGovernancePanel
+        skill={skill}
+        onClose={vi.fn()}
+      />,
+    );
+
+    expect(await screen.findByText("AI 推荐角色 List")).toBeInTheDocument();
+    expect(screen.getAllByText("招聘主管（M0）").length).toBeGreaterThan(0);
+    expect(screen.getByText(/建议确认后再生成权限 package/)).toBeInTheDocument();
+  });
+
+  it("falls back to editor department role when recommendation confidence is low", async () => {
+    const state = buildState({
+      assets: [],
+      mountContext: {
+        ...buildState().mountContext,
+        assets: [],
+      },
+    });
+    installApiMock(state);
+    const fallbackSkill = {
+      ...skill,
+      name: "通用草稿助手",
+      description: "帮助整理零散内容",
+      system_prompt: "输出通用总结。",
+      department_id: null,
+    };
+
+    render(
+      <SkillGovernancePanel
+        skill={fallbackSkill}
+        onClose={vi.fn()}
+      />,
+    );
+
+    expect(await screen.findByText("AI 推荐角色 List")).toBeInTheDocument();
+    expect(screen.getAllByText(/已降级到编辑人部门角色/).length).toBeGreaterThan(0);
+    expect(screen.getByText("fallback")).toBeInTheDocument();
+  });
+
 });

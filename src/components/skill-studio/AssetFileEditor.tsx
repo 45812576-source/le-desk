@@ -6,7 +6,7 @@ import { PixelButton } from "@/components/pixel/PixelButton";
 import { apiFetch } from "@/lib/api";
 import type { SkillDetail } from "@/lib/types";
 import { useStudioStore } from "@/lib/studio-store";
-import type { DiffOp } from "./types";
+import type { DiffOp, StagedEdit } from "./types";
 import { DiffViewer, LineNumberedEditor } from "./DiffViewer";
 import { isTextFile, getFileCategory, inferCategory, CATEGORY_CONFIG } from "./utils";
 
@@ -34,6 +34,61 @@ function applyDiffOpsForPreview(text: string, ops: DiffOp[]) {
   return next;
 }
 
+function removeFirst(text: string, target: string, replacement: string) {
+  const idx = target ? text.indexOf(target) : -1;
+  if (idx === -1) return text;
+  return text.slice(0, idx) + replacement + text.slice(idx + target.length);
+}
+
+function revertDiffOpsForPreview(text: string, ops: DiffOp[]) {
+  let previous = text;
+  for (const op of [...ops].reverse()) {
+    if (op.type === "replace" && typeof op.new === "string") {
+      previous = removeFirst(previous, op.new, op.old || "");
+    } else if (op.type === "append") {
+      const insert = op.content || op.new || "";
+      if (insert && previous.endsWith(insert)) {
+        previous = previous.slice(0, previous.length - insert.length);
+      }
+    } else if (op.type === "insert_after") {
+      const anchor = op.anchor || op.old || "";
+      const insert = op.content || op.new || "";
+      if (anchor && insert) {
+        previous = removeFirst(previous, `${anchor}${insert}`, anchor);
+      } else if (insert && previous.endsWith(`\n${insert}`)) {
+        previous = previous.slice(0, previous.length - insert.length - 1);
+      }
+    } else if (op.type === "insert_before") {
+      const anchor = op.anchor || op.old || "";
+      const insert = op.content || op.new || "";
+      if (anchor && insert) {
+        previous = removeFirst(previous, `${insert}${anchor}`, anchor);
+      } else if (insert && previous.startsWith(`${insert}\n`)) {
+        previous = previous.slice(insert.length + 1);
+      }
+    }
+  }
+  return previous;
+}
+
+function resolveDiffPreviewContent(content: string, edit: Pick<StagedEdit, "diff" | "status">) {
+  const reverted = revertDiffOpsForPreview(content, edit.diff);
+  if (edit.status === "adopted" && reverted !== content) {
+    return { oldText: reverted, newText: content };
+  }
+
+  const applied = applyDiffOpsForPreview(content, edit.diff);
+  if (applied !== content) {
+    return { oldText: content, newText: applied };
+  }
+
+  if (reverted !== content) {
+    return { oldText: reverted, newText: content };
+  }
+
+  return null;
+}
+
 export function AssetFileEditor({
   skill,
   filename,
@@ -41,6 +96,10 @@ export function AssetFileEditor({
   onFileSaved,
   onContentChange,
   onBaselineChange,
+  onLoadStart,
+  onLoadSuccess,
+  onLoadError,
+  adoptedPreviewEdit,
 }: {
   skill: SkillDetail;
   filename: string;
@@ -48,6 +107,10 @@ export function AssetFileEditor({
   onFileSaved?: (filename: string, contentSize: number) => void;
   onContentChange?: (content: string) => void;
   onBaselineChange?: (content: string) => void;
+  onLoadStart?: (filename: string) => void;
+  onLoadSuccess?: (filename: string) => void;
+  onLoadError?: (filename: string, message: string) => void;
+  adoptedPreviewEdit?: StagedEdit | null;
 }) {
   const [content, setContent] = useState("");
   const [loading, setLoading] = useState(true);
@@ -62,8 +125,15 @@ export function AssetFileEditor({
   const pendingFileStagedEdit = useStudioStore((s) => s.stagedEdits.find((e) =>
     e.status === "pending" && e.fileType === "source_file" && e.filename === filename && e.diff?.length > 0
   ));
-  const stagedPreviewContent = pendingFileStagedEdit?.diff?.length
-    ? applyDiffOpsForPreview(content, pendingFileStagedEdit.diff)
+  const adoptedFilePreviewEdit = adoptedPreviewEdit?.status === "adopted"
+    && adoptedPreviewEdit.fileType === "source_file"
+    && adoptedPreviewEdit.filename === filename
+    && adoptedPreviewEdit.diff?.length > 0
+    ? adoptedPreviewEdit
+    : null;
+  const activePreviewEdit = pendingFileStagedEdit || adoptedFilePreviewEdit;
+  const stagedPreview = activePreviewEdit?.diff?.length
+    ? resolveDiffPreviewContent(content, activePreviewEdit)
     : null;
 
   useEffect(() => {
@@ -71,15 +141,25 @@ export function AssetFileEditor({
     setMsg(null);
     setDiffBase(null);
     setShowDiff(false);
-    if (!isText) { setLoading(false); return; }
+    onLoadStart?.(filename);
+    if (!isText) {
+      setLoading(false);
+      onLoadSuccess?.(filename);
+      return;
+    }
     apiFetch<{ content: string }>(`/skills/${skill.id}/files/${encodeURIComponent(filename)}`)
       .then((d) => {
         setContent(d.content);
         setDiffBase(d.content);
         onContentChange?.(d.content);
         onBaselineChange?.(d.content);
+        onLoadSuccess?.(filename);
       })
-      .catch(() => setMsg("加载失败"))
+      .catch(() => {
+        const message = "加载失败";
+        setMsg(message);
+        onLoadError?.(filename, message);
+      })
       .finally(() => setLoading(false));
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [skill.id, filename]);
@@ -181,12 +261,13 @@ export function AssetFileEditor({
               </a>
             )}
           </div>
-        ) : stagedPreviewContent !== null && stagedPreviewContent !== content ? (
+        ) : stagedPreview !== null && stagedPreview.oldText !== stagedPreview.newText ? (
           <>
             <div className="px-2 py-1 bg-[#F0FFF9] border border-[#00CC99]/40 text-[8px] font-mono text-[#007A5E] mb-1 flex-shrink-0">
-              待确认治理修改：{pendingFileStagedEdit?.changeNote || "查看 diff 后在治理卡片中采纳或拒绝"}
+              {activePreviewEdit?.status === "adopted" ? "已采纳治理修改" : "待确认治理修改"}：
+              {activePreviewEdit?.changeNote || (activePreviewEdit?.status === "adopted" ? "查看本次采纳后的文件 diff" : "查看 diff 后在治理卡片中采纳或拒绝")}
             </div>
-            <DiffViewer oldText={content} newText={stagedPreviewContent} />
+            <DiffViewer oldText={stagedPreview.oldText} newText={stagedPreview.newText} />
           </>
         ) : showDiff && diffBase !== null ? (
           <DiffViewer oldText={diffBase} newText={content} />

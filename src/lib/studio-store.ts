@@ -12,13 +12,9 @@ import type {
 } from "@/components/skill-studio/types";
 import type { StudioDeepPatch, WorkflowStateData } from "@/components/skill-studio/workflow-protocol";
 import type { SkillMemo } from "@/lib/types";
-
-// ─── Editor visibility state machine ─────────────────────────────────────────
+import { reconcileStudioArtifacts } from "@/lib/studio-reconcile";
 
 export type EditorVisibility = "collapsed" | "auto_expanded" | "pinned_open";
-
-// ─── Session mode ─────────────────────────────────────────────────────────────
-
 export type SessionMode = "create" | "optimize" | "audit" | null;
 
 export interface ArchivedStudioRun {
@@ -29,20 +25,15 @@ export interface ArchivedStudioRun {
   archivedAt?: string | null;
 }
 
-// ─── Store interface ──────────────────────────────────────────────────────────
-
 export interface StudioSessionState {
-  // 编辑区可见性
   editorVisibility: EditorVisibility;
   setEditorVisibility: (v: EditorVisibility) => void;
   editorManuallyCollapsed: boolean;
   setEditorManuallyCollapsed: (collapsed: boolean) => void;
 
-  // 会话模式
   sessionMode: SessionMode;
   setSessionMode: (mode: SessionMode) => void;
 
-  // 辅助 Skill
   activeAssistSkills: { id: number; name: string; status: string }[];
   setActiveAssistSkills: (skills: { id: number; name: string; status: string }[]) => void;
   workflowState: WorkflowStateData | null;
@@ -58,24 +49,24 @@ export interface StudioSessionState {
   addDeepPatch: (patch: StudioDeepPatch) => void;
   resetRunTracking: () => void;
 
-  // 治理卡片队列
   governanceCards: GovernanceCardData[];
+  governanceCardSources: Record<string, GovernanceCardData[]>;
+  governanceCardLedger: Record<string, { status: GovernanceCardData["status"]; updatedAt: number }>;
   addGovernanceCard: (card: GovernanceCardData) => void;
   syncGovernanceCards: (source: string, cards: GovernanceCardData[]) => void;
   updateCardStatus: (id: string, status: GovernanceCardData["status"]) => void;
 
-  // Staged edits
   stagedEdits: StagedEdit[];
+  stagedEditSources: Record<string, StagedEdit[]>;
+  stagedEditLedger: Record<string, { status: StagedEdit["status"]; updatedAt: number }>;
   addStagedEdit: (edit: StagedEdit) => void;
   syncStagedEdits: (source: string, edits: StagedEdit[]) => void;
   adoptStagedEdit: (id: string) => void;
   rejectStagedEdit: (id: string) => void;
 
-  // Preflight re-run trigger
   preflightRefreshToken: number;
   requestPreflightRefresh: () => void;
 
-  // 现有状态迁移（保持向后兼容）
   pendingDraft: StudioDraft | null;
   setPendingDraft: (draft: StudioDraft | null) => void;
   pendingSummary: StudioSummary | null;
@@ -90,11 +81,8 @@ export interface StudioSessionState {
   setMemo: (memo: SkillMemo | null) => void;
   resetWorkflowArtifacts: () => void;
 
-  // Reset
   reset: () => void;
 }
-
-// ─── Store implementation ─────────────────────────────────────────────────────
 
 const initialState = {
   editorVisibility: "collapsed" as EditorVisibility,
@@ -108,7 +96,11 @@ const initialState = {
   appliedPatchSeqs: [] as number[],
   deepPatches: [] as StudioDeepPatch[],
   governanceCards: [] as GovernanceCardData[],
+  governanceCardSources: {} as Record<string, GovernanceCardData[]>,
+  governanceCardLedger: {} as Record<string, { status: GovernanceCardData["status"]; updatedAt: number }>,
   stagedEdits: [] as StagedEdit[],
+  stagedEditSources: {} as Record<string, StagedEdit[]>,
+  stagedEditLedger: {} as Record<string, { status: StagedEdit["status"]; updatedAt: number }>,
   preflightRefreshToken: 0,
   pendingDraft: null as StudioDraft | null,
   pendingSummary: null as StudioSummary | null,
@@ -118,24 +110,16 @@ const initialState = {
   memo: null as SkillMemo | null,
 };
 
-function preserveResolvedCardStatus(
-  existing: GovernanceCardData | undefined,
-  incoming: GovernanceCardData,
-): GovernanceCardData {
-  if (!existing || existing.status === "pending" || incoming.status !== "pending") {
-    return incoming;
-  }
-  return { ...incoming, status: existing.status };
-}
-
-function preserveResolvedEditStatus(
-  existing: StagedEdit | undefined,
-  incoming: StagedEdit,
-): StagedEdit {
-  if (!existing || existing.status === "pending" || incoming.status !== "pending") {
-    return incoming;
-  }
-  return { ...incoming, status: existing.status };
+function buildResolvedStudioArtifacts(state: Pick<
+  StudioSessionState,
+  "governanceCardSources" | "stagedEditSources" | "governanceCardLedger" | "stagedEditLedger"
+>) {
+  return reconcileStudioArtifacts({
+    governanceCardSources: state.governanceCardSources,
+    stagedEditSources: state.stagedEditSources,
+    governanceCardLedger: state.governanceCardLedger,
+    stagedEditLedger: state.stagedEditLedger,
+  });
 }
 
 export const useStudioStore = create<StudioSessionState>((set) => ({
@@ -180,58 +164,126 @@ export const useStudioStore = create<StudioSessionState>((set) => ({
   }),
 
   addGovernanceCard: (card) =>
-    set((s) => ({
-      governanceCards: s.governanceCards.some((existing) => existing.id === card.id)
-        ? s.governanceCards.map((existing) => existing.id === card.id ? card : existing)
-        : [...s.governanceCards, card],
-    })),
+    set((s) => {
+      const source = card.source || "runtime";
+      const nextSourceCards = s.governanceCardSources[source] || [];
+      const governanceCardSources = {
+        ...s.governanceCardSources,
+        [source]: nextSourceCards.some((existing) => existing.id === card.id)
+          ? nextSourceCards.map((existing) => existing.id === card.id ? { ...card, source } : existing)
+          : [...nextSourceCards, { ...card, source }],
+      };
+      return {
+        governanceCardSources,
+        ...buildResolvedStudioArtifacts({
+          governanceCardSources,
+          stagedEditSources: s.stagedEditSources,
+          governanceCardLedger: s.governanceCardLedger,
+          stagedEditLedger: s.stagedEditLedger,
+        }),
+      };
+    }),
   syncGovernanceCards: (source, cards) =>
     set((s) => {
-      const preserved = s.governanceCards.filter((card) => card.source !== source);
-      const existingById = new Map(s.governanceCards.map((card) => [card.id, card] as const));
+      const governanceCardSources = {
+        ...s.governanceCardSources,
+        [source]: cards.map((card) => ({ ...card, source })),
+      };
       return {
-        governanceCards: [
-          ...preserved,
-          ...cards.map((card) => preserveResolvedCardStatus(existingById.get(card.id), { ...card, source })),
-        ],
+        governanceCardSources,
+        ...buildResolvedStudioArtifacts({
+          governanceCardSources,
+          stagedEditSources: s.stagedEditSources,
+          governanceCardLedger: s.governanceCardLedger,
+          stagedEditLedger: s.stagedEditLedger,
+        }),
       };
     }),
   updateCardStatus: (id, status) =>
-    set((s) => ({
-      governanceCards: s.governanceCards.map((c) =>
-        c.id === id ? { ...c, status } : c
-      ),
-    })),
+    set((s) => {
+      const governanceCardLedger = {
+        ...s.governanceCardLedger,
+        [id]: { status, updatedAt: Date.now() },
+      };
+      return {
+        governanceCardLedger,
+        ...buildResolvedStudioArtifacts({
+          governanceCardSources: s.governanceCardSources,
+          stagedEditSources: s.stagedEditSources,
+          governanceCardLedger,
+          stagedEditLedger: s.stagedEditLedger,
+        }),
+      };
+    }),
 
   addStagedEdit: (edit) =>
-    set((s) => ({
-      stagedEdits: s.stagedEdits.some((existing) => existing.id === edit.id)
-        ? s.stagedEdits.map((existing) => existing.id === edit.id ? edit : existing)
-        : [...s.stagedEdits, edit],
-    })),
+    set((s) => {
+      const source = edit.source || "runtime";
+      const nextSourceEdits = s.stagedEditSources[source] || [];
+      const stagedEditSources = {
+        ...s.stagedEditSources,
+        [source]: nextSourceEdits.some((existing) => existing.id === edit.id)
+          ? nextSourceEdits.map((existing) => existing.id === edit.id ? { ...edit, source } : existing)
+          : [...nextSourceEdits, { ...edit, source }],
+      };
+      return {
+        stagedEditSources,
+        ...buildResolvedStudioArtifacts({
+          governanceCardSources: s.governanceCardSources,
+          stagedEditSources,
+          governanceCardLedger: s.governanceCardLedger,
+          stagedEditLedger: s.stagedEditLedger,
+        }),
+      };
+    }),
   syncStagedEdits: (source, edits) =>
     set((s) => {
-      const preserved = s.stagedEdits.filter((edit) => edit.source !== source);
-      const existingById = new Map(s.stagedEdits.map((edit) => [edit.id, edit] as const));
+      const stagedEditSources = {
+        ...s.stagedEditSources,
+        [source]: edits.map((edit) => ({ ...edit, source })),
+      };
       return {
-        stagedEdits: [
-          ...preserved,
-          ...edits.map((edit) => preserveResolvedEditStatus(existingById.get(edit.id), { ...edit, source })),
-        ],
+        stagedEditSources,
+        ...buildResolvedStudioArtifacts({
+          governanceCardSources: s.governanceCardSources,
+          stagedEditSources,
+          governanceCardLedger: s.governanceCardLedger,
+          stagedEditLedger: s.stagedEditLedger,
+        }),
       };
     }),
   adoptStagedEdit: (id) =>
-    set((s) => ({
-      stagedEdits: s.stagedEdits.map((e) =>
-        e.id === id ? { ...e, status: "adopted" as const } : e
-      ),
-    })),
+    set((s) => {
+      const stagedEditLedger = {
+        ...s.stagedEditLedger,
+        [id]: { status: "adopted" as const, updatedAt: Date.now() },
+      };
+      return {
+        stagedEditLedger,
+        ...buildResolvedStudioArtifacts({
+          governanceCardSources: s.governanceCardSources,
+          stagedEditSources: s.stagedEditSources,
+          governanceCardLedger: s.governanceCardLedger,
+          stagedEditLedger,
+        }),
+      };
+    }),
   rejectStagedEdit: (id) =>
-    set((s) => ({
-      stagedEdits: s.stagedEdits.map((e) =>
-        e.id === id ? { ...e, status: "rejected" as const } : e
-      ),
-    })),
+    set((s) => {
+      const stagedEditLedger = {
+        ...s.stagedEditLedger,
+        [id]: { status: "rejected" as const, updatedAt: Date.now() },
+      };
+      return {
+        stagedEditLedger,
+        ...buildResolvedStudioArtifacts({
+          governanceCardSources: s.governanceCardSources,
+          stagedEditSources: s.stagedEditSources,
+          governanceCardLedger: s.governanceCardLedger,
+          stagedEditLedger,
+        }),
+      };
+    }),
 
   requestPreflightRefresh: () =>
     set((s) => ({ preflightRefreshToken: s.preflightRefreshToken + 1 })),
@@ -252,7 +304,11 @@ export const useStudioStore = create<StudioSessionState>((set) => ({
     appliedPatchSeqs: [],
     deepPatches: [],
     governanceCards: [],
+    governanceCardSources: {},
+    governanceCardLedger: {},
     stagedEdits: [],
+    stagedEditSources: {},
+    stagedEditLedger: {},
   }),
 
   reset: () => set(initialState),

@@ -15,7 +15,8 @@ import { FileSplitCard } from "./cards/FileSplitCard";
 import { GovernanceTimeline } from "./GovernanceTimeline";
 import { RouteStatusBar } from "./RouteStatusBar";
 import { AssistSkillsBar } from "./AssistSkillsBar";
-import { applyOps, estimateMessagesTokens, getMetadataFieldPreview, resolveStagedEditEditorTarget, TOKEN_COMPRESS_THRESHOLD } from "./utils";
+import { resolveWorkflowActionEditorTarget, selectedFileFromEditorTarget } from "./editor-target";
+import { applyOps, estimateMessagesTokens, getMetadataFieldPreview, TOKEN_COMPRESS_THRESHOLD } from "./utils";
 import { parseStructuredStudioMessage } from "./message-parser";
 import { recoverStudioHistory } from "./history-recovery";
 import { deriveStudioRecoveryDraftImpact, parseStudioRecoveryPayload, parseStudioStatePayload } from "./studio-state-adapter";
@@ -27,6 +28,7 @@ import type {
   StudioDraft,
   StudioDiff,
   DiffOp,
+  StagedEdit,
   StudioSummary,
   StudioToolSuggestion,
   StudioFileSplit,
@@ -105,7 +107,7 @@ export function StudioChat({
   onFileSplitDone: () => void;
   onMemoRefresh: () => void;
   onOpenSandbox: (skillId: number) => void;
-  onEditorTarget: (fileType: string, filename: string) => void;
+  onEditorTarget: (fileType: string, filename: string, previewEdit?: StagedEdit | null) => void;
   clearRef?: { current: (() => void) | null };
   setInputRef?: { current: ((text: string) => void) | null };
   onViewReport?: () => void;
@@ -473,11 +475,23 @@ export function StudioChat({
         body: JSON.stringify({ action: "adopt_staged_edit", staged_edit_id: Number(editId) }),
       });
       applyWorkflowStatePatch(result.workflow_state_patch);
-      adoptStagedEdit(editId);
       const edit = storeStagedEdits.find((e) => e.id === editId);
-      const editorTarget = edit ? resolveStagedEditEditorTarget(edit) : null;
-      if (editorTarget) {
-        onEditorTarget(editorTarget.fileType, editorTarget.filename);
+      adoptStagedEdit(editId);
+      const resolvedEditorTarget = resolveWorkflowActionEditorTarget({
+        skillId,
+        actionResult: result,
+        stagedEdit: edit,
+      });
+      const nextSelection = resolvedEditorTarget ? selectedFileFromEditorTarget(resolvedEditorTarget) : null;
+      if (nextSelection) {
+        const adoptedPreviewEdit = edit?.fileType === "source_file" && edit.diff?.length > 0
+          ? { ...edit, status: "adopted" as const }
+          : null;
+        onEditorTarget(
+          nextSelection.fileType,
+          nextSelection.fileType === "asset" ? nextSelection.filename : "SKILL.md",
+          nextSelection.fileType === "asset" ? adoptedPreviewEdit : null,
+        );
         onExpandEditor?.();
       }
       if ((edit?.fileType === "system_prompt" || edit?.fileType === "prompt") && edit.diff && edit.diff.length > 0) {
@@ -493,8 +507,12 @@ export function StudioChat({
           });
         }
       }
-      const targetType = typeof result?.result?.target_type === "string" ? result.result.target_type : undefined;
-      if (targetType && targetType !== "system_prompt" && targetType !== "prompt") {
+      const targetType = typeof result.target_type === "string"
+        ? result.target_type
+        : typeof result?.result?.target_type === "string"
+          ? result.result.target_type
+          : undefined;
+      if (targetType && targetType !== "system_prompt" && targetType !== "prompt" && targetType !== "metadata") {
         onRefreshSkill();
       }
       if (result.memo_refresh_required) {

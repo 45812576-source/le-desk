@@ -65,11 +65,12 @@ describe("studio-store reconciliation", () => {
       type: "staged_edit",
       title: "修复 prompt 描述",
       content: {},
-      status: "adopted",
+      status: "pending",
       actions: [],
     };
 
-    useStudioStore.setState({ governanceCards: [card] });
+    useStudioStore.getState().syncGovernanceCards("memo-recovery", [card]);
+    useStudioStore.getState().updateCardStatus("gov-1", "adopted");
     useStudioStore.getState().syncGovernanceCards("memo-recovery", [{
       ...card,
       status: "pending",
@@ -85,10 +86,11 @@ describe("studio-store reconciliation", () => {
       fileType: "metadata",
       filename: "metadata",
       diff: [],
-      status: "adopted",
+      status: "pending",
     };
 
-    useStudioStore.setState({ stagedEdits: [edit] });
+    useStudioStore.getState().syncStagedEdits("memo-recovery", [edit]);
+    useStudioStore.getState().adoptStagedEdit("se-1");
     useStudioStore.getState().syncStagedEdits("memo-recovery", [{
       ...edit,
       status: "pending",

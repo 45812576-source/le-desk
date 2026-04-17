@@ -64,11 +64,16 @@ export interface WorkflowActionResult {
   action: string;
   card_id?: string | null;
   staged_edit_id?: string | null;
+  target_type?: string | null;
+  target_key?: string | null;
   updated_card_status?: GovernanceCardData["status"] | null;
   updated_staged_edit_status?: StagedEdit["status"] | null;
   workflow_state_patch?: Record<string, unknown>;
   memo_refresh_required?: boolean;
   editor_refresh_required?: boolean;
+  recovery_source?: string | null;
+  recovery_revision?: number | null;
+  recovery_updated_at?: string | null;
   next_cards?: GovernanceCardData[];
   result?: Record<string, unknown>;
   error?: string | null;
