@@ -14,7 +14,7 @@ import { PreflightReport } from "./PreflightReport";
 import { KnowledgeConfirmModal } from "./KnowledgeConfirmModal";
 import type { GovernanceCardData, PreflightResult, PreflightGate, StagedEdit, DiffOp } from "./types";
 import type { WorkflowStateData } from "./workflow-protocol";
-import { normalizeStagedEditPayload } from "./utils";
+import { getMetadataFieldPreview, normalizeStagedEditPayload } from "./utils";
 
 interface SkillStatusUpdateResult {
   id: number;
@@ -141,6 +141,9 @@ export function PromptEditor({
   const pendingPromptStagedEdit = useStudioStore((s) => s.stagedEdits.find((e) =>
     e.status === "pending" && (e.fileType === "system_prompt" || e.fileType === "prompt" || e.filename === "SKILL.md") && e.diff?.length > 0
   ));
+  const pendingDescriptionStagedEdit = useStudioStore((s) => s.stagedEdits.find((e) =>
+    e.status === "pending" && getMetadataFieldPreview(e, "description") !== null
+  ));
   const syncGovernanceCards = useStudioStore((s) => s.syncGovernanceCards);
   const syncStagedEdits = useStudioStore((s) => s.syncStagedEdits);
   const setWorkflowState = useStudioStore((s) => s.setWorkflowState);
@@ -151,6 +154,9 @@ export function PromptEditor({
   const handledPreflightRefreshRef = useRef(0);
   const stagedPreviewPrompt = pendingPromptStagedEdit?.diff?.length
     ? applyDiffOpsForPreview(prompt, pendingPromptStagedEdit.diff)
+    : null;
+  const stagedPreviewDescription = pendingDescriptionStagedEdit
+    ? getMetadataFieldPreview(pendingDescriptionStagedEdit, "description")
     : null;
 
   function normalizeStagedEdit(raw: Record<string, unknown>): StagedEdit {
@@ -500,6 +506,17 @@ export function PromptEditor({
           className="w-full border-2 border-[#1A202C] px-3 py-1.5 text-xs font-bold focus:outline-none focus:border-[#00D1FF] disabled:opacity-50 disabled:bg-gray-50" />
         <input value={description} onChange={(e) => setDescription(e.target.value)} placeholder="描述（可选）" disabled={isReadOnly}
           className="w-full border-2 border-gray-300 px-3 py-1.5 text-xs focus:outline-none focus:border-[#00D1FF] disabled:opacity-50 disabled:bg-gray-50" />
+        {stagedPreviewDescription !== null && stagedPreviewDescription !== description && (
+          <>
+            <div className="px-2 py-1 bg-[#F0FFF9] border border-[#00CC99]/40 text-[8px] font-mono text-[#007A5E]">
+              待确认治理修改：{pendingDescriptionStagedEdit?.changeNote || "描述字段待采纳修改"}
+            </div>
+            <div className="max-h-32 overflow-auto">
+              <div className="px-1 py-1 text-[8px] font-bold uppercase tracking-widest text-gray-400">Skill 描述</div>
+              <DiffViewer oldText={description} newText={stagedPreviewDescription} />
+            </div>
+          </>
+        )}
       </div>
 
       {/* Prompt */}

@@ -15,7 +15,7 @@ import { FileSplitCard } from "./cards/FileSplitCard";
 import { GovernanceTimeline } from "./GovernanceTimeline";
 import { RouteStatusBar } from "./RouteStatusBar";
 import { AssistSkillsBar } from "./AssistSkillsBar";
-import { applyOps, estimateMessagesTokens, TOKEN_COMPRESS_THRESHOLD } from "./utils";
+import { applyOps, estimateMessagesTokens, getMetadataFieldPreview, TOKEN_COMPRESS_THRESHOLD } from "./utils";
 import { parseStructuredStudioMessage } from "./message-parser";
 import { recoverStudioHistory } from "./history-recovery";
 import { deriveStudioRecoveryDraftImpact, parseStudioRecoveryPayload, parseStudioStatePayload } from "./studio-state-adapter";
@@ -479,6 +479,15 @@ export function StudioChat({
       if ((edit?.fileType === "system_prompt" || edit?.fileType === "prompt") && edit.diff && edit.diff.length > 0) {
         const newPrompt = applyOps(currentPrompt, edit.diff);
         onApplyDraft({ system_prompt: newPrompt, change_note: edit.changeNote || "采纳编辑" });
+      } else if (edit?.fileType === "metadata") {
+        const nextDescription = getMetadataFieldPreview(edit, "description");
+        if (nextDescription !== null) {
+          onApplyDraft({
+            system_prompt: currentPrompt,
+            description: nextDescription,
+            change_note: edit.changeNote || "采纳编辑",
+          });
+        }
       }
       const targetType = typeof result?.result?.target_type === "string" ? result.result.target_type : undefined;
       if (targetType && targetType !== "system_prompt" && targetType !== "prompt") {

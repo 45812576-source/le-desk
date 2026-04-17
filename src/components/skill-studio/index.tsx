@@ -470,8 +470,10 @@ export function SkillStudio({
   }
 
   function handleApplyDraft(draft: StudioDraft) {
-    setPendingDiffBase(prompt);
-    setPrompt(draft.system_prompt);
+    if (draft.system_prompt !== prompt) {
+      setPendingDiffBase(prompt);
+      setPrompt(draft.system_prompt);
+    }
     if (draft.name) setExternalName(draft.name);
     if (draft.description !== undefined) setExternalDescription(draft.description);
   }

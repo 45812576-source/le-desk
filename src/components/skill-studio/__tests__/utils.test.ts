@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyOps, normalizeStagedEditPayload } from "../utils";
+import { applyOps, getMetadataFieldPreview, normalizeStagedEditPayload } from "../utils";
 
 describe("normalizeStagedEditPayload", () => {
   it("keeps append ops and falls back to SKILL.md for prompt edits", () => {
@@ -40,5 +40,25 @@ describe("applyOps", () => {
     ]);
 
     expect(next).toContain("## 描述\n用于检索和审核展示");
+  });
+});
+
+describe("getMetadataFieldPreview", () => {
+  it("extracts metadata description replacement from staged edit", () => {
+    const next = getMetadataFieldPreview({
+      fileType: "metadata",
+      diff: [{ type: "replace", old: "description", new: "新的 Skill 描述" }],
+    }, "description");
+
+    expect(next).toBe("新的 Skill 描述");
+  });
+
+  it("ignores non-metadata edits", () => {
+    const next = getMetadataFieldPreview({
+      fileType: "system_prompt",
+      diff: [{ type: "replace", old: "description", new: "新的 Skill 描述" }],
+    }, "description");
+
+    expect(next).toBeNull();
   });
 });

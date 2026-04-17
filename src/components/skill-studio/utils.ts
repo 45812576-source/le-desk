@@ -206,6 +206,17 @@ export function normalizeStagedEditPayload(raw: Record<string, unknown>, source?
   };
 }
 
+export function getMetadataFieldPreview(edit: Pick<StagedEdit, "fileType" | "diff">, fieldName: string): string | null {
+  if (edit.fileType !== "metadata") return null;
+  let nextValue: string | null = null;
+  for (const op of edit.diff) {
+    if (op.old === fieldName && typeof op.new === "string") {
+      nextValue = op.new;
+    }
+  }
+  return nextValue;
+}
+
 // ─── Token estimation ─────────────────────────────────────────────────────────
 
 export const TOKEN_COMPRESS_THRESHOLD = 180_000;
