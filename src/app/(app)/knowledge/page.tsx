@@ -1277,6 +1277,13 @@ const FileManagerTab = forwardRef<{ createDoc: () => void; triggerUpload: () => 
                 setEntries(prev => prev.map(e => e.id === fresh.id ? { ...e, doc_render_status: fresh.doc_render_status, doc_render_mode: fresh.doc_render_mode } : e));
               } catch {}
             } : undefined}
+            onRefreshEntry={selectedEntry ? async (entryId: number) => {
+              try {
+                const fresh = await apiFetch<KnowledgeDetail>(`/knowledge/${entryId}`);
+                setSelectedEntry(fresh);
+                setEntries(prev => prev.map(e => e.id === fresh.id ? { ...e, ...fresh } : e));
+              } catch {}
+            } : undefined}
           />
         </div>
       </div>

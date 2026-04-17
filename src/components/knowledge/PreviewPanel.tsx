@@ -38,6 +38,17 @@ interface Folder {
   sort_order: number;
 }
 
+interface ReviewRequestStatus {
+  exists: boolean;
+  approval_id: number | null;
+  status: string | null;
+  stage: string | null;
+  assigned_approver_id: number | null;
+  assigned_approver_name: string | null;
+  can_submit?: boolean;
+  message?: string;
+}
+
 // Media types that use native viewers (not editable in RichEditor)
 const MEDIA_EXTS = new Set([
   ".pdf", ".jpg", ".jpeg", ".png", ".webp", ".bmp", ".gif", ".svg",
@@ -115,6 +126,7 @@ interface PreviewPanelProps {
   folders?: Folder[];
   onMoveToFolder?: (entryId: number, folderId: number | null) => void;
   onRetryRender?: () => void;
+  onRefreshEntry?: (entryId: number) => Promise<void>;
 }
 
 export default function PreviewPanel({
@@ -126,6 +138,7 @@ export default function PreviewPanel({
   folders,
   onMoveToFolder,
   onRetryRender,
+  onRefreshEntry,
 }: PreviewPanelProps) {
   const [htmlVal, setHtmlVal] = useState("");
   const [editingTitle, setEditingTitle] = useState(false);
@@ -141,6 +154,9 @@ export default function PreviewPanel({
   const [permLoading, setPermLoading] = useState(false);
   const [requestingEdit, setRequestingEdit] = useState(false);
   const [editReason, setEditReason] = useState("");
+  const [reviewRequest, setReviewRequest] = useState<ReviewRequestStatus | null>(null);
+  const [reviewRequestLoading, setReviewRequestLoading] = useState(false);
+  const [submittingReview, setSubmittingReview] = useState(false);
   const [shareLink, setShareLink] = useState<KnowledgeShareLink | null>(null);
   const [shareLoading, setShareLoading] = useState(false);
   const [showSharePanel, setShowSharePanel] = useState(false);
@@ -162,6 +178,7 @@ export default function PreviewPanel({
   useEffect(() => {
     if (!entry) {
       setPermCheck(null);
+      setReviewRequest(null);
       setShareLink(null);
       return;
     }
@@ -173,6 +190,26 @@ export default function PreviewPanel({
       .finally(() => { if (!cancelled) setPermLoading(false); });
     return () => { cancelled = true; };
   }, [entry, entryId]);
+
+  useEffect(() => {
+    if (!entry) {
+      setReviewRequest(null);
+      return;
+    }
+    let cancelled = false;
+    setReviewRequestLoading(true);
+    apiFetch<ReviewRequestStatus>(`/knowledge/${entry.id}/review-request`)
+      .then((data) => {
+        if (!cancelled) setReviewRequest(data);
+      })
+      .catch(() => {
+        if (!cancelled) setReviewRequest(null);
+      })
+      .finally(() => {
+        if (!cancelled) setReviewRequestLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, [entry]);
 
   useEffect(() => {
     if (!entry) return;
@@ -215,6 +252,10 @@ export default function PreviewPanel({
   }, [entry, currentUser]);
 
   const canEdit = permCheck?.can_edit ?? false;
+  const isOwner = currentUser?.id === entry?.created_by;
+  const canSubmitReview = Boolean(entry && isOwner && entry.status === "pending" && !reviewRequest?.exists);
+  const reviewTargetLabel = reviewRequest?.assigned_approver_name
+    || (reviewRequest?.stage === "dept_pending" ? "部门管理员" : reviewRequest?.stage === "super_pending" ? "公司管理员" : null);
 
   // Track previous entryId to distinguish entry switch from auto-save callback
   const prevEntryIdRef = useRef<number | null>(null);
@@ -436,6 +477,39 @@ export default function PreviewPanel({
         )}
 
         <div className="flex items-center gap-1 ml-auto flex-wrap">
+          {entry.status === "pending" && isOwner && (
+            <>
+              {reviewRequest?.exists ? (
+                <span className="px-2 py-1 rounded-md text-[10px] font-medium text-amber-600 bg-amber-50 border border-amber-200">
+                  已提交审批{reviewTargetLabel ? ` → ${reviewTargetLabel}` : ""}
+                </span>
+              ) : (
+                <button
+                  disabled={!canSubmitReview || submittingReview || reviewRequestLoading}
+                  onClick={async () => {
+                    if (!entry) return;
+                    setSubmittingReview(true);
+                    try {
+                      const submitted = await apiFetch<ReviewRequestStatus>(`/knowledge/${entry.id}/submit-review`, {
+                        method: "POST",
+                        body: JSON.stringify({}),
+                      });
+                      setReviewRequest(submitted);
+                      if (onRefreshEntry) await onRefreshEntry(entry.id);
+                    } catch {
+                      /* ignore */
+                    } finally {
+                      setSubmittingReview(false);
+                    }
+                  }}
+                  className="px-2 py-1 rounded-md text-[10px] font-medium text-[#00A3C4] hover:bg-[#F0F9FF] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                >
+                  {submittingReview ? "提交中…" : "提交审批"}
+                </button>
+              )}
+            </>
+          )}
+
           {onMoveToFolder && folders && folders.length > 0 && (
             <div className="relative" ref={folderPickerRef}>
               <button
@@ -606,7 +680,10 @@ export default function PreviewPanel({
 
       {entry.is_in_my_knowledge && entry.status === "pending" && (
         <div className="px-5 py-2 border-b border-yellow-200 bg-yellow-50 text-[10px] text-yellow-700">
-          该文档已进入「我的知识」，当前状态为待审核。审核通过前，其他员工不会按全员可见规则看到它。
+          该文档已进入「我的知识」，你自己现在可继续查看和使用。
+          {reviewRequest?.exists
+            ? ` 当前已提交审批${reviewTargetLabel ? `，等待 ${reviewTargetLabel} 处理` : ""}。`
+            : " 审核不会自动发起，需要你手动点击“提交审批”。"}
         </div>
       )}
 

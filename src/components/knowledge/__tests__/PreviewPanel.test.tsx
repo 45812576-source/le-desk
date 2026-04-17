@@ -100,6 +100,17 @@ describe("PreviewPanel media editing routing", () => {
           grants: [],
         };
       }
+      if (String(path).includes("/review-request")) {
+        return {
+          exists: false,
+          approval_id: null,
+          status: null,
+          stage: null,
+          assigned_approver_id: null,
+          assigned_approver_name: null,
+          can_submit: false,
+        };
+      }
       if (String(path).includes("/share-links")) return [];
       return null;
     });
