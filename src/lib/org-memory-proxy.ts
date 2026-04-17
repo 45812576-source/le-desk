@@ -64,7 +64,7 @@ export function readOrgMemoryProxyConfig(
       ? 100
       : normalizeRolloutPercentage(
           env.ORG_MEMORY_REMOTE_ROLLOUT_PERCENT,
-          nodeEnv === "development" ? 0 : 100,
+          100,
         );
 
   return {
@@ -92,7 +92,7 @@ export function readOrgMemoryClientConfig(
       ? 100
       : normalizeRolloutPercentage(
           env.NEXT_PUBLIC_ORG_MEMORY_REMOTE_ROLLOUT_PERCENT,
-          nodeEnv === "development" ? 0 : 100,
+          100,
         );
 
   return {

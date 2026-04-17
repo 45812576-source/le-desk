@@ -56,6 +56,7 @@
 - 所有 `Source / Snapshot / Proposal / AppliedConfig / ConfigVersion` 进入数据库
 - 通过 `approval adapter` 与外部审批系统交互
 - 前端继续走原有 `/api/proxy`，但实际转发到真实后端
+- 开发环境默认采用 `hybrid + 100% remote rollout + local fallback`，优先验证真实后端，后端不可达时再降级到本地 BFF
 
 优点：
 

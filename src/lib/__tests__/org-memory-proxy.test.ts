@@ -27,17 +27,18 @@ import {
 } from "@/lib/org-memory-proxy";
 
 describe("org-memory-proxy", () => {
-  it("defaults to hybrid mode with local fallback in development", () => {
+  it("defaults to remote-first hybrid mode with local fallback in development", () => {
     const config = readOrgMemoryProxyConfig({ NODE_ENV: "development" });
 
     expect(config).toEqual({
       mode: "hybrid",
       localFallbackEnabled: true,
-      rolloutPercentage: 0,
+      rolloutPercentage: 100,
       nodeEnv: "development",
     });
     expect(canUseLocalOrgMemoryFallback(config)).toBe(true);
     expect(allowDirectOrgMemoryLocalRoute(config)).toBe(true);
+    expect(shouldRouteOrgMemoryToBackend(config, "dev-user", "GET")).toBe(true);
   });
 
   it("defaults to remote mode without local fallback outside development", () => {
@@ -96,6 +97,18 @@ describe("org-memory-proxy", () => {
       nodeEnv: "production",
     });
     expect(shouldEnableOrgMemoryClientFallback({ NODE_ENV: "production" })).toBe(false);
+  });
+
+  it("defaults client config to remote-first hybrid mode with fallback in development", () => {
+    const config = readOrgMemoryClientConfig({ NODE_ENV: "development" });
+
+    expect(config).toEqual({
+      mode: "hybrid",
+      localFallbackEnabled: true,
+      rolloutPercentage: 100,
+      nodeEnv: "development",
+    });
+    expect(shouldEnableOrgMemoryClientFallback({ NODE_ENV: "development" })).toBe(true);
   });
 
   it("allows enabling client fallback with public env", () => {
