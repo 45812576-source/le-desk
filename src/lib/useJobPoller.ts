@@ -11,6 +11,8 @@ export interface JobStatus {
   phase?: string;      // knowledge import 阶段
   error?: string;
   error_type?: string;
+  error_code?: string;
+  error_details?: Record<string, unknown> | null;
   result?: Record<string, unknown>;
   stats?: Record<string, unknown>;
 }

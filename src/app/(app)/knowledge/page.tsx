@@ -6,7 +6,7 @@ import { ICONS } from "@/components/pixel";
 import { PixelButton } from "@/components/pixel/PixelButton";
 import { ThemedPageIcon } from "@/components/layout/PageShell";
 import { useAuth } from "@/lib/auth";
-import { apiFetch } from "@/lib/api";
+import { ApiError, apiFetch } from "@/lib/api";
 import { useJobPoller, type JobStatus } from "@/lib/useJobPoller";
 import type { KnowledgeDetail } from "@/lib/types";
 import { isVisibleInMyOrganize } from "@/lib/knowledge-visibility";
@@ -24,6 +24,61 @@ import RecentFiles, { addRecentFile } from "@/components/knowledge/RecentFiles";
 import CommentPanel from "@/components/knowledge/CommentPanel";
 type Tab = "files" | "search";
 type TreeMode = "user" | "rag";
+
+const DEFAULT_LARK_IMPORT_HELP = "由组织统一飞书应用读取文档，无需连接个人飞书账号。";
+
+function resolveLarkImportFailure(code?: string, message?: string, actionHint?: string) {
+  const fallback = message || "飞书导入失败";
+  switch (code) {
+    case "LARK_APP_NOT_CONFIGURED":
+      return {
+        status: "飞书应用未配置",
+        help: actionHint || "请联系管理员配置 Le Desk 飞书应用后再导入。",
+      };
+    case "LARK_APP_NO_DOCUMENT_ACCESS":
+      return {
+        status: "应用无文档权限",
+        help: actionHint || "请将该飞书文档、多维表或知识库空间授权给 Le Desk 飞书应用。",
+      };
+    case "LARK_APP_SCOPE_MISSING":
+      return {
+        status: "应用权限范围不足",
+        help: actionHint || "请联系管理员在飞书开放平台补充文档读取、导出或多维表读取权限。",
+      };
+    case "LARK_LINK_UNSUPPORTED":
+      return {
+        status: "链接暂不支持",
+        help: actionHint || "请粘贴具体飞书文档、知识库节点、表格、多维表或云空间文件链接。",
+      };
+    case "LARK_API_ERROR":
+      return {
+        status: "飞书接口异常",
+        help: actionHint || fallback,
+      };
+    default:
+      return {
+        status: "导入失败",
+        help: actionHint || fallback,
+      };
+  }
+}
+
+function resolveLarkImportError(error: unknown) {
+  if (error instanceof ApiError) {
+    const actionHint = typeof error.details?.action_hint === "string" ? error.details.action_hint : undefined;
+    return resolveLarkImportFailure(error.code, error.message, actionHint);
+  }
+  return resolveLarkImportFailure(undefined, error instanceof Error ? error.message : undefined);
+}
+
+function isLarkFailureStatus(status: string) {
+  return status.includes("权限")
+    || status.includes("失败")
+    || status.includes("异常")
+    || status.includes("未配置")
+    || status.includes("不支持")
+    || status.startsWith("部分失败");
+}
 
 function buildTree(folders: Folder[]): Map<number | null, Folder[]> {
   const map = new Map<number | null, Folder[]>();
@@ -136,8 +191,35 @@ const FileManagerTab = forwardRef<{ createDoc: () => void; triggerUpload: () => 
   const [larkUrls, setLarkUrls] = useState("");
   const [larkImporting, setLarkImporting] = useState(false);
   const [larkImportStatus, setLarkImportStatus] = useState("准备导入");
+  const [larkImportHelp, setLarkImportHelp] = useState(DEFAULT_LARK_IMPORT_HELP);
+  const [larkConfigured, setLarkConfigured] = useState<boolean | null>(null);
 
   const larkJobPoller = useJobPoller("/knowledge/import-from-lark/jobs");
+
+  useEffect(() => {
+    if (!showLarkImport) return;
+
+    let cancelled = false;
+    setLarkConfigured(null);
+    setLarkImportHelp(DEFAULT_LARK_IMPORT_HELP);
+    apiFetch<{ checks: { lark_configured?: boolean; lark_import_auth_mode?: string } }>("/knowledge-health")
+      .then((res) => {
+        if (cancelled) return;
+        const configured = Boolean(res.checks?.lark_configured);
+        setLarkConfigured(configured);
+        if (!configured) {
+          setLarkImportStatus("飞书应用未配置");
+          setLarkImportHelp("请联系管理员配置 Le Desk 飞书应用后再导入。");
+        }
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setLarkConfigured(null);
+        setLarkImportHelp("暂未确认飞书应用配置状态；如导入失败，请联系管理员检查后端配置。");
+      });
+
+    return () => { cancelled = true; };
+  }, [showLarkImport]);
 
   // 监听飞书多维表导入 job 完成
   const larkJobRef = useRef<JobStatus | null>(null);
@@ -177,8 +259,13 @@ const FileManagerTab = forwardRef<{ createDoc: () => void; triggerUpload: () => 
       }
     } else if (js.status === "failed") {
       setLarkImporting(false);
-      setLarkImportStatus("导入失败");
-      setToast(`飞书导入失败: ${js.error || "未知错误"}`);
+      const errorDetails = js.error_details || (js.result?.error_details as Record<string, unknown> | undefined);
+      const actionHint = typeof errorDetails?.action_hint === "string" ? errorDetails.action_hint : undefined;
+      const code = js.error_code || js.error_type || (js.result?.error_code as string | undefined);
+      const failure = resolveLarkImportFailure(code, js.error || "未知错误", actionHint);
+      setLarkImportStatus(failure.status);
+      setLarkImportHelp(failure.help);
+      setToast(`飞书导入失败: ${failure.status}`);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [larkJobPoller.jobStatus]);
@@ -374,7 +461,11 @@ const FileManagerTab = forwardRef<{ createDoc: () => void; triggerUpload: () => 
   useImperativeHandle(ref, () => ({
     createDoc,
     triggerUpload: () => uploadInputRef.current?.click(),
-    toggleLarkImport: () => { setShowLarkImport((v) => !v); setLarkImportStatus("准备导入"); },
+    toggleLarkImport: () => {
+      setShowLarkImport((v) => !v);
+      setLarkImportStatus("准备导入");
+      setLarkImportHelp(DEFAULT_LARK_IMPORT_HELP);
+    },
   }), [createDoc]);
 
   // Lasso handlers
@@ -620,6 +711,7 @@ const FileManagerTab = forwardRef<{ createDoc: () => void; triggerUpload: () => 
     }
 
     setLarkImporting(true);
+    setLarkImportHelp(DEFAULT_LARK_IMPORT_HELP);
     try {
       if (urls.length === 1) {
         const isBitable = /\/(base|bitable)\//.test(urls[0]);
@@ -679,8 +771,10 @@ const FileManagerTab = forwardRef<{ createDoc: () => void; triggerUpload: () => 
       setLarkUrls("");
       setShowLarkImport(false);
     } catch (e) {
-      setLarkImportStatus("导入失败");
-      setToast(e instanceof Error ? `飞书导入失败: ${e.message}` : "飞书导入失败");
+      const failure = resolveLarkImportError(e);
+      setLarkImportStatus(failure.status);
+      setLarkImportHelp(failure.help);
+      setToast(`飞书导入失败: ${failure.status}`);
     } finally {
       setLarkImporting(false);
     }
@@ -836,8 +930,11 @@ const FileManagerTab = forwardRef<{ createDoc: () => void; triggerUpload: () => 
                     className="w-full min-h-[120px] text-[11px] border-2 border-gray-300 px-3 py-2 focus:outline-none focus:border-[#00D1FF] bg-white resize-y"
                     autoFocus
                   />
+                  <div className={`text-[9px] leading-relaxed ${larkConfigured === false || isLarkFailureStatus(larkImportStatus) ? "text-amber-600" : "text-gray-500"}`}>
+                    {larkImportHelp}
+                  </div>
                   <div className="flex items-center justify-between gap-2">
-                    <span className={`text-[10px] ${larkImportStatus === "导入失败" || larkImportStatus.startsWith("部分失败") ? "text-red-500 font-semibold" : larkImportStatus === "已导入，可编辑" ? "text-[#00CC99] font-semibold" : "text-gray-500"}`}>
+                    <span className={`text-[10px] ${larkConfigured === false || isLarkFailureStatus(larkImportStatus) ? "text-red-500 font-semibold" : larkImportStatus === "已导入，可编辑" ? "text-[#00CC99] font-semibold" : "text-gray-500"}`}>
                       {larkImporting || larkImportStatus !== "准备导入" ? larkImportStatus : "支持 docx / wiki / sheet / file"}
                     </span>
                     <div className="flex items-center gap-2">
@@ -847,7 +944,7 @@ const FileManagerTab = forwardRef<{ createDoc: () => void; triggerUpload: () => 
                       >取消</button>
                       <button
                         onClick={handleImportLarkLinks}
-                        disabled={larkImporting}
+                        disabled={larkImporting || larkConfigured === false}
                         className="px-3 py-1.5 border-2 border-[#00CC99] bg-[#00CC99] text-white text-[10px] font-bold uppercase hover:opacity-80 transition-colors disabled:opacity-50"
                       >
                         {larkImporting ? "导入中..." : "开始导入"}
