@@ -4,6 +4,8 @@ export class ApiError extends Error {
   constructor(
     public status: number,
     message: string,
+    public code?: string,
+    public details?: Record<string, unknown>,
   ) {
     super(message);
     this.name = "ApiError";
@@ -48,13 +50,25 @@ export async function apiFetch<T = unknown>(
     }
     const text = await res.text().catch(() => "");
     let message = `HTTP ${res.status}`;
+    let code: string | undefined;
+    let details: Record<string, unknown> | undefined;
     try {
       const json = JSON.parse(text);
-      message = json.detail || json.message || message;
+      if (json.error?.message) {
+        message = json.error.message;
+        code = json.error.code;
+        details = json.error.details;
+      } else if (json.detail?.message) {
+        message = json.detail.message;
+        code = json.detail.code;
+        details = json.detail.details;
+      } else {
+        message = json.detail || json.message || message;
+      }
     } catch {
       if (text) message = text;
     }
-    throw new ApiError(res.status, message);
+    throw new ApiError(res.status, message, code, details);
   }
 
   return res.json() as Promise<T>;

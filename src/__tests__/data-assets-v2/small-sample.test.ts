@@ -9,7 +9,7 @@
  */
 import { describe, it, expect } from "vitest";
 import { EMPTY_SMALL_SAMPLE } from "@/app/(app)/data/components/shared/empty-states";
-import type { SmallSampleProtectionConfig, SmallSampleFallback, DisclosureLevel, TableViewDetail, SkillDataGrant } from "@/app/(app)/data/components/shared/types";
+import type { SmallSampleFallback, DisclosureLevel, TableViewDetail, SkillDataGrant } from "@/app/(app)/data/components/shared/types";
 
 describe("D4 小样本保护", () => {
   it("默认配置: 未启用, 阈值 5, hide_bucket", () => {

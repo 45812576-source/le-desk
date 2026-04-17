@@ -18,7 +18,7 @@ vi.mock("@/lib/api", () => ({
 }));
 
 vi.mock("@/components/pixel/PixelButton", () => ({
-  PixelButton: ({ children, onClick, size, variant }: { children: React.ReactNode; onClick?: () => void; size?: string; variant?: string }) => (
+  PixelButton: ({ children, onClick, variant }: { children: React.ReactNode; onClick?: () => void; variant?: string }) => (
     <button onClick={onClick} data-testid={`pixel-btn-${variant || "primary"}`}>{children}</button>
   ),
 }));

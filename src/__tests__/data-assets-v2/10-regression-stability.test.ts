@@ -5,11 +5,9 @@
  */
 import { describe, it, expect } from "vitest";
 import type {
-  TableDetail,
   TableFieldDetail,
   TablePermissionPolicy,
   DisclosureLevel,
-  FieldAccessMode,
 } from "@/app/(app)/data/components/shared/types";
 import {
   makeField,
@@ -20,17 +18,9 @@ import {
   FIELDS,
   ROLE_GROUPS,
   POLICIES,
-  VIEWS,
   SKILL_GRANTS,
 } from "../fixtures/data-assets";
-import {
-  makeV2TableA,
-  V2_FIELDS_A,
-  V2_ROLE_GROUPS,
-  V2_POLICIES,
-  V2_VIEWS,
-  V2_SKILL_GRANTS,
-} from "../fixtures/data-assets-v2";
+import { makeV2TableA } from "../fixtures/data-assets-v2";
 
 // ─── 纯函数 ─────────────────────────────────────────────────────────────────
 
@@ -198,7 +188,6 @@ describe("§10 回归与稳定性", () => {
     });
 
     it("两人同时编辑，后者检测到冲突", () => {
-      const initial: ConfigWithVersion = { version: 1, disclosure_level: "L2", updated_at: "2026-03-30T09:00:00Z" };
       // A 保存成功 → version=2
       const afterA: ConfigWithVersion = { version: 2, disclosure_level: "L3", updated_at: "2026-03-30T09:05:00Z" };
       // B 基于 version=1 保存

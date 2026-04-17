@@ -6,16 +6,38 @@ import type { SandboxSession } from "@/lib/types";
 
 describe("Step2ToolReview", () => {
   const baseSession = {
+    session_id: 1,
+    target_type: "tool",
+    target_id: 101,
+    target_version: 1,
+    target_name: "天气工具",
+    tester_id: 7,
+    status: "draft",
+    current_step: "tool_review",
+    blocked_reason: null,
+    detected_slots: [],
     tool_review: [
       {
         tool_id: 101,
         tool_name: "天气工具",
         description: "查询实时天气",
+        confirmed: false,
         requiredness: "required",
         input_provenance: [],
       },
     ],
-  } as SandboxSession;
+    permission_snapshot: null,
+    theoretical_combo_count: null,
+    semantic_combo_count: null,
+    executed_case_count: null,
+    quality_passed: null,
+    usability_passed: null,
+    anti_hallucination_passed: null,
+    approval_eligible: null,
+    report_id: null,
+    created_at: null,
+    completed_at: null,
+  } satisfies SandboxSession;
 
   it("shows explicit selected feedback for every tool decision", () => {
     render(

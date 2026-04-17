@@ -26,7 +26,7 @@ vi.mock("@/components/pixel/PixelButton", () => ({
 }));
 
 import PermissionMatrix from "../PermissionMatrix";
-import { ROLE_GROUPS, POLICIES, makeRoleGroup, makePolicy } from "@/__tests__/fixtures/data-assets";
+import { ROLE_GROUPS, POLICIES, makeRoleGroup } from "@/__tests__/fixtures/data-assets";
 
 describe("PermissionMatrix", () => {
   const onRefresh = vi.fn();

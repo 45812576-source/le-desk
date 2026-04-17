@@ -7,18 +7,14 @@ import { describe, it, expect } from "vitest";
 import type {
   TableFieldDetail,
   TablePermissionPolicy,
-  SkillDataGrant,
   DisclosureLevel,
-  FieldAccessMode,
 } from "@/app/(app)/data/components/shared/types";
-import { makeField, makePolicy, makeGrant } from "../fixtures/data-assets";
+import {} from "../fixtures/data-assets";
 import {
   V2_FIELDS_A,
-  V2_ROLE_GROUPS,
   V2_POLICIES,
   V2_SKILL_GRANTS,
   V2_VIEWS,
-  makeV2TableA,
 } from "../fixtures/data-assets-v2";
 
 // ─── 纯函数 ─────────────────────────────────────────────────────────────────

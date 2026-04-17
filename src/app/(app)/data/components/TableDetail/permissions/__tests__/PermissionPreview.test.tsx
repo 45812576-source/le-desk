@@ -7,8 +7,8 @@
  * - 视图级策略优先于表级
  * - 可见字段、脱敏字段正确展示
  */
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { describe, it, expect, vi } from "vitest";
+import { render, screen, fireEvent } from "@testing-library/react";
 import "@testing-library/jest-dom";
 
 vi.mock("@/lib/api", () => ({
@@ -16,7 +16,7 @@ vi.mock("@/lib/api", () => ({
 }));
 
 import PermissionPreview from "../PermissionPreview";
-import { makeTableDetail, ROLE_GROUPS, POLICIES, VIEWS, FIELDS, makePolicy } from "@/__tests__/fixtures/data-assets";
+import { makeTableDetail, ROLE_GROUPS, POLICIES, makePolicy } from "@/__tests__/fixtures/data-assets";
 
 describe("PermissionPreview", () => {
   const detail = makeTableDetail();

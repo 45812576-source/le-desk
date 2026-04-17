@@ -9,6 +9,12 @@ export const KNOWLEDGE_ACTION_LABELS: Record<string, string> = {
   "knowledge.folder.move_child": "移动子目录",
   "knowledge.folder.manage_grants": "管理授权",
   "knowledge.folder.rerun_reclassify": "重跑分类",
+  // 组织 Memory / 共享边界治理
+  "org_memory.proposal.approve": "组织 Memory 草案-通过",
+  "org_memory.proposal.reject": "组织 Memory 草案-拒绝",
+  "knowledge.scope.expand": "知识共享范围扩张",
+  "knowledge.redaction.lower": "知识匿名化要求降低",
+  "skill.mount.approve_by_org_memory": "Skill挂载-组织Memory审批",
   // 内容审批类
   "knowledge.review.approve": "知识审核-通过",
   "knowledge.review.reject": "知识审核-拒绝",
@@ -55,6 +61,10 @@ export const HIGH_RISK_ACTIONS = new Set([
   "knowledge.folder.delete_child",
   "knowledge.folder.rerun_reclassify",
   "knowledge.folder.manage_grants",
+  "org_memory.proposal.approve",
+  "knowledge.scope.expand",
+  "knowledge.redaction.lower",
+  "skill.mount.approve_by_org_memory",
   "skill.publish.approve_final",
   "tool.publish.approve_final",
   "webapp.publish.approve_final",

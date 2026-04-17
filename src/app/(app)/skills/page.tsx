@@ -9,10 +9,11 @@ import { PixelBadge } from "@/components/pixel/PixelBadge";
 import { useTheme } from "@/lib/theme";
 import { useAuth } from "@/lib/auth";
 import { apiFetch } from "@/lib/api";
-import type { SkillDetail, ToolEntry } from "@/lib/types";
+import type { OrgMemoryProposal, SkillDetail, ToolEntry } from "@/lib/types";
 import { SandboxTestModal } from "@/components/skill/SandboxTestModal";
 import { SKILL_STATUS_BADGE, isWorkspaceMountableSkillStatus } from "@/lib/skill-status";
 import { buildOwnWorkspaceSkillItems } from "@/lib/workspace-skill-config";
+import { loadOrgMemoryProposals } from "@/lib/org-memory";
 
 function SkillIcon({ size }: { size: number }) {
   const { theme } = useTheme();
@@ -113,6 +114,29 @@ function workspacePublishBlockReason(skill: SkillDetail, scope: "department" | "
     return `${skillName}已被打回，暂不可发布为${targetLabel}；请修改后重新提交审批。`;
   }
   return `${skillName}尚未发布，暂不可发布为${targetLabel}；只有已发布 Skill 才能挂载到标准工作台。`;
+}
+
+function mergeHelperText(base?: string, extra?: string): string | undefined {
+  if (base && extra) return `${base}；${extra}`;
+  return base || extra;
+}
+
+function buildOrgMemorySkillHints(proposals: OrgMemoryProposal[]): Map<number, string> {
+  const hints = new Map<number, string>();
+  for (const proposal of proposals) {
+    for (const item of proposal.skill_mounts) {
+      const decisionLabel =
+        item.decision === "allow"
+          ? "组织 Memory 建议可挂载"
+          : item.decision === "require_approval"
+            ? "组织 Memory 建议挂载前审批"
+            : "组织 Memory 建议暂不挂载";
+      const helper = `${decisionLabel}：${item.target_scope}，共享上限 ${item.max_allowed_scope}，内容形态 ${item.required_redaction_mode}`;
+      const prev = hints.get(item.skill_id);
+      hints.set(item.skill_id, prev ? `${prev}；${helper}` : helper);
+    }
+  }
+  return hints;
 }
 
 // ─── Section Group ────────────────────────────────────────────────────────────
@@ -353,6 +377,8 @@ export default function SkillsPage() {
   // Local mount state (tracked separately for dirty checking)
   const [mountedSkills, setMountedSkills] = useState<Map<number, WorkspaceConfigItem>>(new Map());
   const [mountedTools, setMountedTools] = useState<Map<number, WorkspaceConfigItem>>(new Map());
+  const [orgMemoryProposals, setOrgMemoryProposals] = useState<OrgMemoryProposal[]>([]);
+  const [orgMemoryFallback, setOrgMemoryFallback] = useState(false);
 
   // ─── Fetchers ──────────────────────────────────────────────────────────
 
@@ -386,11 +412,24 @@ export default function SkillsPage() {
       .finally(() => setToolLoading(false));
   }, []);
 
+  const fetchOrgMemoryProposals = useCallback(() => {
+    loadOrgMemoryProposals()
+      .then((result) => {
+        setOrgMemoryProposals(result.data);
+        setOrgMemoryFallback(result.fallback);
+      })
+      .catch(() => {
+        setOrgMemoryProposals([]);
+        setOrgMemoryFallback(false);
+      });
+  }, []);
+
   useEffect(() => {
     fetchConfig();
     fetchSkills();
     fetchTools();
-  }, [fetchConfig, fetchSkills, fetchTools]);
+    fetchOrgMemoryProposals();
+  }, [fetchConfig, fetchSkills, fetchTools, fetchOrgMemoryProposals]);
 
   // 合并个人 Skill 到 mountedSkills（source=own）
   useEffect(() => {
@@ -551,6 +590,14 @@ export default function SkillsPage() {
 
   const unpublishedCount = mySkills.filter((s) => s.status === "draft" || s.status === "reviewing").length;
   const isLoading = configLoading || skillLoading || toolLoading;
+  const orgMemorySkillHints = useMemo(
+    () => buildOrgMemorySkillHints(orgMemoryProposals),
+    [orgMemoryProposals],
+  );
+  const orgMemoryPendingCount = useMemo(
+    () => orgMemoryProposals.filter((item) => item.proposal_status === "pending_approval").length,
+    [orgMemoryProposals],
+  );
 
   // ─── Render ──────────────────────────────────────────────────────
 
@@ -574,6 +621,23 @@ export default function SkillsPage() {
         </div>
       ) : (
         <>
+          <div className="mb-4 rounded-lg border border-border bg-card px-4 py-3">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <div className="text-[10px] font-bold uppercase tracking-widest text-[#00A3C4]">
+                  组织 Memory 挂载提醒
+                </div>
+                <div className="mt-2 text-[11px] leading-5 text-muted-foreground">
+                  如果某个 Skill 需要读取客户案例、复盘材料或部门知识域，则其挂载建议以组织 Memory 草案的共享范围和匿名化要求为准。
+                  当前有 {orgMemoryPendingCount} 份草案待审批。
+                </div>
+              </div>
+              {orgMemoryFallback && (
+                <PixelBadge color="yellow">演示数据</PixelBadge>
+              )}
+            </div>
+          </div>
+
           {/* ══ 我的 Skill ══ */}
           <SectionGroup
             label="我的 Skill"
@@ -613,7 +677,14 @@ export default function SkillsPage() {
                     }
                     checked={s.mounted}
                     disabled={!s.mountable}
-                    helperText={s.mountable ? undefined : stageLabel ? `${stageLabel}，暂不可在工作台中配置使用` : "Skill需通过审核发布后，可在工作台中配置使用"}
+                    helperText={mergeHelperText(
+                      s.mountable
+                        ? undefined
+                        : stageLabel
+                          ? `${stageLabel}，暂不可在工作台中配置使用`
+                          : "Skill需通过审核发布后，可在工作台中配置使用",
+                      orgMemorySkillHints.get(s.id),
+                    )}
                     onToggle={(checked) => {
                       if (!s.mountable) return;
                       toggleSkillMount(s.id, checked);
@@ -640,6 +711,7 @@ export default function SkillsPage() {
                   description={s.description}
                   statusBadge={SKILL_STATUS_BADGE[s.status ?? "published"]}
                   checked={s.mounted}
+                  helperText={orgMemorySkillHints.get(s.id)}
                   onToggle={(checked) => toggleSkillMount(s.id, checked)}
                 />
               ))}
@@ -657,6 +729,7 @@ export default function SkillsPage() {
                   description={s.description}
                   statusBadge={SKILL_STATUS_BADGE[s.status ?? "published"]}
                   checked={s.mounted}
+                  helperText={orgMemorySkillHints.get(s.id)}
                   onToggle={(checked) => toggleSkillMount(s.id, checked)}
                 />
               ))}

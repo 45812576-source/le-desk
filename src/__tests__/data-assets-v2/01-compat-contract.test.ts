@@ -7,19 +7,13 @@ import { describe, it, expect } from "vitest";
 import type {
   TableFieldDetail,
   TableDetail,
-  DisclosureLevel,
 } from "@/app/(app)/data/components/shared/types";
 import {
   makeField,
-  makePolicy,
-  makeTableDetail,
-  makeView,
 } from "../fixtures/data-assets";
 import {
   makeV2TableA,
   makeRiskAssessment,
-  makeSourceProfile,
-  makeSmallSampleProtection,
   type RiskAssessment,
   type SourceProfile,
   type SmallSampleProtection,
@@ -135,7 +129,7 @@ describe("§1 兼容与契约", () => {
   describe("C-04 API 契约快照稳定性", () => {
     it("TableDetail 包含所有 V2 必需字段", () => {
       const detail = makeV2TableA();
-      const requiredKeys: (keyof TableDetail)[] = [
+      const requiredKeys: Array<keyof TableDetail & string> = [
         "id", "table_name", "display_name", "description", "folder_id",
         "source_type", "fields", "views", "bindings",
         "role_groups", "permission_policies", "skill_grants",

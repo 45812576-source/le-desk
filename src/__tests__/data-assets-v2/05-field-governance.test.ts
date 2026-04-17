@@ -5,13 +5,9 @@
  * 未归档闭环、自动归档不落库、低置信度提示。
  */
 import { describe, it, expect } from "vitest";
-import type {
-  TableFieldDetail,
-  FieldValueDictionary,
-} from "@/app/(app)/data/components/shared/types";
-import { makeField, makeTableDetail } from "../fixtures/data-assets";
+import type { FieldValueDictionary } from "@/app/(app)/data/components/shared/types";
+import { makeTableDetail } from "../fixtures/data-assets";
 import {
-  V2_FIELDS_A,
   makeV2TableA,
 } from "../fixtures/data-assets-v2";
 
@@ -39,6 +35,7 @@ interface ArchiveSuggestion {
 }
 
 function shouldAutoAccept(suggestion: ArchiveSuggestion): boolean {
+  void suggestion;
   // 不允许自动落库
   return false;
 }

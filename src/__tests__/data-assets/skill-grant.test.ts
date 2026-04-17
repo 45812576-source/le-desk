@@ -14,9 +14,7 @@ import {
   FIELDS,
   POLICIES,
   SKILL_GRANTS,
-  VIEWS,
   makeGrant,
-  makePolicy,
 } from "../fixtures/data-assets";
 
 // ─── Skill 授权检查逻辑 ──────────────────────────────────────────────────────

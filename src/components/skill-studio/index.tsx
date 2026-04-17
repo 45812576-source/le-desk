@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { PanelRightOpen, PanelRightClose, Pin } from "lucide-react";
+import { PanelRightOpen, PanelRightClose, Pin, ShieldCheck } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 import { consumeSandboxSessionStream } from "@/lib/sandbox-stream";
 import type { SkillDetail, SkillMemo, SandboxReport } from "@/lib/types";
@@ -17,6 +17,7 @@ import { SkillList, SkillIcon } from "./SkillList";
 import { PromptEditor } from "./PromptEditor";
 import { StudioChat } from "./StudioChat";
 import { AssetFileEditor } from "./AssetFileEditor";
+import { SkillGovernancePanel } from "./SkillGovernancePanel";
 import { normalizeStagedEditPayload } from "./utils";
 import { normalizeWorkflowCardPayload, parseWorkflowStatePayload } from "./workflow-adapter";
 import type { WorkflowStateData } from "./workflow-protocol";
@@ -57,6 +58,7 @@ export function SkillStudio({
   const [showImportModal, setShowImportModal] = useState(false);
   const [skillListCollapsed, setSkillListCollapsed] = useState(false);
   const [showSandbox, setShowSandbox] = useState<number | null>(null);
+  const [showGovernancePanel, setShowGovernancePanel] = useState(false);
   const [memo, setMemo] = useState<SkillMemo | null>(null);
   const [sandboxEntryHandled, setSandboxEntryHandled] = useState(false);
   const [memoSyncError, setMemoSyncError] = useState<string | null>(null);
@@ -347,10 +349,18 @@ export function SkillStudio({
 
   const [skillRefreshCounter, setSkillRefreshCounter] = useState(0);
 
-  async function refreshSkill(skillId: number) {
+  async function refreshSkill(skillId: number, options?: { syncPrompt?: boolean }) {
     try {
       const updated = await apiFetch<SkillDetail>(`/skills/${skillId}`);
       setSkills((prev) => prev.map((s) => s.id === skillId ? { ...s, ...updated } : s));
+      if (options?.syncPrompt && selectedFile?.skillId === skillId) {
+        const latestPrompt = updated.versions?.[0]?.system_prompt ?? updated.system_prompt ?? "";
+        setSavedPrompt(latestPrompt);
+        if (!editorIsDirty || selectedFile.fileType !== "prompt") {
+          setPrompt(latestPrompt);
+          setPendingDiffBase(null);
+        }
+      }
       setSkillRefreshCounter((c) => c + 1);
     } catch { /* ignore */ }
   }
@@ -376,13 +386,6 @@ export function SkillStudio({
       .catch(() => {})
       .finally(() => fetchSkills());
   }, [fetchSkills]);
-
-  function handleNew() {
-    setSelectedFile(null);
-    setIsNew(true);
-    setPrompt("");
-    setSavedPrompt("");
-  }
 
   async function handleNewFromList(name: string) {
     const created = await apiFetch<SkillDetail>("/skills", {
@@ -538,6 +541,20 @@ export function SkillStudio({
                 : "选择或新建 Skill 开始"}
         </span>
         <div className="ml-auto" />
+        {selectedSkill && (
+          <button
+            type="button"
+            onClick={() => setShowGovernancePanel((prev) => !prev)}
+            className={`text-[8px] font-bold uppercase tracking-widest border px-2 py-1 flex items-center gap-1 transition-colors ${
+              showGovernancePanel
+                ? "border-[#00A3C4] bg-[#00A3C4] text-white"
+                : "border-[#00A3C4]/40 text-[#00A3C4] bg-white hover:bg-[#00A3C4]/10"
+            }`}
+          >
+            <ShieldCheck size={10} />
+            权限助手
+          </button>
+        )}
       </div>
 
       {/* 工程文件区共用提示 */}
@@ -647,6 +664,16 @@ export function SkillStudio({
           }}
           editorExpanded={editorExpanded}
         />
+
+        {showGovernancePanel && selectedSkill && (
+          <div className="flex-shrink-0 border-l-2 border-[#1A202C] overflow-hidden">
+            <SkillGovernancePanel
+              skill={selectedSkill}
+              onClose={() => setShowGovernancePanel(false)}
+              onSkillMounted={() => refreshSkill(selectedSkill.id, { syncPrompt: true })}
+            />
+          </div>
+        )}
 
         {/* Right: Collapsible editor panel */}
         <div

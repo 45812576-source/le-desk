@@ -6,24 +6,14 @@
 import { describe, it, expect } from "vitest";
 import type {
   TableFieldDetail,
-  TablePermissionPolicy,
-  TableViewDetail,
-  SkillDataGrant,
   DisclosureLevel,
   FieldAccessMode,
-  RowAccessMode,
 } from "@/app/(app)/data/components/shared/types";
 import {
-  makeField,
   makePolicy,
   makeView,
   makeGrant,
-  makeRoleGroup,
-  makeTableDetail,
   FIELDS,
-  ROLE_GROUPS,
-  POLICIES,
-  VIEWS,
   SKILL_GRANTS,
 } from "../fixtures/data-assets";
 
@@ -209,7 +199,6 @@ describe("反向提权", () => {
     });
     // blocklist 不排除任何字段，但 system 字段仍需单独过滤
     const visible = resolveVisibleFields(FIELDS, policy);
-    const systemFields = visible.filter((f) => f.is_system);
     // blocklist 模式下 system 字段不受 blocklist 逻辑管理
     // 但 "all" mode 会过滤 is_system — 这里 blocklist 不自动过滤 system
     // 验证 system 字段 id=1,12 是否在结果中（blocklist 不过滤 system 字段，需业务层处理）

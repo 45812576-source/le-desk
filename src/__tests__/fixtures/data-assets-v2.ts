@@ -11,9 +11,7 @@ import type {
   TablePermissionPolicy,
   SkillDataGrant,
   TableViewDetail,
-  FieldValueDictionary,
   SkillBindingDetail,
-  DisclosureLevel,
 } from "@/app/(app)/data/components/shared/types";
 import { makeField, makePolicy, makeRoleGroup, makeView, makeGrant, makeTableDetail } from "./data-assets";
 

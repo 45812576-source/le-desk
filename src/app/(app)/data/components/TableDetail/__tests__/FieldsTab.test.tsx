@@ -29,7 +29,7 @@ vi.mock("@/components/pixel/PixelButton", () => ({
 }));
 
 import FieldsTab from "../FieldsTab";
-import { makeTableDetail, FIELDS, ENUM_DICTIONARY } from "@/__tests__/fixtures/data-assets";
+import { makeTableDetail, ENUM_DICTIONARY } from "@/__tests__/fixtures/data-assets";
 
 describe("FieldsTab", () => {
   const onRefresh = vi.fn();
@@ -77,7 +77,7 @@ describe("FieldsTab", () => {
 
   it("敏感字段显示敏感标记", () => {
     const detail = makeTableDetail();
-    const { container } = render(<FieldsTab detail={detail} onRefresh={onRefresh} />);
+    render(<FieldsTab detail={detail} onRefresh={onRefresh} />);
     // 姓名、手机号、身份证号都标记为敏感
     const sensitiveMarks = screen.getAllByText(/敏感/);
     expect(sensitiveMarks.length).toBeGreaterThanOrEqual(3);

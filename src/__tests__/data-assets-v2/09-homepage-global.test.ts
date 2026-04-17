@@ -4,7 +4,6 @@
  * H-01 ~ H-03：KPI 数据准确、风险摘要联动、快捷筛选正确性。
  */
 import { describe, it, expect } from "vitest";
-import { makeTableDetail } from "../fixtures/data-assets";
 import {
   makeV2TableA,
   makeV2TableB,

@@ -6,11 +6,7 @@
 import { describe, it, expect } from "vitest";
 import {
   makeSourceProfile,
-  makeRiskAssessment,
-  makeV2TableC,
   type SourceProfile,
-  type RiskAssessment,
-  type RiskFactor,
 } from "../fixtures/data-assets-v2";
 
 // ─── 纯函数 ─────────────────────────────────────────────────────────────────

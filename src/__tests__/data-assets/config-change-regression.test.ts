@@ -7,21 +7,16 @@ import { describe, it, expect } from "vitest";
 import type {
   TableFieldDetail,
   TablePermissionPolicy,
-  TableViewDetail,
-  TableRoleGroup,
   DisclosureLevel,
   FieldAccessMode,
 } from "@/app/(app)/data/components/shared/types";
 import {
-  makeField,
   makePolicy,
   makeView,
   makeRoleGroup,
   makeTableDetail,
   FIELDS,
   ROLE_GROUPS,
-  POLICIES,
-  VIEWS,
 } from "../fixtures/data-assets";
 
 // ─── 辅助函数 ───────────────────────────────────────────────────────────────
@@ -156,13 +151,11 @@ describe("配置变更回归", () => {
   it("view_kind 从 list 改为 metric 后 disclosure 被 cap", () => {
     // list 无限制
     const listView = makeView({ view_kind: "list", disclosure_ceiling: null });
-    // metric 最高 L2
-    const metricView = makeView({ view_kind: "metric", disclosure_ceiling: null });
 
     const policyLevel: DisclosureLevel = "L4";
 
     // list: 不受 view_kind 限制
-    const listCap = listView.disclosure_ceiling;
+    expect(listView.disclosure_ceiling).toBeNull();
     // metric: cap 到 L2
     const metricMaxDisclosure: DisclosureLevel = "L2"; // VIEW_KIND_CONSTRAINTS.metric.max_disclosure
     const effectiveMetric = disclosureIndex(policyLevel) <= disclosureIndex(metricMaxDisclosure)

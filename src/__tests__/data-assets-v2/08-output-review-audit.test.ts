@@ -9,7 +9,6 @@ import {
   V2_FIELDS_A,
   V2_SKILL_GRANTS,
   makeOutputReviewLog,
-  type OutputReviewLog,
   type OutputReviewAction,
 } from "../fixtures/data-assets-v2";
 

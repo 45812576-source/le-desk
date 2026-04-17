@@ -15,7 +15,7 @@
  * 注意：本文件定义 contract，部分用例在后端 API 未就绪时会 fail。
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, waitFor, act } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import "@testing-library/jest-dom";
 
 // ── Mock 依赖 ─────────────────────────────────────────────────────────────────
@@ -40,12 +40,6 @@ vi.mock("yjs", () => {
     encodeStateAsUpdate: vi.fn(() => new Uint8Array([1, 2, 3])),
   };
 });
-
-// Mock tiptap — 所有扩展需要 configure/extend 方法
-function mockExt() {
-  const ext = { configure: () => ext, extend: () => ext };
-  return ext;
-}
 
 vi.mock("@tiptap/react", () => ({
   useEditor: vi.fn(() => null),
@@ -155,7 +149,7 @@ class MockWebSocket {
   send = vi.fn();
   close = vi.fn();
 
-  constructor(_url: string) {
+  constructor() {
     setTimeout(() => this.onopen?.(), 0);
   }
 }

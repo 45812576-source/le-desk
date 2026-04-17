@@ -8,7 +8,7 @@
  */
 import { describe, it, expect } from "vitest";
 import { normalizeTableDetail } from "@/app/(app)/data/components/shared/normalize";
-import type { TableDetailV2, SensitivityLevel } from "@/app/(app)/data/components/shared/types";
+import type { TableDetailV2 } from "@/app/(app)/data/components/shared/types";
 import { makeField, makeTableDetail } from "../fixtures/data-assets";
 
 // 复制 checkApprovalRequired 纯逻辑

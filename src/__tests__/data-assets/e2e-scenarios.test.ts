@@ -7,23 +7,17 @@
 import { describe, it, expect } from "vitest";
 import type {
   TableDetail,
-  DisclosureLevel,
   TableFieldDetail,
-  SkillDataGrant,
   TablePermissionPolicy,
 } from "@/app/(app)/data/components/shared/types";
 import {
   makeTableDetail,
   makeField,
-  makeRoleGroup,
   makePolicy,
   makeGrant,
-  makeView,
   makeUnfiledTable,
   FIELDS,
-  ROLE_GROUPS,
   POLICIES,
-  VIEWS,
   SKILL_GRANTS,
 } from "../fixtures/data-assets";
 
@@ -81,8 +75,6 @@ describe("场景1: 飞书同步表导入闭环", () => {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 describe("场景2: 分析师 vs 高管 vs 审批Skill 权限差异", () => {
-  const detail = makeTableDetail();
-
   it("分析师（销售组）— L3 脱敏，看全字段但敏感脱敏", () => {
     const policy = POLICIES.find((p) => p.role_group_id === 2)!;
     expect(policy.disclosure_level).toBe("L3");

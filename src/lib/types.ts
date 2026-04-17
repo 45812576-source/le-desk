@@ -1538,6 +1538,247 @@ export interface OrgRosterUser {
   avatar_url: string | null;
 }
 
+// ─── 组织 Memory ────────────────────────────────────────────────────────────
+
+export type OrgMemorySourceType = "feishu_doc" | "notion" | "markdown" | "upload";
+export type OrgMemoryParseStatus = "ready" | "processing" | "warning" | "failed";
+export type OrgMemoryProposalStatus =
+  | "draft"
+  | "pending_approval"
+  | "approved"
+  | "rejected"
+  | "partially_approved";
+export type OrgMemoryScope =
+  | "self"
+  | "manager_chain"
+  | "department"
+  | "cross_department"
+  | "company";
+export type OrgMemoryUsagePurpose =
+  | "execution"
+  | "management_review"
+  | "training"
+  | "knowledge_reuse"
+  | "llm_qa";
+export type OrgMemoryRedactionMode = "raw" | "masked" | "summary" | "pattern_only";
+
+export interface OrgMemoryEvidenceRef {
+  label: string;
+  section: string;
+  excerpt: string;
+}
+
+export interface OrgMemorySource {
+  id: number;
+  title: string;
+  source_type: OrgMemorySourceType;
+  source_uri: string;
+  owner_name: string;
+  external_version: string | null;
+  fetched_at: string | null;
+  ingest_status: OrgMemoryParseStatus;
+  latest_snapshot_version: string | null;
+  latest_parse_note: string | null;
+}
+
+export interface OrgMemoryUnit {
+  id: number;
+  name: string;
+  unit_type: "org" | "department";
+  parent_name: string | null;
+  leader_name: string | null;
+  responsibilities: string[];
+  evidence_refs: OrgMemoryEvidenceRef[];
+}
+
+export interface OrgMemoryRoleProfile {
+  id: number;
+  name: string;
+  department_name: string;
+  responsibilities: string[];
+  evidence_refs: OrgMemoryEvidenceRef[];
+}
+
+export interface OrgMemoryPersonProfile {
+  id: number;
+  name: string;
+  department_name: string;
+  role_name: string;
+  manager_name: string | null;
+  employment_status: string;
+  evidence_refs: OrgMemoryEvidenceRef[];
+}
+
+export interface OrgMemoryOkrItem {
+  id: number;
+  owner_name: string;
+  period: string;
+  objective: string;
+  key_results: string[];
+  evidence_refs: OrgMemoryEvidenceRef[];
+}
+
+export interface OrgMemoryProcess {
+  id: number;
+  owner_name: string;
+  name: string;
+  participants: string[];
+  outputs: string[];
+  risk_points: string[];
+  evidence_refs: OrgMemoryEvidenceRef[];
+}
+
+export interface OrgMemorySnapshot {
+  id: number;
+  source_id: number;
+  source_title: string;
+  snapshot_version: string;
+  parse_status: OrgMemoryParseStatus;
+  confidence_score: number;
+  created_at: string;
+  summary: string;
+  entity_counts: {
+    units: number;
+    roles: number;
+    people: number;
+    okrs: number;
+    processes: number;
+  };
+  units: OrgMemoryUnit[];
+  roles: OrgMemoryRoleProfile[];
+  people: OrgMemoryPersonProfile[];
+  okrs: OrgMemoryOkrItem[];
+  processes: OrgMemoryProcess[];
+  low_confidence_items: Array<{
+    label: string;
+    reason: string;
+  }>;
+}
+
+export interface OrgMemoryStructureChange {
+  id: number;
+  change_type: "create" | "rename" | "move" | "archive";
+  target_path: string;
+  dept_scope: string;
+  rationale: string;
+  confidence_score: number;
+}
+
+export interface OrgMemoryClassificationRule {
+  id: number;
+  target_scope: string;
+  match_signals: string[];
+  default_folder_path: string;
+  origin_scope: OrgMemoryScope;
+  allowed_scope: OrgMemoryScope;
+  usage_purpose: OrgMemoryUsagePurpose;
+  redaction_mode: OrgMemoryRedactionMode;
+  rationale: string;
+}
+
+export interface OrgMemorySkillMount {
+  id: number;
+  skill_id: number;
+  skill_name: string;
+  target_scope: string;
+  required_domains: string[];
+  max_allowed_scope: OrgMemoryScope;
+  required_redaction_mode: OrgMemoryRedactionMode;
+  decision: "allow" | "require_approval" | "deny";
+  rationale: string;
+}
+
+export interface OrgMemoryApprovalImpact {
+  id: number;
+  impact_type: string;
+  target_asset_name: string;
+  risk_reason: string;
+  requires_manual_approval: boolean;
+}
+
+export interface OrgMemoryProposal {
+  id: number;
+  snapshot_id: number;
+  title: string;
+  proposal_status: OrgMemoryProposalStatus;
+  risk_level: "high" | "medium" | "low";
+  summary: string;
+  impact_summary: string;
+  created_at: string;
+  submitted_at: string | null;
+  structure_changes: OrgMemoryStructureChange[];
+  classification_rules: OrgMemoryClassificationRule[];
+  skill_mounts: OrgMemorySkillMount[];
+  approval_impacts: OrgMemoryApprovalImpact[];
+  evidence_refs: OrgMemoryEvidenceRef[];
+  applied_config?: OrgMemoryAppliedConfig | null;
+}
+
+export interface OrgMemoryAppliedConfig {
+  id: number;
+  proposal_id: number;
+  approval_request_id: number;
+  status: "effective" | "effective_with_conditions";
+  applied_at: string;
+  knowledge_paths: string[];
+  classification_rule_count: number;
+  skill_mount_count: number;
+  conditions: unknown[];
+}
+
+export interface OrgMemoryAppliedConfigVersion extends OrgMemoryAppliedConfig {
+  version: number;
+  action: "apply" | "rollback";
+  note: string | null;
+}
+
+export interface OrgMemoryRollbackResult {
+  proposal_id: number;
+  rolled_back_config_id: number | null;
+  status: "rolled_back";
+  message: string;
+}
+
+export interface OrgMemoryProposalSubmitResult {
+  proposal_id: number;
+  approval_request_id: number | null;
+  status: string;
+  message: string | null;
+}
+
+export interface OrgMemorySourceIngestResult {
+  source_id: number;
+  status: string;
+}
+
+export interface OrgMemorySnapshotCreateResult {
+  snapshot_id: number;
+  status: string;
+}
+
+export interface OrgMemoryProposalCreateResult {
+  proposal_id: number;
+  status: string;
+}
+
+export interface OrgMemorySnapshotDiffBucket {
+  added: string[];
+  removed: string[];
+}
+
+export interface OrgMemorySnapshotDiff {
+  snapshot_id: number;
+  snapshot_version: string;
+  previous_snapshot_id: number | null;
+  previous_snapshot_version: string | null;
+  summary: string;
+  units: OrgMemorySnapshotDiffBucket;
+  roles: OrgMemorySnapshotDiffBucket;
+  people: OrgMemorySnapshotDiffBucket;
+  okrs: OrgMemorySnapshotDiffBucket;
+  processes: OrgMemorySnapshotDiffBucket;
+}
+
 // ─── 资产权限模型 ────────────────────────────────────────────────────────────
 
 export type AssetType = "knowledge_folder" | "business_table" | "data_table" | "skill" | "tool";

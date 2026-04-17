@@ -11,25 +11,17 @@ import { describe, it, expect } from "vitest";
 import type {
   TableFieldDetail,
   TablePermissionPolicy,
-  TableRoleGroup,
-  TableViewDetail,
   SkillDataGrant,
   DisclosureLevel,
-  RowAccessMode,
   FieldAccessMode,
 } from "@/app/(app)/data/components/shared/types";
 import {
   FIELDS,
-  ROLE_GROUPS,
   POLICIES,
-  VIEWS,
   SKILL_GRANTS,
-  makeField,
   makePolicy,
-  makeRoleGroup,
   makeView,
   makeGrant,
-  makeTableDetail,
 } from "../fixtures/data-assets";
 
 // ─── 权限引擎纯函数（从 PermissionPreview 提取的逻辑） ───────────────────────
@@ -315,9 +307,7 @@ describe("组合优先级测试", () => {
     const r1 = resolveEffectivePolicy(4, 2, 201, POLICIES, extraGrants);
     // 调用视图 3
     const r2 = resolveEffectivePolicy(4, 3, 201, POLICIES, extraGrants);
-    // 两者不应相同 — 证明不合并
-    // r1 基于 grant view_id=2, r2 基于 grant view_id=3
-    // （实际逻辑中按第一个匹配 grant 走，验证不扩权即可）
+    expect(r2.policy).not.toBeNull();
     expect(r1.source).toBe("skill_grant");
   });
 });

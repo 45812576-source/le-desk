@@ -23,6 +23,7 @@
 # misc
 .DS_Store
 *.pem
+/.org-memory/
 
 # debug
 npm-debug.log*

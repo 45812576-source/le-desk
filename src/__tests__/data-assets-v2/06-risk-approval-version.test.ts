@@ -4,24 +4,14 @@
  * A-01 ~ A-06：风险评分可解释、审批链路、版本回滚、影响分析。
  */
 import { describe, it, expect } from "vitest";
-import type {
-  TablePermissionPolicy,
-  DisclosureLevel,
-} from "@/app/(app)/data/components/shared/types";
-import { makePolicy, makeView } from "../fixtures/data-assets";
 import {
-  V2_FIELDS_A,
   V2_POLICIES,
   V2_VIEWS,
   V2_SKILL_GRANTS,
-  makeV2TableA,
   makeRiskAssessment,
   makeApprovalRequest,
   makePolicyVersion,
-  makeSourceProfile,
-  makeSmallSampleProtection,
   type RiskAssessment,
-  type RiskFactor,
   type ApprovalRequest,
   type PolicyVersion,
 } from "../fixtures/data-assets-v2";
@@ -65,6 +55,7 @@ function analyzeDependencies(
   policyRefs: number[];
   grantRefs: number[];
 } {
+  void grants;
   const viewRefs = views
     .filter((v) => v.visible_field_ids.includes(fieldId))
     .map((v) => v.id);

@@ -6,9 +6,6 @@
 import { describe, it, expect } from "vitest";
 import type {
   TableFieldDetail,
-  TablePermissionPolicy,
-  TableRoleGroup,
-  DisclosureLevel,
   FieldAccessMode,
 } from "@/app/(app)/data/components/shared/types";
 import {

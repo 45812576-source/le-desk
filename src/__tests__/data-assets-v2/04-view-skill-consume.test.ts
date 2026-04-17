@@ -6,15 +6,11 @@
 import { describe, it, expect } from "vitest";
 import type {
   TableViewDetail,
-  SkillDataGrant,
-  SkillBindingDetail,
   DisclosureLevel,
 } from "@/app/(app)/data/components/shared/types";
-import { makeView, makeGrant } from "../fixtures/data-assets";
+import { makeView } from "../fixtures/data-assets";
 import {
   V2_VIEWS,
-  V2_SKILL_GRANTS,
-  V2_BINDINGS,
   V2_POLICIES,
   V2_FIELDS_A,
   makeV2TableA,

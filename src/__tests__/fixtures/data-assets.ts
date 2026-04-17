@@ -11,7 +11,6 @@ import type {
   TableViewDetail,
   FieldValueDictionary,
   SkillBindingDetail,
-  DisclosureLevel,
 } from "@/app/(app)/data/components/shared/types";
 
 // ─── 字段 fixtures ────────────────────────────────────────────────────────────

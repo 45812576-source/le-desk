@@ -10,10 +10,9 @@ import type {
   FieldAccessMode,
   RowAccessMode,
 } from "@/app/(app)/data/components/shared/types";
-import { makePolicy, makeView } from "../fixtures/data-assets";
+import { makePolicy } from "../fixtures/data-assets";
 import {
   V2_POLICIES,
-  V2_VIEWS,
   V2_SKILL_GRANTS,
   makeApprovalRequest,
 } from "../fixtures/data-assets-v2";

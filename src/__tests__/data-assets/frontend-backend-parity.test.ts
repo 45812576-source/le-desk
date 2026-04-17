@@ -9,14 +9,11 @@ import type {
   TableFieldDetail,
   TablePermissionPolicy,
   TableViewDetail,
-  TableRoleGroup,
   SkillDataGrant,
   DisclosureLevel,
   FieldAccessMode,
   RowAccessMode,
   ViewKind,
-  MaskingRule,
-  FieldRoleTag,
 } from "@/app/(app)/data/components/shared/types";
 import {
   DISCLOSURE_LABELS,
@@ -28,7 +25,6 @@ import {
   makePolicy,
   makeView,
   makeGrant,
-  makeRoleGroup,
   makeTableDetail,
   FIELDS,
   ROLE_GROUPS,
