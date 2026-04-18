@@ -12,6 +12,13 @@ import { OodaDecisionView, ReadyForDraftView } from "./cards/ArchitectDecisionCa
 import { PHASE_THEME } from "./RouteStatusBar";
 import { FRAMEWORK_LABELS } from "./utils";
 
+export interface TimelineQuickAction {
+  label: string;
+  msg: string;
+  focusInput?: boolean;
+  payload?: Record<string, unknown>;
+}
+
 // ─── AuditReportCard（六维度 + 分数条 + 阶段入口）──────────────────────────
 
 const SEVERITY_COLORS: Record<string, string> = {
@@ -246,8 +253,8 @@ const MessageBubble = memo(function MessageBubble({
   isLast: boolean;
   streaming: boolean;
   streamStage: string | null;
-  quickActions?: { label: string; msg: string; focusInput?: boolean }[];
-  onQuickAction?: (action: { label: string; msg: string; focusInput?: boolean }) => void;
+  quickActions?: TimelineQuickAction[];
+  onQuickAction?: (action: TimelineQuickAction) => void;
 }) {
   const isLongAssistant = message.role === "assistant" && !message.loading && message.text && message.text.length > 200;
 
@@ -315,6 +322,7 @@ export function GovernanceTimeline({
   onDismissAudit,
   onAdoptGovernanceAction,
   onQuickAction,
+  overrideQuickActions,
   onArchitectAnswer,
   onArchitectCustom,
   onArchitectConfirm,
@@ -343,7 +351,8 @@ export function GovernanceTimeline({
   onDismissGovernance: (card: GovernanceCardData) => void;
   onDismissAudit: () => void;
   onAdoptGovernanceAction: (action: GovernanceActionCard) => void;
-  onQuickAction: (action: { label: string; msg: string; focusInput?: boolean }) => void;
+  onQuickAction: (action: TimelineQuickAction) => void;
+  overrideQuickActions?: TimelineQuickAction[] | null;
   onArchitectAnswer?: (answer: string) => void;
   onArchitectCustom?: (text: string) => void;
   onArchitectConfirm?: () => void;
@@ -368,7 +377,7 @@ export function GovernanceTimeline({
     pendingCards.length === 0 &&
     pendingGovernanceActions.length === 0 &&
     !auditResult;
-  const quickActions = [
+  const quickActions = overrideQuickActions ?? [
     { label: "补齐描述", msg: "请直接补一版用于检索、展示和审核的 Skill 描述，要求短、准、可读" },
     { label: "重写定位", msg: "请基于现有上下文，重写这个 Skill 的定位、适用对象、核心任务和边界" },
     { label: "输出草稿", msg: "信息足够了，请直接输出完整可用的 SKILL.md 草稿" },

@@ -6,6 +6,7 @@ import { apiFetch } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { loadOrgMemorySnapshots } from "@/lib/org-memory";
 import type { Department, OrgMemorySnapshot, SkillDetail } from "@/lib/types";
+import type { TestFlowDecisionMode, TestFlowEntrySource, TestFlowPlanSummary } from "@/lib/test-flow-types";
 import {
   BoundAssetsCard,
   buildDeclarationStaleReasons,
@@ -81,10 +82,20 @@ export function SkillGovernancePanel({
   skill,
   onClose,
   onSkillMounted,
+  testFlowIntent,
+  onMaterializedSession,
 }: {
   skill: SkillDetail;
   onClose: () => void;
   onSkillMounted?: () => Promise<void> | void;
+  testFlowIntent?: {
+    mode: "mount_blocked" | "choose_existing_plan" | "generate_cases";
+    entrySource: TestFlowEntrySource;
+    conversationId?: number | null;
+    triggerMessage?: string | null;
+    latestPlan?: TestFlowPlanSummary | null;
+  } | null;
+  onMaterializedSession?: (sessionId: number) => void;
 }) {
   const { user } = useAuth();
   const [summary, setSummary] = useState<GovernanceSummary | null>(null);
@@ -107,6 +118,8 @@ export function SkillGovernancePanel({
   const [materializingCases, setMaterializingCases] = useState(false);
   const [activeJob, setActiveJob] = useState<GovernanceJobProgress | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [testFlowDecisionMode, setTestFlowDecisionMode] = useState<TestFlowDecisionMode | null>(null);
+  const [testFlowAutoHandled, setTestFlowAutoHandled] = useState<string | null>(null);
   const [departments, setDepartments] = useState<Department[]>([]);
   const [positions, setPositions] = useState<PositionLite[]>([]);
   const [orgMemorySnapshots, setOrgMemorySnapshots] = useState<OrgMemorySnapshot[]>([]);
@@ -119,6 +132,13 @@ export function SkillGovernancePanel({
   const canGenerateDeclaration = useMemo(
     () => Boolean((mountContext?.roles?.length || roles.length) && (mountContext?.assets?.length || assets.length)),
     [assets.length, mountContext?.assets?.length, mountContext?.roles?.length, roles.length],
+  );
+  const testFlowIntentKey = useMemo(
+    () =>
+      testFlowIntent
+        ? `${skill.id}:${testFlowIntent.mode}:${testFlowIntent.latestPlan?.id ?? "none"}:${testFlowIntent.triggerMessage ?? ""}`
+        : null,
+    [skill.id, testFlowIntent],
   );
 
   const load = useCallback(async () => {
@@ -222,6 +242,23 @@ export function SkillGovernancePanel({
   useEffect(() => {
     load();
   }, [load]);
+
+  useEffect(() => {
+    if (!testFlowIntent) {
+      setTestFlowDecisionMode(null);
+      setTestFlowAutoHandled(null);
+      return;
+    }
+    if (testFlowIntent.mode === "choose_existing_plan") {
+      setTestFlowDecisionMode(null);
+      return;
+    }
+    if (!loading && testFlowIntent.mode === "generate_cases" && readiness?.ready && !runningCasePlanJob && testFlowAutoHandled !== testFlowIntentKey) {
+      setTestFlowDecisionMode("regenerate");
+      setTestFlowAutoHandled(testFlowIntentKey);
+      void generateCasePlan();
+    }
+  }, [generateCasePlan, loading, readiness?.ready, runningCasePlanJob, testFlowAutoHandled, testFlowIntent, testFlowIntentKey]);
 
   async function waitGovernanceJob(jobId: number | string, label: string) {
     const maxAttempts = 80;
@@ -415,7 +452,7 @@ export function SkillGovernancePanel({
     await load();
   }
 
-  async function generateCasePlan() {
+  const generateCasePlan = useCallback(async () => {
     setRunningCasePlanJob(true);
     setError(null);
     const label = casePlan ? "重新生成权限测试集" : "生成权限测试集";
@@ -442,7 +479,7 @@ export function SkillGovernancePanel({
     } finally {
       setRunningCasePlanJob(false);
     }
-  }
+  }, [casePlan, load, skill.id]);
 
   async function updateCaseDraftStatus(caseId: number, status: string) {
     if (!casePlan) return;
@@ -481,6 +518,10 @@ export function SkillGovernancePanel({
 
   async function materializeCasePlan() {
     if (!casePlan) return;
+    if (testFlowIntent?.mode === "choose_existing_plan" && !testFlowDecisionMode) {
+      setError("请先选择“复用 / 基于现有修改 / 重新生成”中的一种策略，再执行测试。");
+      return;
+    }
     setMaterializingCases(true);
     setError(null);
     const label = "Materialize 到 Sandbox";
@@ -490,11 +531,18 @@ export function SkillGovernancePanel({
         `/sandbox-case-plans/${casePlan.id}/materialize`,
         {
           method: "POST",
-          body: JSON.stringify({ sandbox_session_id: null }),
+          body: JSON.stringify({
+            sandbox_session_id: null,
+            entry_source: testFlowIntent?.entrySource || "skill_governance_panel",
+            conversation_id: testFlowIntent?.conversationId ?? null,
+            decision_mode: testFlowDecisionMode,
+            trigger_message: testFlowIntent?.triggerMessage ?? null,
+          }),
         },
       ).then(unwrap);
       setActiveJob({ label, status: "refreshing", jobId: `sandbox-session-${resp.sandbox_session_id}`, detail: "Sandbox 会话已创建，刷新复核状态" });
       await load();
+      onMaterializedSession?.(resp.sandbox_session_id);
       setActiveJob({ label, status: "done", jobId: `sandbox-session-${resp.sandbox_session_id}`, detail: `已落地到 Sandbox Session #${resp.sandbox_session_id}` });
     } catch (err) {
       setActiveJob({ label, status: "failed", detail: err instanceof Error ? err.message : "Sandbox materialize 失败" });
@@ -524,6 +572,69 @@ export function SkillGovernancePanel({
       {error && (
         <div className="px-3 py-2 bg-red-50 border-b border-red-200 text-[9px] text-red-600 font-bold">
           {error}
+        </div>
+      )}
+
+      {testFlowIntent && (
+        <div className="px-3 py-2 border-b border-[#00A3C4]/20 bg-[#F0FAFF] space-y-2">
+          <div className="text-[8px] font-bold uppercase tracking-widest text-[#00A3C4]">
+            聊天触发测试流程
+          </div>
+          {testFlowIntent.mode === "mount_blocked" && (
+            <div className="text-[9px] text-slate-600 leading-relaxed">
+              该 Skill 还未完成权限挂载，当前先进入阻断态。先补齐挂载，再继续生成测试用例。
+            </div>
+          )}
+          {testFlowIntent.mode === "choose_existing_plan" && (
+            <>
+              <div className="text-[9px] text-slate-600 leading-relaxed">
+                检测到最近一版测试用例。先选择处理方式，再继续编辑或执行。
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => setTestFlowDecisionMode("reuse")}
+                  className={`px-2 py-1 text-[8px] font-bold border ${
+                    testFlowDecisionMode === "reuse"
+                      ? "border-[#00A3C4] bg-[#00A3C4] text-white"
+                      : "border-[#00A3C4]/40 text-[#00A3C4] bg-white"
+                  }`}
+                >
+                  复用
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setTestFlowDecisionMode("revise")}
+                  className={`px-2 py-1 text-[8px] font-bold border ${
+                    testFlowDecisionMode === "revise"
+                      ? "border-[#00A3C4] bg-[#00A3C4] text-white"
+                      : "border-[#00A3C4]/40 text-[#00A3C4] bg-white"
+                  }`}
+                >
+                  基于现有修改
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setTestFlowDecisionMode("regenerate");
+                    void generateCasePlan();
+                  }}
+                  className={`px-2 py-1 text-[8px] font-bold border ${
+                    testFlowDecisionMode === "regenerate"
+                      ? "border-[#1A202C] bg-[#1A202C] text-white"
+                      : "border-[#1A202C] text-[#1A202C] bg-white"
+                  }`}
+                >
+                  重新生成
+                </button>
+              </div>
+            </>
+          )}
+          {testFlowIntent.mode === "generate_cases" && (
+            <div className="text-[9px] text-slate-600 leading-relaxed">
+              已切到执行型测试流程。面板会直接产出测试用例草案，你确认后再执行测试。
+            </div>
+          )}
         </div>
       )}
 

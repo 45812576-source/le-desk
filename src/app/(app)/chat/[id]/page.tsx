@@ -6,13 +6,17 @@ import { apiFetch } from "@/lib/api";
 import { useChatStore, subscribeConvStream, getConvStreamSnapshot } from "@/lib/chat-store";
 import { connectionManager } from "@/lib/connection";
 import type { ConnectionState } from "@/lib/connection";
-import type { ContentBlock, SandboxReport, SandboxSession } from "@/lib/types";
+import type { ContentBlock, SandboxReport, SandboxSession, SkillDetail } from "@/lib/types";
 import { MessageBubble } from "@/components/chat/MessageBubble";
 import { ChatInput } from "@/components/chat/ChatInput";
 import { DevStudio } from "@/components/chat/DevStudio";
 import { SkillStudio } from "@/components/chat/SkillStudio";
+import { SandboxTestModal } from "@/components/skill/SandboxTestModal";
+import { SkillGovernancePanel } from "@/components/skill-studio/SkillGovernancePanel";
 import { useTheme } from "@/lib/theme";
 import { isEditableSkillStatus, isPublishedSkillStatus } from "@/lib/skill-status";
+import { findMentionedSkillIds } from "@/lib/test-flow-client";
+import type { TestFlowResolveResponse, TestFlowSkillCandidate } from "@/lib/test-flow-types";
 
 // Module-level workspace cache — survives route navigation
 type WorkspaceData = { workspace_type?: string; welcome_message?: string; skills: { id: number; name: string; description?: string; status?: string }[]; tools: { id: number; name: string; display_name: string; description?: string; tool_type?: string }[] };
@@ -23,6 +27,10 @@ interface SandboxHistoryItem extends SandboxSession {
   report_created_at: string | null;
   report_knowledge_entry_id: number | null;
   report_hash: string | null;
+  source_case_plan_id?: number | null;
+  source_case_plan_version?: number | null;
+  test_entry_source?: string | null;
+  test_decision_mode?: string | null;
 }
 
 const STAGE_LABELS: Record<string, string> = {
@@ -95,6 +103,50 @@ function stepLabel(step: string): string {
     case "done": return "已结束";
     default: return step;
   }
+}
+
+function SandboxTestFlowPromptCard({
+  candidates,
+  onPick,
+  onDismiss,
+}: {
+  candidates: TestFlowSkillCandidate[];
+  onPick: (skillId: number) => void;
+  onDismiss: () => void;
+}) {
+  return (
+    <div className="mb-3 border-2 border-[#00A3C4] bg-[#F0FAFF] p-3">
+      <div className="flex items-center justify-between gap-2">
+        <div>
+          <div className="text-[9px] font-bold uppercase tracking-widest text-[#00A3C4]">
+            选择待测 Skill
+          </div>
+          <div className="text-[9px] text-slate-500 mt-1">
+            当前消息命中了多个 Skill。先选 1 个目标，再直接进入测试用例流程。
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={onDismiss}
+          className="px-2 py-1 text-[8px] font-bold uppercase tracking-widest border border-[#1A202C] bg-white text-[#1A202C]"
+        >
+          关闭
+        </button>
+      </div>
+      <div className="flex flex-wrap gap-1.5 mt-3">
+        {candidates.map((skill) => (
+          <button
+            key={skill.id}
+            type="button"
+            onClick={() => onPick(skill.id)}
+            className="px-2 py-1 text-[9px] font-bold border-2 border-[#00A3C4] bg-white text-[#00A3C4] hover:bg-[#CCF2FF] transition-colors"
+          >
+            {skill.name}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
 }
 
 /* ── Status Indicator ── */
@@ -453,6 +505,24 @@ export default function ChatDetailPage() {
   const [selectedHistorySessionId, setSelectedHistorySessionId] = useState<number | null>(null);
   const [selectedHistorySession, setSelectedHistorySession] = useState<SandboxSession | null>(null);
   const [selectedHistoryReport, setSelectedHistoryReport] = useState<SandboxReport | null>(null);
+  const [sandboxTestFlowPrompt, setSandboxTestFlowPrompt] = useState<{
+    resolved: TestFlowResolveResponse;
+    content: string;
+  } | null>(null);
+  const [sandboxGovernanceSkill, setSandboxGovernanceSkill] = useState<SkillDetail | null>(null);
+  const [sandboxGovernanceLoading, setSandboxGovernanceLoading] = useState(false);
+  const [sandboxTestFlowIntent, setSandboxTestFlowIntent] = useState<{
+    mode: "mount_blocked" | "choose_existing_plan" | "generate_cases";
+    entrySource: "sandbox_chat";
+    conversationId: number;
+    triggerMessage: string;
+    latestPlan: TestFlowResolveResponse["latest_plan"];
+  } | null>(null);
+  const [sandboxTestSessionModal, setSandboxTestSessionModal] = useState<{
+    skillId: number;
+    skillName: string;
+    sessionId: number;
+  } | null>(null);
   const visibleWorkspaceSkills = useMemo(
     () => workspaceSkills.filter((skill) => !skill.status || isPublishedSkillStatus(skill.status)),
     [workspaceSkills],
@@ -691,6 +761,68 @@ export default function ChatDetailPage() {
     }
   }
 
+  const openSandboxGovernancePanel = useCallback(async (
+    skillId: number,
+    intent: {
+      mode: "mount_blocked" | "choose_existing_plan" | "generate_cases";
+      triggerMessage: string;
+      latestPlan: TestFlowResolveResponse["latest_plan"];
+    },
+  ) => {
+    setSandboxGovernanceLoading(true);
+    try {
+      const skill = await apiFetch<SkillDetail>(`/skills/${skillId}`);
+      setSandboxGovernanceSkill(skill);
+      setSandboxTestFlowIntent({
+        mode: intent.mode,
+        entrySource: "sandbox_chat",
+        conversationId: convId,
+        triggerMessage: intent.triggerMessage,
+        latestPlan: intent.latestPlan,
+      });
+    } finally {
+      setSandboxGovernanceLoading(false);
+    }
+  }, [convId]);
+
+  const startSandboxTestFlow = useCallback(async (content: string, overrideSkillId?: number | null) => {
+    const candidateSkills = sandboxSkills.map((skill) => ({
+      id: skill.id,
+      name: skill.name,
+      status: skill.status,
+    }));
+    const mentionedSkillIds = findMentionedSkillIds(content, candidateSkills);
+    const response = await apiFetch<{ ok: boolean; data: TestFlowResolveResponse }>("/test-flow/resolve-entry", {
+      method: "POST",
+      body: JSON.stringify({
+        entry_source: "sandbox_chat",
+        conversation_id: convId,
+        content,
+        selected_skill_id: overrideSkillId ?? sandboxSkillId ?? null,
+        mentioned_skill_ids: mentionedSkillIds,
+        candidate_skills: candidateSkills,
+      }),
+    });
+    const resolved = response.data;
+    if (resolved.action === "pick_skill") {
+      setSandboxTestFlowPrompt({ resolved, content });
+      return true;
+    }
+    if (resolved.action === "chat_default") {
+      setSandboxTestFlowPrompt(null);
+      return false;
+    }
+    const skillId = resolved.skill?.id ?? overrideSkillId ?? sandboxSkillId;
+    if (!skillId) return false;
+    setSandboxTestFlowPrompt(null);
+    await openSandboxGovernancePanel(skillId, {
+      mode: resolved.action,
+      triggerMessage: content,
+      latestPlan: resolved.latest_plan ?? null,
+    });
+    return true;
+  }, [convId, openSandboxGovernancePanel, sandboxSkillId, sandboxSkills]);
+
   // Esc to stop generation
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
@@ -706,7 +838,7 @@ export default function ChatDetailPage() {
 
   /* ── Send message via store ── */
 
-  async function handleSend(content: string, files?: File[], toolId?: number, multiFiles?: Record<string, File>) {
+  async function sendConversationMessage(content: string, files?: File[], toolId?: number, multiFiles?: Record<string, File>) {
     await useChatStore.getState().sendMessage(convId, content, {
       activeSkillIds: enabledSkillIds !== null ? Array.from(enabledSkillIds) : undefined,
       toolId,
@@ -714,6 +846,24 @@ export default function ChatDetailPage() {
       multiFiles,
       forceSkillId: workspaceType === "sandbox" && sandboxSkillId ? sandboxSkillId : undefined,
     });
+  }
+
+  async function handleSend(content: string, files?: File[], toolId?: number, multiFiles?: Record<string, File>) {
+    const hasFiles = Boolean(files && files.length > 0);
+    const hasMultiFiles = Boolean(multiFiles && Object.keys(multiFiles).length > 0);
+    if (workspaceType !== "sandbox" || hasFiles || hasMultiFiles || toolId) {
+      await sendConversationMessage(content, files, toolId, multiFiles);
+      return;
+    }
+
+    try {
+      const handled = await startSandboxTestFlow(content);
+      if (!handled) {
+        await sendConversationMessage(content, files, toolId, multiFiles);
+      }
+    } catch {
+      await sendConversationMessage(content, files, toolId, multiFiles);
+    }
   }
 
   const handleQuote = useCallback((text: string) => setQuote(text), []);
@@ -775,11 +925,27 @@ export default function ChatDetailPage() {
 
   return (
     <div
-      className={`h-full flex flex-col relative transition-colors ${isDragOver ? "bg-[#CCF2FF]/20" : ""}`}
+      className={`h-full flex flex-col relative transition-colors ${isDragOver ? "bg-[#CCF2FF]/20" : ""} ${sandboxGovernanceSkill ? "pr-[420px]" : ""}`}
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
     >
+      {sandboxTestSessionModal && (
+        <SandboxTestModal
+          type="skill"
+          id={sandboxTestSessionModal.skillId}
+          name={sandboxTestSessionModal.skillName}
+          initialSessionId={sandboxTestSessionModal.sessionId}
+          onPassed={() => {
+            setSandboxTestSessionModal(null);
+            void loadSandboxHistory();
+          }}
+          onCancel={() => {
+            setSandboxTestSessionModal(null);
+            void loadSandboxHistory();
+          }}
+        />
+      )}
       <SandboxHistoryModal
         open={historyOpen}
         loading={historyLoading}
@@ -853,6 +1019,25 @@ export default function ChatDetailPage() {
 
       {/* Messages area */}
       <div ref={scrollRef} className="flex-1 overflow-y-auto p-4">
+        {sandboxTestFlowPrompt?.resolved.action === "pick_skill" && sandboxTestFlowPrompt.resolved.candidates && (
+          <SandboxTestFlowPromptCard
+            candidates={sandboxTestFlowPrompt.resolved.candidates}
+            onDismiss={() => setSandboxTestFlowPrompt(null)}
+            onPick={async (skillId) => {
+              setSandboxSkillId(skillId);
+              const pendingContent = sandboxTestFlowPrompt.content;
+              setSandboxTestFlowPrompt(null);
+              try {
+                const handled = await startSandboxTestFlow(pendingContent, skillId);
+                if (!handled) {
+                  await sendConversationMessage(pendingContent, undefined, undefined, undefined);
+                }
+              } catch {
+                await sendConversationMessage(pendingContent, undefined, undefined, undefined);
+              }
+            }}
+          />
+        )}
         {messages.length === 0 && !isSending && workspaceType !== undefined && (
           <div className="h-full flex flex-col items-center justify-center px-8">
             {workspaceType === "sandbox" ? (
@@ -1053,6 +1238,32 @@ export default function ChatDetailPage() {
         prefill={prefill}
         onClearPrefill={() => setPrefill(null)}
       />
+
+      {(sandboxGovernanceSkill || sandboxGovernanceLoading) && (
+        <div className="absolute inset-y-0 right-0 z-20 w-[420px] border-l-2 border-[#1A202C] bg-white">
+          {sandboxGovernanceLoading || !sandboxGovernanceSkill ? (
+            <div className="h-full flex items-center justify-center text-[10px] font-bold uppercase tracking-widest text-[#00A3C4]">
+              加载测试流程...
+            </div>
+          ) : (
+            <SkillGovernancePanel
+              skill={sandboxGovernanceSkill}
+              testFlowIntent={sandboxTestFlowIntent}
+              onClose={() => {
+                setSandboxGovernanceSkill(null);
+                setSandboxTestFlowIntent(null);
+              }}
+              onMaterializedSession={(sessionId) => {
+                setSandboxTestSessionModal({
+                  skillId: sandboxGovernanceSkill.id,
+                  skillName: sandboxGovernanceSkill.name,
+                  sessionId,
+                });
+              }}
+            />
+          )}
+        </div>
+      )}
     </div>
   );
 }

@@ -25,6 +25,11 @@ import {
   rememberSkillGovernanceBackendResponse,
   resolveSkillGovernanceRequest,
 } from "@/lib/server/skill-governance-service";
+import {
+  isTestFlowManagedPath,
+  rememberTestFlowBackendResponse,
+  resolveTestFlowRequest,
+} from "@/lib/server/test-flow-service";
 
 export const maxDuration = 1800;
 
@@ -121,6 +126,7 @@ export async function handler(
   const orgMemoryProxyConfig = readOrgMemoryProxyConfig();
   const isOrgMemoryRequest = isOrgMemoryPath(targetPath);
   const isSkillGovernanceRequest = isSkillGovernanceManagedPath(targetPath);
+  const isTestFlowRequest = isTestFlowManagedPath(targetPath);
   const rolloutSubject = buildOrgMemoryRolloutSubject({
     authorization: auth,
     userAgent: request.headers.get("user-agent"),
@@ -148,6 +154,25 @@ export async function handler(
         routeTarget: "local",
       }),
     });
+  }
+
+  if (isTestFlowRequest && targetPath.startsWith("/test-flow/")) {
+    const localTestFlowResult = await resolveTestFlowRequest(request.method, targetPath, requestPayload, {
+      backendUrl: BACKEND_URL,
+      authorization: auth,
+    });
+    if (localTestFlowResult) {
+      return NextResponse.json(localTestFlowResult.body, {
+        status: localTestFlowResult.status || 200,
+        headers: buildTextHeaders({
+          respContentType: "application/json",
+          isOrgMemoryRequest,
+          orgMemoryProxyConfig,
+          rolloutBucket,
+          routeTarget,
+        }),
+      });
+    }
   }
 
   const isStreamEndpoint = targetPath.includes("/stream") || targetPath.includes("/upload-stream");
@@ -220,6 +245,24 @@ export async function handler(
         }),
       });
     }
+    const localTestFlowFallback = isTestFlowRequest && targetPath.startsWith("/test-flow/")
+      ? await resolveTestFlowRequest(request.method, targetPath, requestPayload, {
+          backendUrl: BACKEND_URL,
+          authorization: auth,
+        })
+      : null;
+    if (localTestFlowFallback) {
+      return NextResponse.json(localTestFlowFallback.body, {
+        status: localTestFlowFallback.status || 200,
+        headers: buildTextHeaders({
+          respContentType: "application/json",
+          isOrgMemoryRequest,
+          orgMemoryProxyConfig,
+          rolloutBucket,
+          routeTarget,
+        }),
+      });
+    }
     const message = err instanceof Error ? err.message : "Unknown error";
     return NextResponse.json(
       { detail: `后端服务不可达: ${message}` },
@@ -267,6 +310,24 @@ export async function handler(
     if (localSkillGovernanceFallback) {
       return NextResponse.json(localSkillGovernanceFallback.body, {
         status: localSkillGovernanceFallback.status || 200,
+        headers: buildTextHeaders({
+          respContentType: "application/json",
+          isOrgMemoryRequest,
+          orgMemoryProxyConfig,
+          rolloutBucket,
+          routeTarget,
+        }),
+      });
+    }
+    const localTestFlowFallback = isTestFlowRequest && targetPath.startsWith("/test-flow/")
+      ? await resolveTestFlowRequest(request.method, targetPath, requestPayload, {
+          backendUrl: BACKEND_URL,
+          authorization: auth,
+        })
+      : null;
+    if (localTestFlowFallback) {
+      return NextResponse.json(localTestFlowFallback.body, {
+        status: localTestFlowFallback.status || 200,
         headers: buildTextHeaders({
           respContentType: "application/json",
           isOrgMemoryRequest,
@@ -340,25 +401,38 @@ export async function handler(
     }
   }
 
-  if (isSkillGovernanceRequest && respContentType.includes("json")) {
+  if ((isSkillGovernanceRequest || isTestFlowRequest) && respContentType.includes("json")) {
     try {
-      const managedResponse = await rememberSkillGovernanceBackendResponse({
-        method: request.method,
-        pathname: targetPath,
-        backendBody: JSON.parse(respBody),
-        requestPayload,
-      });
-      if (managedResponse) {
-        return NextResponse.json(managedResponse.body, {
-          status: managedResponse.status || resp.status,
-          headers: buildTextHeaders({
-            respContentType,
-            isOrgMemoryRequest,
-            orgMemoryProxyConfig,
-            rolloutBucket,
-            routeTarget,
-          }),
-        });
+      const parsedBody = JSON.parse(respBody);
+      const managedSkillGovernanceResponse = isSkillGovernanceRequest
+        ? await rememberSkillGovernanceBackendResponse({
+            method: request.method,
+            pathname: targetPath,
+            backendBody: parsedBody,
+            requestPayload,
+          })
+        : null;
+      const testFlowDecoratedBody = isTestFlowRequest
+        ? await rememberTestFlowBackendResponse({
+            method: request.method,
+            pathname: targetPath,
+            backendBody: managedSkillGovernanceResponse?.body ?? parsedBody,
+            requestPayload,
+          })
+        : managedSkillGovernanceResponse?.body ?? parsedBody;
+      if (managedSkillGovernanceResponse || testFlowDecoratedBody !== parsedBody) {
+        return NextResponse.json(
+          managedSkillGovernanceResponse?.body ?? testFlowDecoratedBody,
+          {
+            status: managedSkillGovernanceResponse?.status || resp.status,
+            headers: buildTextHeaders({
+              respContentType,
+              isOrgMemoryRequest,
+              orgMemoryProxyConfig,
+              rolloutBucket,
+              routeTarget,
+            }),
+          });
       }
     } catch {
     }
