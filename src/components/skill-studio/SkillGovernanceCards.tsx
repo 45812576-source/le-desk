@@ -532,6 +532,7 @@ function staleReasonLabel(code: string) {
     bound_assets_changed: "绑定资产已变更，需重新生成权限声明。",
     role_asset_policies_changed: "岗位 × 资产默认策略已变更，需重新生成权限声明。",
     high_risk_rules_changed: "高风险字段 / Chunk 规则已变更，需重新生成权限声明。",
+    role_package_changed: "角色 package 已变更，需重新生成权限声明与测试计划。",
     skill_declaration_section_modified: "Skill 中权限声明段落已被手动修改，需重新生成权限声明。",
   };
   return labels[code] || code;
@@ -1635,7 +1636,6 @@ export function GranularRulesCard({
 }
 
 export function PermissionDeclarationCard({
-  bundle,
   declaration,
   running,
   mounting,
@@ -1645,7 +1645,6 @@ export function PermissionDeclarationCard({
   onMount,
   onSaveText,
 }: {
-  bundle: RolePolicyBundle | null;
   declaration: PermissionDeclaration | null;
   running: boolean;
   mounting: boolean;

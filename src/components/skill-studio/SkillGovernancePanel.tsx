@@ -568,7 +568,6 @@ export function SkillGovernancePanel({
           />
         )}
         <PermissionDeclarationCard
-          bundle={bundle}
           declaration={declaration}
           running={runningDeclarationJob}
           mounting={mountingDeclaration}

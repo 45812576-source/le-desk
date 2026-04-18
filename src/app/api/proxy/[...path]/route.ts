@@ -20,6 +20,11 @@ import {
   shouldMergeLocalApprovals,
   shouldUseLocalFallbackForStatus,
 } from "@/lib/org-memory-proxy";
+import {
+  isSkillGovernanceManagedPath,
+  rememberSkillGovernanceBackendResponse,
+  resolveSkillGovernanceRequest,
+} from "@/lib/server/skill-governance-service";
 
 export const maxDuration = 1800;
 
@@ -46,6 +51,25 @@ function parseJsonObject(text: string | undefined): Record<string, unknown> {
   } catch {
     return {};
   }
+}
+
+function buildTextHeaders(input: {
+  respContentType: string;
+  isOrgMemoryRequest: boolean;
+  orgMemoryProxyConfig: ReturnType<typeof readOrgMemoryProxyConfig>;
+  rolloutBucket: number | null;
+  routeTarget: "backend" | "local" | null;
+}) {
+  const headers: Record<string, string> = {
+    "Content-Type": input.respContentType || "application/json",
+  };
+  if (input.isOrgMemoryRequest) {
+    Object.assign(headers, buildOrgMemoryResponseHeaders(input.orgMemoryProxyConfig, "backend", {
+      bucket: input.rolloutBucket,
+      routeTarget: input.routeTarget || "backend",
+    }));
+  }
+  return headers;
 }
 
 export async function handler(
@@ -86,7 +110,6 @@ export async function handler(
   if (request.method === "GET" || request.method === "HEAD") {
     body = undefined;
   } else if (isMultipart) {
-    // Pass through the raw body + content-type (with boundary) for file uploads
     headers["Content-Type"] = contentType;
     body = await request.arrayBuffer();
   } else {
@@ -97,6 +120,7 @@ export async function handler(
   const requestPayload = parseJsonObject(typeof body === "string" ? body : undefined);
   const orgMemoryProxyConfig = readOrgMemoryProxyConfig();
   const isOrgMemoryRequest = isOrgMemoryPath(targetPath);
+  const isSkillGovernanceRequest = isSkillGovernanceManagedPath(targetPath);
   const rolloutSubject = buildOrgMemoryRolloutSubject({
     authorization: auth,
     userAgent: request.headers.get("user-agent"),
@@ -126,9 +150,6 @@ export async function handler(
     });
   }
 
-  // SSE streaming endpoints need longer timeout for AI generation.
-  // Sandbox interactive run can involve many LLM/tool-bound cases, so keep it
-  // alive longer than normal chat streams and let the backend emit progress.
   const isStreamEndpoint = targetPath.includes("/stream") || targetPath.includes("/upload-stream");
   const isLongRunEndpoint = targetPath.includes("/sandbox/interactive/") && (
     targetPath.endsWith("/run") ||
@@ -184,6 +205,21 @@ export async function handler(
         status: localApprovalFallback.status || 200,
       });
     }
+    const localSkillGovernanceFallback = isSkillGovernanceRequest
+      ? await resolveSkillGovernanceRequest(request.method, targetPath, requestPayload)
+      : null;
+    if (localSkillGovernanceFallback) {
+      return NextResponse.json(localSkillGovernanceFallback.body, {
+        status: localSkillGovernanceFallback.status || 200,
+        headers: buildTextHeaders({
+          respContentType: "application/json",
+          isOrgMemoryRequest,
+          orgMemoryProxyConfig,
+          rolloutBucket,
+          routeTarget,
+        }),
+      });
+    }
     const message = err instanceof Error ? err.message : "Unknown error";
     return NextResponse.json(
       { detail: `后端服务不可达: ${message}` },
@@ -224,9 +260,24 @@ export async function handler(
         status: localApprovalFallback.status || 200,
       });
     }
+
+    const localSkillGovernanceFallback = isSkillGovernanceRequest
+      ? await resolveSkillGovernanceRequest(request.method, targetPath, requestPayload)
+      : null;
+    if (localSkillGovernanceFallback) {
+      return NextResponse.json(localSkillGovernanceFallback.body, {
+        status: localSkillGovernanceFallback.status || 200,
+        headers: buildTextHeaders({
+          respContentType: "application/json",
+          isOrgMemoryRequest,
+          orgMemoryProxyConfig,
+          rolloutBucket,
+          routeTarget,
+        }),
+      });
+    }
   }
 
-  // SSE streaming: pass through the ReadableStream directly
   const respContentType = resp.headers.get("Content-Type") || "";
   if (respContentType.includes("text/event-stream")) {
     const streamHeaders: Record<string, string> = {
@@ -247,8 +298,6 @@ export async function handler(
     });
   }
 
-  // Binary responses (images, files) must be passed through as ArrayBuffer,
-  // not text(), which would corrupt the bytes.
   const isBinary = respContentType.startsWith("image/")
     || respContentType.startsWith("video/")
     || respContentType.startsWith("audio/")
@@ -291,18 +340,39 @@ export async function handler(
     }
   }
 
-  const textHeaders: Record<string, string> = {
-    "Content-Type": respContentType || "application/json",
-  };
-  if (isOrgMemoryRequest) {
-    Object.assign(textHeaders, buildOrgMemoryResponseHeaders(orgMemoryProxyConfig, "backend", {
-      bucket: rolloutBucket,
-      routeTarget: routeTarget || "backend",
-    }));
+  if (isSkillGovernanceRequest && respContentType.includes("json")) {
+    try {
+      const managedResponse = await rememberSkillGovernanceBackendResponse({
+        method: request.method,
+        pathname: targetPath,
+        backendBody: JSON.parse(respBody),
+        requestPayload,
+      });
+      if (managedResponse) {
+        return NextResponse.json(managedResponse.body, {
+          status: managedResponse.status || resp.status,
+          headers: buildTextHeaders({
+            respContentType,
+            isOrgMemoryRequest,
+            orgMemoryProxyConfig,
+            rolloutBucket,
+            routeTarget,
+          }),
+        });
+      }
+    } catch {
+    }
   }
+
   return new NextResponse(respBody, {
     status: resp.status,
-    headers: textHeaders,
+    headers: buildTextHeaders({
+      respContentType,
+      isOrgMemoryRequest,
+      orgMemoryProxyConfig,
+      rolloutBucket,
+      routeTarget,
+    }),
   });
 }
 
