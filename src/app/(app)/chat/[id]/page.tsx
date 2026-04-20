@@ -351,6 +351,12 @@ function SandboxHistoryModal({
                       <span>{statusLabel(item.status)}</span>
                       <span>•</span>
                       <span>{stepLabel(item.current_step)}</span>
+                      {item.source_case_plan_version ? (
+                        <>
+                          <span>•</span>
+                          <span>Case v{item.source_case_plan_version}</span>
+                        </>
+                      ) : null}
                       {item.parent_session_id ? (
                         <>
                           <span>•</span>
@@ -399,6 +405,12 @@ function SandboxHistoryModal({
                     <div><span className="text-gray-400">阶段：</span><span className="font-bold text-[#1A202C]">{stepLabel(sessionDetail.current_step)}</span></div>
                     <div><span className="text-gray-400">创建：</span><span className="font-bold text-[#1A202C]">{formatDateTime(sessionDetail.created_at)}</span></div>
                     <div><span className="text-gray-400">完成：</span><span className="font-bold text-[#1A202C]">{formatDateTime(sessionDetail.completed_at)}</span></div>
+                    {"source_case_plan_id" in sessionDetail ? (
+                      <div><span className="text-gray-400">来源 case：</span><span className="font-bold text-[#1A202C]">#{(sessionDetail as SandboxHistoryItem).source_case_plan_id ?? "—"} / v{(sessionDetail as SandboxHistoryItem).source_case_plan_version ?? "—"}</span></div>
+                    ) : null}
+                    {"test_decision_mode" in sessionDetail ? (
+                      <div><span className="text-gray-400">生成策略：</span><span className="font-bold text-[#1A202C]">{(sessionDetail as SandboxHistoryItem).test_decision_mode ?? "—"}</span></div>
+                    ) : null}
                   </div>
                   {sessionDetail.blocked_reason ? (
                     <div className="border border-amber-300 bg-amber-50 px-3 py-2 text-[10px] text-amber-700">
@@ -517,6 +529,7 @@ export default function ChatDetailPage() {
     conversationId: number;
     triggerMessage: string;
     latestPlan: TestFlowResolveResponse["latest_plan"];
+    mountCta?: string | null;
   } | null>(null);
   const [sandboxTestSessionModal, setSandboxTestSessionModal] = useState<{
     skillId: number;
@@ -767,6 +780,7 @@ export default function ChatDetailPage() {
       mode: "mount_blocked" | "choose_existing_plan" | "generate_cases";
       triggerMessage: string;
       latestPlan: TestFlowResolveResponse["latest_plan"];
+      mountCta?: string | null;
     },
   ) => {
     setSandboxGovernanceLoading(true);
@@ -779,6 +793,7 @@ export default function ChatDetailPage() {
         conversationId: convId,
         triggerMessage: intent.triggerMessage,
         latestPlan: intent.latestPlan,
+        mountCta: intent.mountCta ?? null,
       });
     } finally {
       setSandboxGovernanceLoading(false);
@@ -791,14 +806,13 @@ export default function ChatDetailPage() {
       name: skill.name,
       status: skill.status,
     }));
-    const mentionedSkillIds = findMentionedSkillIds(content, candidateSkills);
+    const mentionedSkillIds = overrideSkillId ? [overrideSkillId] : findMentionedSkillIds(content, candidateSkills);
     const response = await apiFetch<{ ok: boolean; data: TestFlowResolveResponse }>("/test-flow/resolve-entry", {
       method: "POST",
       body: JSON.stringify({
         entry_source: "sandbox_chat",
         conversation_id: convId,
         content,
-        selected_skill_id: overrideSkillId ?? sandboxSkillId ?? null,
         mentioned_skill_ids: mentionedSkillIds,
         candidate_skills: candidateSkills,
       }),
@@ -819,6 +833,7 @@ export default function ChatDetailPage() {
       mode: resolved.action,
       triggerMessage: content,
       latestPlan: resolved.latest_plan ?? null,
+      mountCta: resolved.mount_cta ?? null,
     });
     return true;
   }, [convId, openSandboxGovernancePanel, sandboxSkillId, sandboxSkills]);

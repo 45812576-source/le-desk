@@ -6,6 +6,7 @@ import { PanelRightOpen, PanelRightClose, Pin, ShieldCheck } from "lucide-react"
 import { apiFetch } from "@/lib/api";
 import { consumeSandboxSessionStream } from "@/lib/sandbox-stream";
 import type { SkillDetail, SkillMemo, SandboxReport } from "@/lib/types";
+import type { TestFlowPlanSummary } from "@/lib/test-flow-types";
 import type { Suggestion } from "@/components/skill/CommentsPanel";
 import { ImportSkillModal } from "@/components/skill/ImportSkillModal";
 import { SandboxTestModal } from "@/components/skill/SandboxTestModal";
@@ -74,6 +75,14 @@ export function SkillStudio({
   const [skillListCollapsed, setSkillListCollapsed] = useState(false);
   const [showSandbox, setShowSandbox] = useState<number | null>(null);
   const [showGovernancePanel, setShowGovernancePanel] = useState(false);
+  const [chatTestFlowIntent, setChatTestFlowIntent] = useState<{
+    mode: "mount_blocked" | "choose_existing_plan" | "generate_cases";
+    entrySource: "skill_studio_chat";
+    conversationId: number;
+    triggerMessage: string;
+    latestPlan: TestFlowPlanSummary | null;
+    mountCta?: string | null;
+  } | null>(null);
   const [memo, setMemo] = useState<SkillMemo | null>(null);
   const [sandboxEntryHandled, setSandboxEntryHandled] = useState(false);
   const [memoSyncError, setMemoSyncError] = useState<string | null>(null);
@@ -163,6 +172,30 @@ export function SkillStudio({
   const sandboxVersionMismatchMessage = sandboxVersionMismatch
     ? `当前 Skill 已是 v${selectedSkill?.current_version}，但整改来源报告基于 v${activeSandboxReport?.target_version}。如果要继续提交审批，请先重新运行质量检测生成新报告。`
     : null;
+
+  const handleOpenChatTestFlowPanel = useCallback((intent: {
+    skillId: number;
+    mode: "mount_blocked" | "choose_existing_plan" | "generate_cases";
+    triggerMessage: string;
+    latestPlan: TestFlowPlanSummary | null | undefined;
+    mountCta?: string | null;
+  }) => {
+    if (!selectedFile || selectedFile.skillId !== intent.skillId) {
+      setSelectedFile({ skillId: intent.skillId, fileType: "prompt" });
+    }
+    setShowGovernancePanel(true);
+    setChatTestFlowIntent({
+      ...intent,
+      entrySource: "skill_studio_chat",
+      conversationId: convId,
+      latestPlan: intent.latestPlan ?? null,
+      mountCta: intent.mountCta ?? null,
+    });
+  }, [convId, selectedFile, setSelectedFile]);
+
+  const handleSelectSkillForTestFlow = useCallback((targetSkillId: number) => {
+    setSelectedFile({ skillId: targetSkillId, fileType: "prompt" });
+  }, [setSelectedFile]);
 
   // ── Memo: fetch when selected skill changes ──
   const fetchMemo = useCallback((skillId: number) => {
@@ -687,6 +720,8 @@ export function SkillStudio({
           sandboxReportId={fromSandbox ? sandboxReportId : undefined}
           fromSandbox={fromSandbox}
           onRefreshSkill={() => { if (selectedSkill) refreshSkill(selectedSkill.id); }}
+          onOpenTestFlowPanel={handleOpenChatTestFlowPanel}
+          onSelectSkillForTestFlow={handleSelectSkillForTestFlow}
           onExpandEditor={() => {
             setEditorManuallyCollapsed(false);
             if (editorVisibility !== "pinned_open") {
@@ -700,8 +735,18 @@ export function SkillStudio({
           <div className="flex-shrink-0 border-l-2 border-[#1A202C] overflow-hidden">
             <SkillGovernancePanel
               skill={selectedSkill}
-              onClose={() => setShowGovernancePanel(false)}
+              testFlowIntent={chatTestFlowIntent}
+              onClose={() => {
+                setShowGovernancePanel(false);
+                setChatTestFlowIntent(null);
+              }}
               onSkillMounted={() => refreshSkill(selectedSkill.id, { syncPrompt: true })}
+              onMaterializedSession={(sessionId) => {
+                setShowSandbox(selectedSkill.id);
+                if (sessionId > 0) {
+                  router.replace(`/chat/${convId}?ws=skill_studio&skill_id=${selectedSkill.id}&session_id=${sessionId}`);
+                }
+              }}
             />
           </div>
         )}

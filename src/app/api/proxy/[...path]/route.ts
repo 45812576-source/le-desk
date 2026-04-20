@@ -156,24 +156,7 @@ export async function handler(
     });
   }
 
-  if (isTestFlowRequest && targetPath.startsWith("/test-flow/")) {
-    const localTestFlowResult = await resolveTestFlowRequest(request.method, targetPath, requestPayload, {
-      backendUrl: BACKEND_URL,
-      authorization: auth,
-    });
-    if (localTestFlowResult) {
-      return NextResponse.json(localTestFlowResult.body, {
-        status: localTestFlowResult.status || 200,
-        headers: buildTextHeaders({
-          respContentType: "application/json",
-          isOrgMemoryRequest,
-          orgMemoryProxyConfig,
-          rolloutBucket,
-          routeTarget,
-        }),
-      });
-    }
-  }
+  // test-flow/resolve-entry 已下沉到后端，不再本地拦截，直接透传
 
   const isStreamEndpoint = targetPath.includes("/stream") || targetPath.includes("/upload-stream");
   const isLongRunEndpoint = targetPath.includes("/sandbox/interactive/") && (
@@ -249,7 +232,7 @@ export async function handler(
       ? await resolveTestFlowRequest(request.method, targetPath, requestPayload, {
           backendUrl: BACKEND_URL,
           authorization: auth,
-        })
+        }, { fallback: true })
       : null;
     if (localTestFlowFallback) {
       return NextResponse.json(localTestFlowFallback.body, {
@@ -323,7 +306,7 @@ export async function handler(
       ? await resolveTestFlowRequest(request.method, targetPath, requestPayload, {
           backendUrl: BACKEND_URL,
           authorization: auth,
-        })
+        }, { fallback: true })
       : null;
     if (localTestFlowFallback) {
       return NextResponse.json(localTestFlowFallback.body, {

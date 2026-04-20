@@ -34,6 +34,7 @@ export interface TestFlowResolveResponse {
   skill?: TestFlowSkillCandidate | null;
   candidates?: TestFlowSkillCandidate[];
   blocking_issues?: string[];
+  mount_cta?: string | null;
   latest_plan?: TestFlowPlanSummary | null;
 }
 

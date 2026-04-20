@@ -7,9 +7,6 @@ import {
 } from "@/lib/server/test-flow-db";
 import { hasGenerateCaseIntent } from "@/lib/test-flow-client";
 import type {
-  TestFlowPersistentState,
-} from "@/lib/server/test-flow-db";
-import type {
   TestFlowResolveRequest,
   TestFlowResolveResponse,
   TestFlowRunLink,
@@ -82,12 +79,11 @@ function summarizePlan(plan: PermissionCasePlan | null) {
 }
 
 function normalizeCandidates(
-  selectedSkillId: number | null | undefined,
   mentionedSkillIds: number[] | undefined,
 ): number[] {
+  // 只使用显式 @ 提及的 skill — 不隐式合并 selected_skill_id
   const merged = [
     ...(mentionedSkillIds || []),
-    ...(selectedSkillId ? [selectedSkillId] : []),
   ].filter((value) => Number.isFinite(value) && value > 0);
   return Array.from(new Set(merged));
 }
@@ -122,7 +118,10 @@ async function loadReadinessAndPlanFromBackend(input: {
   const readinessPayload = readinessResp.ok ? asEnvelope(await readinessResp.json().catch(() => null)) : null;
   const latestPayload = latestResp.ok ? asEnvelope(await latestResp.json().catch(() => null)) : null;
   return {
-    readiness: readinessPayload?.ok ? readinessPayload.data as { skill_id: number; readiness: { ready: boolean; blocking_issues?: string[] } } : null,
+    readiness: readinessPayload?.ok ? readinessPayload.data as {
+      skill_id: number;
+      readiness: { ready: boolean; blocking_issues?: string[] };
+    } : null,
     latest: latestPayload?.ok ? latestPayload.data as { skill_id: number; plan: PermissionCasePlan | null } : null,
   };
 }
@@ -135,7 +134,7 @@ async function resolveEntry(
     return ok<TestFlowResolveResponse>({ action: "chat_default", reason: "missing_generate_case_intent" });
   }
 
-  const matchedSkillIds = normalizeCandidates(payload.selected_skill_id, payload.mentioned_skill_ids);
+  const matchedSkillIds = normalizeCandidates(payload.mentioned_skill_ids);
   const candidates = candidateMap(payload.candidate_skills);
   if (matchedSkillIds.length === 0) {
     return ok<TestFlowResolveResponse>({ action: "chat_default", reason: "missing_skill_target" });
@@ -151,8 +150,14 @@ async function resolveEntry(
   const skillId = matchedSkillIds[0];
   const state = await readSkillGovernanceState();
   const cache = state.skills[String(skillId)] || null;
-  let readiness = cache?.readiness_response?.readiness
-    ? { skill_id: skillId, readiness: cache.readiness_response.readiness }
+  let readiness: { skill_id: number; readiness: { ready: boolean; blocking_issues?: string[] } } | null = cache?.readiness_response?.readiness
+    ? {
+        skill_id: skillId,
+        readiness: {
+          ready: cache.readiness_response.readiness.ready,
+          blocking_issues: cache.readiness_response.readiness.blocking_issues,
+        },
+      }
     : null;
   let latest = cache?.latest_case_plan_response
     ? {
@@ -236,11 +241,14 @@ export async function resolveTestFlowRequest(
   pathname: string,
   payload: Record<string, unknown> = {},
   context: { backendUrl: string; authorization?: string | null },
+  options?: { fallback?: boolean },
 ): Promise<TestFlowApiResult | null> {
   const route = parseRoute(pathname);
   if (route.kind !== "resolve_entry") return null;
+  // 正常请求返回 null 让 proxy 透传到后端；仅 fallback 场景走本地
+  if (!options?.fallback) return null;
   if (method.toUpperCase() !== "POST") return fail(405, "method_not_allowed", "仅支持 POST");
-  return resolveEntry(payload as TestFlowResolveRequest, context);
+  return resolveEntry(payload as unknown as TestFlowResolveRequest, context);
 }
 
 export async function rememberTestFlowBackendResponse(input: {
@@ -252,6 +260,7 @@ export async function rememberTestFlowBackendResponse(input: {
   const route = parseRoute(input.pathname);
   const envelope = asEnvelope(input.backendBody);
 
+  // materialize: 后端已创建 run link，仅作后端不可用时的 fallback 保存
   if (route.kind === "materialize" && input.method.toUpperCase() === "POST" && envelope?.ok) {
     const state = await readSkillGovernanceState();
     const matched = findSkillCacheByPlanId(state.skills, route.planId);
@@ -274,12 +283,20 @@ export async function rememberTestFlowBackendResponse(input: {
     }
   }
 
+  // 后端 history/session/report 已包含 source_case_plan_id 时跳过本地装饰
   if (route.kind === "history" && Array.isArray(input.backendBody)) {
+    const firstItem = input.backendBody[0] as Record<string, unknown> | undefined;
+    if (firstItem && "source_case_plan_id" in firstItem) {
+      return input.backendBody; // 后端已装饰
+    }
     return decorateHistoryItems(input.backendBody);
   }
 
   if (route.kind === "session" && typeof input.backendBody === "object" && input.backendBody !== null) {
     const session = input.backendBody as Record<string, unknown>;
+    if ("source_case_plan_id" in session) {
+      return input.backendBody; // 后端已装饰
+    }
     const reportId = typeof session.report_id === "number" ? session.report_id : null;
     await syncObservedReportLink(route.sessionId, reportId);
     const state = await readTestFlowState();
@@ -288,6 +305,9 @@ export async function rememberTestFlowBackendResponse(input: {
 
   if (route.kind === "report" && typeof input.backendBody === "object" && input.backendBody !== null) {
     const report = input.backendBody as Record<string, unknown>;
+    if ("source_case_plan_id" in report) {
+      return input.backendBody; // 后端已装饰
+    }
     const reportId = typeof report.report_id === "number" ? report.report_id : null;
     await syncObservedReportLink(route.sessionId, reportId);
     const state = await readTestFlowState();

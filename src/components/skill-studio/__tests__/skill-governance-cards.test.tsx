@@ -404,7 +404,6 @@ describe("SkillGovernanceCards", () => {
   it("PermissionDeclarationCard shows explicit stale review reason", () => {
     render(
       <PermissionDeclarationCard
-        bundle={baseBundle}
         declaration={baseDeclaration}
         running={false}
         mounting={false}
@@ -446,7 +445,6 @@ describe("SkillGovernanceCards", () => {
   it("PermissionDeclarationCard shows mounted version after adoption", () => {
     render(
       <PermissionDeclarationCard
-        bundle={baseBundle}
         declaration={{
           ...baseDeclaration,
           status: "confirmed",

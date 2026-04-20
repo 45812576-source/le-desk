@@ -94,6 +94,7 @@ export function SkillGovernancePanel({
     conversationId?: number | null;
     triggerMessage?: string | null;
     latestPlan?: TestFlowPlanSummary | null;
+    mountCta?: string | null;
   } | null;
   onMaterializedSession?: (sessionId: number) => void;
 }) {
@@ -243,24 +244,7 @@ export function SkillGovernancePanel({
     load();
   }, [load]);
 
-  useEffect(() => {
-    if (!testFlowIntent) {
-      setTestFlowDecisionMode(null);
-      setTestFlowAutoHandled(null);
-      return;
-    }
-    if (testFlowIntent.mode === "choose_existing_plan") {
-      setTestFlowDecisionMode(null);
-      return;
-    }
-    if (!loading && testFlowIntent.mode === "generate_cases" && readiness?.ready && !runningCasePlanJob && testFlowAutoHandled !== testFlowIntentKey) {
-      setTestFlowDecisionMode("regenerate");
-      setTestFlowAutoHandled(testFlowIntentKey);
-      void generateCasePlan();
-    }
-  }, [generateCasePlan, loading, readiness?.ready, runningCasePlanJob, testFlowAutoHandled, testFlowIntent, testFlowIntentKey]);
-
-  async function waitGovernanceJob(jobId: number | string, label: string) {
+  const waitGovernanceJob = useCallback(async (jobId: number | string, label: string) => {
     const maxAttempts = 80;
     for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
       const job = await apiFetch<ApiEnvelope<GovernanceAsyncJob>>(
@@ -282,7 +266,7 @@ export function SkillGovernancePanel({
       await delay(750);
     }
     throw new Error("后台任务轮询超时");
-  }
+  }, [skill.id]);
 
   async function saveRoles(nextRoles: ServiceRoleItem[]) {
     await apiFetch<ApiEnvelope<{ roles: ServiceRoleItem[] }>>(`/skill-governance/${skill.id}/service-roles`, {
@@ -467,6 +451,10 @@ export function SkillGovernancePanel({
             risk_focus: ["overreach", "high_sensitive_field", "high_risk_chunk"],
             max_case_count: 12,
             async_job: true,
+            generation_mode: testFlowDecisionMode === "regenerate" ? "regenerate" : casePlan ? "regenerate" : "generate",
+            source_plan_id: casePlan?.id ?? null,
+            entry_source: testFlowIntent?.entrySource || "skill_governance_panel",
+            conversation_id: testFlowIntent?.conversationId ?? null,
           }),
         },
       ).then(unwrap);
@@ -479,7 +467,24 @@ export function SkillGovernancePanel({
     } finally {
       setRunningCasePlanJob(false);
     }
-  }, [casePlan, load, skill.id]);
+  }, [casePlan, load, skill.id, waitGovernanceJob]);
+
+  useEffect(() => {
+    if (!testFlowIntent) {
+      setTestFlowDecisionMode(null);
+      setTestFlowAutoHandled(null);
+      return;
+    }
+    if (testFlowIntent.mode === "choose_existing_plan") {
+      setTestFlowDecisionMode(null);
+      return;
+    }
+    if (!loading && testFlowIntent.mode === "generate_cases" && readiness?.ready && !runningCasePlanJob && testFlowAutoHandled !== testFlowIntentKey) {
+      setTestFlowDecisionMode("regenerate");
+      setTestFlowAutoHandled(testFlowIntentKey);
+      void generateCasePlan();
+    }
+  }, [generateCasePlan, loading, readiness?.ready, runningCasePlanJob, testFlowAutoHandled, testFlowIntent, testFlowIntentKey]);
 
   async function updateCaseDraftStatus(caseId: number, status: string) {
     if (!casePlan) return;
@@ -516,10 +521,36 @@ export function SkillGovernancePanel({
     await load();
   }
 
+  async function handleReviseClick() {
+    if (!casePlan) return;
+    setError(null);
+    const label = "Fork 测试用例为新版本";
+    setActiveJob({ label, status: "running", detail: "基于现有 Plan 创建可编辑副本" });
+    try {
+      const forkResp = await apiFetch<ApiEnvelope<{ plan_id: number; plan_version: number }>>(
+        `/test-flow/sandbox-case-plans/${casePlan.id}/fork`,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            mode: "revise",
+            entry_source: testFlowIntent?.entrySource || "skill_governance_panel",
+            conversation_id: testFlowIntent?.conversationId ?? null,
+          }),
+        },
+      ).then(unwrap);
+      setTestFlowDecisionMode("revise");
+      await load();
+      setActiveJob({ label, status: "done", detail: `已 Fork 到 Plan v${forkResp.plan_version}，可自由编辑` });
+    } catch (err) {
+      setActiveJob({ label, status: "failed", detail: err instanceof Error ? err.message : "Fork 失败" });
+      setError(err instanceof Error ? err.message : "Fork 测试用例失败");
+    }
+  }
+
   async function materializeCasePlan() {
     if (!casePlan) return;
     if (testFlowIntent?.mode === "choose_existing_plan" && !testFlowDecisionMode) {
-      setError("请先选择“复用 / 基于现有修改 / 重新生成”中的一种策略，再执行测试。");
+      setError("请先选择「复用 / 基于现有修改 / 重新生成」中的一种策略，再执行测试。");
       return;
     }
     setMaterializingCases(true);
@@ -527,8 +558,16 @@ export function SkillGovernancePanel({
     const label = "Materialize 到 Sandbox";
     setActiveJob({ label, status: "running", detail: "创建 Sandbox 会话与测试用例" });
     try {
+      const targetPlanId = casePlan.id;
+
+      // confirm 后再 materialize
+      await apiFetch<ApiEnvelope<{ plan_id: number; status: string }>>(
+        `/test-flow/sandbox-case-plans/${targetPlanId}/confirm`,
+        { method: "POST" },
+      ).then(unwrap);
+
       const resp = await apiFetch<ApiEnvelope<{ materialized_count: number; sandbox_session_id: number; status: string }>>(
-        `/sandbox-case-plans/${casePlan.id}/materialize`,
+        `/sandbox-case-plans/${targetPlanId}/materialize`,
         {
           method: "POST",
           body: JSON.stringify({
@@ -581,8 +620,47 @@ export function SkillGovernancePanel({
             聊天触发测试流程
           </div>
           {testFlowIntent.mode === "mount_blocked" && (
-            <div className="text-[9px] text-slate-600 leading-relaxed">
-              该 Skill 还未完成权限挂载，当前先进入阻断态。先补齐挂载，再继续生成测试用例。
+            <div className="text-[9px] text-slate-600 leading-relaxed space-y-2">
+              <div>该 Skill 还未完成权限挂载，当前先进入阻断态。先补齐挂载，再继续生成测试用例。</div>
+              {testFlowIntent.mountCta === "complete_permission_declaration" && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    void generateDeclaration();
+                    document.getElementById("gov-declaration")?.scrollIntoView({ behavior: "smooth", block: "center" });
+                  }}
+                  disabled={runningDeclarationJob || !canGenerateDeclaration}
+                  className="px-2 py-1 text-[8px] font-bold border border-amber-500 text-amber-700 bg-amber-50 hover:bg-amber-100 disabled:opacity-50"
+                >
+                  生成权限声明
+                </button>
+              )}
+              {testFlowIntent.mountCta === "mount_data_assets" && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    void refreshGovernance();
+                    document.getElementById("gov-bound-assets")?.scrollIntoView({ behavior: "smooth", block: "center" });
+                  }}
+                  disabled={loading}
+                  className="px-2 py-1 text-[8px] font-bold border border-amber-500 text-amber-700 bg-amber-50 hover:bg-amber-100 disabled:opacity-50"
+                >
+                  刷新数据资产
+                </button>
+              )}
+              {testFlowIntent.mountCta === "resolve_blocking_issues" && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    void refreshGovernance();
+                    document.getElementById("gov-readiness")?.scrollIntoView({ behavior: "smooth", block: "center" });
+                  }}
+                  disabled={loading}
+                  className="px-2 py-1 text-[8px] font-bold border border-amber-500 text-amber-700 bg-amber-50 hover:bg-amber-100 disabled:opacity-50"
+                >
+                  刷新治理状态
+                </button>
+              )}
             </div>
           )}
           {testFlowIntent.mode === "choose_existing_plan" && (
@@ -604,7 +682,7 @@ export function SkillGovernancePanel({
                 </button>
                 <button
                   type="button"
-                  onClick={() => setTestFlowDecisionMode("revise")}
+                  onClick={() => void handleReviseClick()}
                   className={`px-2 py-1 text-[8px] font-bold border ${
                     testFlowDecisionMode === "revise"
                       ? "border-[#00A3C4] bg-[#00A3C4] text-white"
@@ -656,7 +734,9 @@ export function SkillGovernancePanel({
           onSave={saveRoles}
           onSavePackage={saveRolePackage}
         />
-        <BoundAssetsCard assets={assets} loading={loading} />
+        <div id="gov-bound-assets">
+          <BoundAssetsCard assets={assets} loading={loading} />
+        </div>
         <MountContextCard context={mountContext} loading={loading} />
         <MountedPermissionsCard permissions={mountedPermissions} loading={loading} />
         {(policies.length > 0 || bundle?.id) && (
@@ -678,24 +758,28 @@ export function SkillGovernancePanel({
             onSaveRule={saveGranularRule}
           />
         )}
-        <PermissionDeclarationCard
-          declaration={declaration}
-          running={runningDeclarationJob}
-          mounting={mountingDeclaration}
-          staleReasons={declarationStaleReasons}
-          canGenerate={canGenerateDeclaration}
-          onGenerate={generateDeclaration}
-          onMount={mountDeclaration}
-          onSaveText={saveDeclarationText}
-        />
-        <CasePlanReadinessCard
-          readiness={readiness}
-          declaration={declaration}
-          plan={casePlan}
-          generating={runningCasePlanJob}
-          staleReasons={declarationStaleReasons}
-          onGenerate={generateCasePlan}
-        />
+        <div id="gov-declaration">
+          <PermissionDeclarationCard
+            declaration={declaration}
+            running={runningDeclarationJob}
+            mounting={mountingDeclaration}
+            staleReasons={declarationStaleReasons}
+            canGenerate={canGenerateDeclaration}
+            onGenerate={generateDeclaration}
+            onMount={mountDeclaration}
+            onSaveText={saveDeclarationText}
+          />
+        </div>
+        <div id="gov-readiness">
+          <CasePlanReadinessCard
+            readiness={readiness}
+            declaration={declaration}
+            plan={casePlan}
+            generating={runningCasePlanJob}
+            staleReasons={declarationStaleReasons}
+            onGenerate={generateCasePlan}
+          />
+        </div>
         <CaseDraftListCard
           plan={casePlan}
           loading={loading}

@@ -1,18 +1,20 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ChevronDown, X } from "lucide-react";
 import { PixelButton } from "@/components/pixel/PixelButton";
 import { apiFetch, getToken, dispatchAuthExpired } from "@/lib/api";
 import { consumeSandboxSessionStream } from "@/lib/sandbox-stream";
 import type { SkillDetail, SkillMemo, SandboxSession } from "@/lib/types";
+import { findMentionedSkillIds } from "@/lib/test-flow-client";
+import type { TestFlowResolveResponse, TestFlowSkillCandidate } from "@/lib/test-flow-types";
 import { SkillMemoPanel } from "@/components/skill/SkillMemoPanel";
 import { useStudioStore } from "@/lib/studio-store";
 import { SummaryCard } from "./cards/SummaryCard";
 import { DraftCard } from "./cards/DraftCard";
 import { ToolSuggestionCard } from "./cards/ToolSuggestionCard";
 import { FileSplitCard } from "./cards/FileSplitCard";
-import { GovernanceTimeline } from "./GovernanceTimeline";
+import { GovernanceTimeline, type TimelineQuickAction } from "./GovernanceTimeline";
 import { RouteStatusBar } from "./RouteStatusBar";
 import { AssistSkillsBar } from "./AssistSkillsBar";
 import { resolveWorkflowActionEditorTarget, selectedFileFromEditorTarget } from "./editor-target";
@@ -91,6 +93,8 @@ export function StudioChat({
   onExpandEditor,
   editorExpanded,
   onRefreshSkill,
+  onOpenTestFlowPanel,
+  onSelectSkillForTestFlow,
 }: {
   convId: number;
   skillId: number | null;
@@ -116,6 +120,14 @@ export function StudioChat({
   onExpandEditor?: () => void;
   editorExpanded?: boolean;
   onRefreshSkill: () => void;
+  onOpenTestFlowPanel?: (intent: {
+    skillId: number;
+    mode: "mount_blocked" | "choose_existing_plan" | "generate_cases";
+    triggerMessage: string;
+    latestPlan: TestFlowResolveResponse["latest_plan"];
+    mountCta?: string | null;
+  }) => void;
+  onSelectSkillForTestFlow?: (skillId: number) => void;
 }) {
   const _storageKey = `studio_msgs_${convId}`;
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -130,6 +142,8 @@ export function StudioChat({
   const [pendingToolSuggestion, setPendingToolSuggestion] = useState<StudioToolSuggestion | null>(null);
   const [pendingFileSplit, setPendingFileSplit] = useState<StudioFileSplit | null>(null);
   const [splitting, setSplitting] = useState(false);
+  const [overrideQuickActions, setOverrideQuickActions] = useState<TimelineQuickAction[] | null>(null);
+  const [pendingTestFlowSelection, setPendingTestFlowSelection] = useState<{ skillId: number; content: string } | null>(null);
 
   // ── 治理抽屉状态 ──
   const drawerStorageKey = skillId ? `studio_drawer_${skillId}` : null;
@@ -1291,6 +1305,56 @@ export function StudioChat({
     }
   }
 
+  const resolveStudioTestFlow = useCallback(async (userText: string, overrideSkillId?: number | null) => {
+    const candidateSkills: TestFlowSkillCandidate[] = allSkills.map((skill) => ({
+      id: skill.id,
+      name: skill.name,
+      status: skill.status,
+    }));
+    const mentionedSkillIds = overrideSkillId ? [overrideSkillId] : findMentionedSkillIds(userText, candidateSkills);
+    const response = await apiFetch<{ ok: boolean; data: TestFlowResolveResponse }>("/test-flow/resolve-entry", {
+      method: "POST",
+      body: JSON.stringify({
+        entry_source: "skill_studio_chat",
+        conversation_id: convId,
+        content: userText,
+        mentioned_skill_ids: mentionedSkillIds,
+        candidate_skills: candidateSkills,
+      }),
+    });
+    return response.data;
+  }, [allSkills, convId, skillId]);
+
+  useEffect(() => {
+    if (!pendingTestFlowSelection) return;
+    if (skillId !== pendingTestFlowSelection.skillId) return;
+    const next = pendingTestFlowSelection;
+    setPendingTestFlowSelection(null);
+    void (async () => {
+      try {
+        const resolved = await resolveStudioTestFlow(next.content, next.skillId);
+        if (resolved.action === "chat_default" || resolved.action === "pick_skill") return;
+        setMessages((prev) => [
+          ...prev,
+          { role: "assistant", text: "目标 Skill 已确认，已切到测试流程面板。你可以直接查看、修改或执行测试用例。", loading: false },
+        ]);
+        setOverrideQuickActions(null);
+        onOpenTestFlowPanel?.({
+          skillId: next.skillId,
+          mode: resolved.action,
+          triggerMessage: next.content,
+          latestPlan: resolved.latest_plan ?? null,
+          mountCta: resolved.mount_cta ?? null,
+        });
+      } catch {
+        setMessages((prev) => [
+          ...prev,
+          { role: "assistant", text: "已切换目标 Skill。请继续发送「生成测试用例」以启动测试流程。", loading: false },
+        ]);
+      }
+    })();
+  }, [onOpenTestFlowPanel, pendingTestFlowSelection, resolveStudioTestFlow, skillId]);
+
   async function send(userText: string) {
     if (!userText.trim() || streaming) return;
 
@@ -1361,6 +1425,58 @@ export function StudioChat({
       } catch {
         // 解析失败不阻塞原本的 LLM 对话流
       }
+    }
+
+    try {
+      const resolved = await resolveStudioTestFlow(userText);
+      if (resolved.action === "pick_skill" && resolved.candidates && resolved.candidates.length > 0) {
+        setInput("");
+        setMessages((prev) => [
+          ...prev,
+          { role: "user", text: userText },
+          {
+            role: "assistant",
+            text: "检测到多个待测 Skill。先选 1 个目标，我就继续当前这条消息里的测试流程。",
+            loading: false,
+          },
+        ]);
+        setOverrideQuickActions(
+          resolved.candidates.map((candidate) => ({
+            label: candidate.name,
+            msg: candidate.name,
+            payload: { kind: "select_test_skill", skillId: candidate.id, content: userText },
+          })),
+        );
+        return;
+      }
+      if (resolved.action !== "chat_default" && resolved.action !== "pick_skill" && resolved.skill?.id) {
+        setInput("");
+        setMessages((prev) => [
+          ...prev,
+          { role: "user", text: userText },
+          {
+            role: "assistant",
+            text:
+              resolved.action === "mount_blocked"
+                ? "该 Skill 还未完成权限挂载，我先把你带到测试流程面板里的阻断位置。"
+                : resolved.action === "choose_existing_plan"
+                  ? "检测到已有测试用例，我先切到测试流程面板，供你选择复用、修改或重新生成。"
+                  : "测试意图已明确，我先直接切到测试流程面板并生成测试用例草案。",
+            loading: false,
+          },
+        ]);
+        setOverrideQuickActions(null);
+        onOpenTestFlowPanel?.({
+          skillId: resolved.skill.id,
+          mode: resolved.action,
+          triggerMessage: userText,
+          latestPlan: resolved.latest_plan ?? null,
+          mountCta: resolved.mount_cta ?? null,
+        });
+        return;
+      }
+    } catch {
+      // test-flow resolver 失败时退回原本对话流
     }
 
     let msgIdx = -1;
@@ -1927,6 +2043,7 @@ export function StudioChat({
             confirmedPhases={confirmedPhases}
             architectStructures={architectStructures}
             architectPriorities={architectPriorities ? [architectPriorities] : []}
+            overrideQuickActions={overrideQuickActions}
             onArchitectAnswer={(answer) => {
               setAnsweredQuestionIdx(architectQuestions.length - 1);
               send(answer);
@@ -2025,7 +2142,7 @@ export function StudioChat({
                   ...prev,
                   {
                     role: "assistant",
-                    text: "本轮整改项已处理完成。请点击“继续下一步”继续验收或生成后续结果。",
+                    text: "本轮整改项已处理完成。请点击「继续下一步」继续验收或生成后续结果。",
                     loading: false,
                   },
                 ]);
@@ -2048,6 +2165,15 @@ export function StudioChat({
               setPendingGovernanceActions((prev) => prev.filter((g) => g.card_id !== a.card_id));
             }}
             onQuickAction={(action) => {
+              if (action.payload?.kind === "select_test_skill" && typeof action.payload.skillId === "number") {
+                setOverrideQuickActions(null);
+                setPendingTestFlowSelection({
+                  skillId: action.payload.skillId,
+                  content: typeof action.payload.content === "string" ? action.payload.content : action.msg,
+                });
+                onSelectSkillForTestFlow?.(action.payload.skillId);
+                return;
+              }
               if (action.focusInput) {
                 setInput(action.msg);
                 setTimeout(() => inputRef.current?.focus(), 50);
