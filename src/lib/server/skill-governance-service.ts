@@ -12,6 +12,11 @@ import type {
   RoleAssetPolicyItem,
 } from "@/components/skill-studio/SkillGovernanceCards";
 import {
+  checkCurrentSkillKnowledgeAccess,
+  checkCurrentSkillTableAccess,
+  getCurrentEffectiveOrgMemoryGovernanceVersion,
+} from "@/lib/server/org-memory-runtime";
+import {
   cloneSkillGovernanceValue,
   ensureSkillGovernanceCache,
   readSkillGovernanceState,
@@ -357,6 +362,61 @@ function mergeRolePackageOverlay<T>(skillId: number, route: ParsedRoute, data: T
   return data;
 }
 
+async function applyOrgMemoryGovernanceOverlay(skillId: number, permissions: MountedPermissions) {
+  const governanceVersion = await getCurrentEffectiveOrgMemoryGovernanceVersion();
+  const hasSkillRule = governanceVersion?.skill_access_rules.some((item) => item.skill_id === skillId) || false;
+  if (!governanceVersion || !hasSkillRule) return permissions;
+
+  const knowledgePermissions = await Promise.all(
+    permissions.knowledge_permissions.map(async (permission) => {
+      const access = await checkCurrentSkillKnowledgeAccess(skillId, {
+        folder_path: permission.folder_path,
+        title: permission.title,
+        asset_name: permission.asset_name,
+      });
+      const baseIssues = (permission.blocking_issues || []).filter((issue) => issue !== "blocked_by_org_memory_governance_version");
+      return {
+        ...permission,
+        grant_actions: access.allowed ? permission.grant_actions : [],
+        snapshot_desensitization_level: access.required_redaction_mode
+          ? access.required_redaction_mode.toUpperCase()
+          : permission.snapshot_desensitization_level,
+        blocking_issues: access.allowed ? baseIssues : unique([...baseIssues, "blocked_by_org_memory_governance_version"]),
+      };
+    }),
+  );
+
+  const tablePermissions = await Promise.all(
+    permissions.table_permissions.map(async (permission) => {
+      const access = await checkCurrentSkillTableAccess(skillId, {
+        table_name: permission.table_name,
+        asset_name: permission.asset_name,
+        asset_ref: permission.asset_ref,
+      });
+      const baseIssues = (permission.blocking_issues || []).filter((issue) => issue !== "blocked_by_org_memory_governance_version");
+      return {
+        ...permission,
+        allowed_actions: access.allowed ? permission.allowed_actions : [],
+        blocking_issues: access.allowed ? baseIssues : unique([...baseIssues, "blocked_by_org_memory_governance_version"]),
+      };
+    }),
+  );
+
+  return {
+    ...permissions,
+    projection_version: Math.max(permissions.projection_version || 0, governanceVersion.version),
+    knowledge_permissions: knowledgePermissions,
+    table_permissions: tablePermissions,
+    blocking_issues: unique([
+      ...(permissions.blocking_issues || []),
+      ...(knowledgePermissions.some((item) => item.blocking_issues.includes("blocked_by_org_memory_governance_version"))
+        || tablePermissions.some((item) => item.blocking_issues.includes("blocked_by_org_memory_governance_version"))
+        ? ["blocked_by_org_memory_governance_version"]
+        : []),
+    ]),
+  };
+}
+
 
 function cacheBackendData(cache: SkillGovernanceSkillCache, route: ParsedRoute, data: unknown) {
   if (route.kind === "skill") {
@@ -487,7 +547,13 @@ export async function rememberSkillGovernanceBackendResponse(input: {
     if (!Number.isFinite(skillId)) return null;
     const cache = ensureSkillGovernanceCache(state, skillId);
     cacheBackendData(cache, route, envelope.data);
-    return ok(mergeRolePackageOverlay(skillId, route, envelope.data, cache));
+    return Promise.resolve(mergeRolePackageOverlay(skillId, route, envelope.data, cache))
+      .then(async (result) => {
+        if (route.kind === "skill" && route.resource === "mounted-permissions") {
+          return ok(await applyOrgMemoryGovernanceOverlay(skillId, result as MountedPermissions));
+        }
+        return ok(result);
+      });
   });
 }
 
@@ -518,5 +584,9 @@ export async function resolveSkillGovernanceRequest(
   if (!cache) return null;
   const cached = cachedDataForRoute(cache, route);
   if (cached === null || cached === undefined) return null;
-  return ok(mergeRolePackageOverlay(skillId, route, cached, cache));
+  const merged = mergeRolePackageOverlay(skillId, route, cached, cache);
+  if (route.kind === "skill" && route.resource === "mounted-permissions") {
+    return ok(await applyOrgMemoryGovernanceOverlay(skillId, merged as MountedPermissions));
+  }
+  return ok(merged);
 }

@@ -157,6 +157,21 @@ describe("org-memory-api-store", () => {
     });
   });
 
+  it("returns snapshot detail by id", async () => {
+    const snapshot = await resolveOrgMemoryRequest("GET", "/org-memory/snapshots/201");
+
+    expect(snapshot?.status ?? 200).toBe(200);
+    expect(snapshot?.body).toMatchObject({
+      id: 201,
+      snapshot_version: expect.any(String),
+      units: expect.any(Array),
+      roles: expect.any(Array),
+      people: expect.any(Array),
+      okrs: expect.any(Array),
+      processes: expect.any(Array),
+    });
+  });
+
   it("derives governance version during ingest and supports lookup by snapshot", async () => {
     const ingest = await resolveOrgMemoryRequest("POST", "/org-memory/sources/ingest", {
       title: "销售组织事实资料包",

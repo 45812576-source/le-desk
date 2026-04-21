@@ -24,6 +24,7 @@
 .DS_Store
 *.pem
 /.org-memory/
+/.skill-governance/
 
 # debug
 npm-debug.log*

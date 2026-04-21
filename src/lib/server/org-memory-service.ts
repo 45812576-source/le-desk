@@ -366,6 +366,30 @@ function refreshGovernanceVersionForSnapshot(
   return governanceVersion;
 }
 
+function syncGovernanceVersionForProposalApproval(
+  state: { governance_versions: OrgMemoryGovernanceVersion[] },
+  proposal: OrgMemoryProposal,
+) {
+  const governanceVersion = state.governance_versions.find((item) => item.derived_from_snapshot_id === proposal.snapshot_id) || null;
+  if (!governanceVersion) return null;
+  return activateGovernanceVersion(state, governanceVersion);
+}
+
+function syncGovernanceVersionForProposalRollback(
+  state: { governance_versions: OrgMemoryGovernanceVersion[] },
+  proposal: OrgMemoryProposal,
+) {
+  const governanceVersion = state.governance_versions.find((item) => item.derived_from_snapshot_id === proposal.snapshot_id) || null;
+  if (!governanceVersion) return null;
+  if (governanceVersion.status === "effective") {
+    return rollbackGovernanceVersion(state, governanceVersion);
+  }
+  if (governanceVersion.status === "draft") {
+    governanceVersion.status = "archived";
+  }
+  return null;
+}
+
 function activateGovernanceVersion(
   state: { governance_versions: OrgMemoryGovernanceVersion[] },
   governanceVersion: OrgMemoryGovernanceVersion,
@@ -653,6 +677,7 @@ function rollbackProposalConfig(
 
   proposal.applied_config = null;
   rollbackFormalConfigForProposal(state, proposal.id, current.id);
+  syncGovernanceVersionForProposalRollback(state, proposal);
   return {
     result: {
       proposal_id: proposal.id,
@@ -675,10 +700,12 @@ function applyApprovalOutcomeToProposal(
 
   if (action === "approve") {
     proposal.proposal_status = "approved";
+    syncGovernanceVersionForProposalApproval(state, proposal);
     return createAppliedConfig(state, proposal, request, versions, "effective").versions;
   }
   if (action === "approve_with_conditions" || action === "add_conditions") {
     proposal.proposal_status = "partially_approved";
+    syncGovernanceVersionForProposalApproval(state, proposal);
     return createAppliedConfig(state, proposal, request, versions, "effective_with_conditions").versions;
   }
   if (action === "reject") {
@@ -839,6 +866,16 @@ export async function resolveOrgMemoryRequest(
   if (method === "GET" && path === "/org-memory/snapshots") {
     const state = await readOrgMemoryState();
     return { body: { items: listSnapshots(state) } };
+  }
+
+  const snapshotId = extractSnapshotId(path, "");
+  if (method === "GET" && snapshotId != null) {
+    const state = await readOrgMemoryState();
+    const snapshot = findSnapshot(state, snapshotId);
+    if (!snapshot) {
+      return { status: 404, body: { detail: "组织 Memory 快照不存在" } };
+    }
+    return { body: clone(snapshot) };
   }
 
   if (method === "GET" && path === "/org-memory/governance-versions") {

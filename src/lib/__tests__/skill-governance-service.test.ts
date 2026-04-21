@@ -430,4 +430,117 @@ describe("skill-governance-service", () => {
       governance_version: 13,
     });
   });
+
+  it("applies effective org-memory runtime governance on mounted permissions", async () => {
+    await rememberSkillGovernanceBackendResponse({
+      method: "GET",
+      pathname: "/skill-governance/404/mounted-permissions",
+      backendBody: ok({
+        skill_id: 404,
+        source_mode: "governed",
+        projection_version: 1,
+        table_permissions: [
+          {
+            asset_id: 21,
+            asset_name: "销售案例卡脱敏表",
+            asset_ref: "table:21",
+            table_id: 21,
+            table_name: "sales_case_cards_masked",
+            view_id: null,
+            view_name: null,
+            role_group_id: null,
+            role_group_name: null,
+            grant_id: null,
+            grant_mode: null,
+            allowed_actions: ["read"],
+            max_disclosure_level: null,
+            approval_required: false,
+            audit_level: null,
+            row_access_mode: null,
+            field_access_mode: null,
+            disclosure_level: null,
+            allowed_fields: ["masked_customer_name"],
+            blocked_fields: [],
+            sensitive_fields: ["masked_customer_name"],
+            masked_fields: ["masked_customer_name"],
+            masking_rule_json: {},
+            risk_flags: [],
+            blocking_issues: [],
+            source_refs: [],
+          },
+        ],
+        knowledge_permissions: [
+          {
+            asset_id: 31,
+            asset_name: "客户案例库",
+            asset_ref: "knowledge_base:31",
+            knowledge_id: 31,
+            title: "客户案例库",
+            folder_id: 3,
+            folder_path: "/销售中心/商务一部/客户案例卡",
+            publish_version: 2,
+            snapshot_desensitization_level: "L2",
+            snapshot_data_type_hits: [],
+            snapshot_mask_rules: [],
+            manager_scope_ok: true,
+            grant_actions: ["read"],
+            risk_flags: [],
+            blocking_issues: [],
+            source_refs: [{ type: "knowledge", id: 31 }],
+          },
+          {
+            asset_id: 32,
+            asset_name: "原始客户案例",
+            asset_ref: "knowledge_base:32",
+            knowledge_id: 32,
+            title: "原始客户案例",
+            folder_id: 4,
+            folder_path: "/销售中心/销售管理/培训与复盘",
+            publish_version: 1,
+            snapshot_desensitization_level: "L1",
+            snapshot_data_type_hits: [],
+            snapshot_mask_rules: [],
+            manager_scope_ok: true,
+            grant_actions: ["read"],
+            risk_flags: [],
+            blocking_issues: [],
+            source_refs: [{ type: "knowledge", id: 32 }],
+          },
+        ],
+        tool_permissions: [],
+        risk_controls: [],
+        blocking_issues: [],
+        deprecated_bundle: null,
+      }),
+    });
+
+    const mountedPermissions = await resolveSkillGovernanceRequest("GET", "/skill-governance/404/mounted-permissions");
+    const data = (mountedPermissions?.body as {
+      data: {
+        projection_version: number;
+        knowledge_permissions: Array<{ asset_id: number; snapshot_desensitization_level: string; grant_actions: string[]; blocking_issues: string[] }>;
+        table_permissions: Array<{ allowed_actions: string[]; blocking_issues: string[] }>;
+        blocking_issues: string[];
+      };
+    }).data;
+
+    expect(data.projection_version).toBe(7);
+    expect(data.knowledge_permissions[0]).toMatchObject({
+      asset_id: 31,
+      snapshot_desensitization_level: "MASKED",
+      grant_actions: [],
+      blocking_issues: expect.arrayContaining(["blocked_by_org_memory_governance_version"]),
+    });
+    expect(data.knowledge_permissions[1]).toMatchObject({
+      asset_id: 32,
+      snapshot_desensitization_level: "MASKED",
+      grant_actions: [],
+      blocking_issues: expect.arrayContaining(["blocked_by_org_memory_governance_version"]),
+    });
+    expect(data.table_permissions[0]).toMatchObject({
+      allowed_actions: [],
+      blocking_issues: expect.arrayContaining(["blocked_by_org_memory_governance_version"]),
+    });
+    expect(data.blocking_issues).toContain("blocked_by_org_memory_governance_version");
+  });
 });
