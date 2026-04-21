@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { OrgMemorySource } from "@/lib/types";
 import {
-  createOrgMemorySnapshot,
   ingestOrgMemorySource,
   loadOrgMemorySources,
   ORG_MEMORY_PARSE_STATUS_LABELS,
@@ -11,16 +10,19 @@ import {
   ORG_MEMORY_SOURCE_TYPE_LABELS,
 } from "@/lib/org-memory";
 
-export default function OrgMemorySourcesTab() {
+export default function OrgMemorySourcesTab({
+  onSnapshotReady,
+}: {
+  onSnapshotReady?: (snapshotId: number | null) => void;
+}) {
   const [sources, setSources] = useState<OrgMemorySource[]>([]);
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [fallbackMode, setFallbackMode] = useState(false);
   const [loadError, setLoadError] = useState("");
   const [creating, setCreating] = useState(false);
-  const [syncingId, setSyncingId] = useState<number | null>(null);
-  const [message, setMessage] = useState("点击即可导入源文档，并继续为当前文档生成快照。");
+  const [message, setMessage] = useState("导入资料后会自动生成快照，并同步派生一版治理版本。");
   const [draft, setDraft] = useState({
-    title: "组织 Memory 源文档",
+    title: "组织事实资料包",
     source_type: "feishu_doc" as OrgMemorySource["source_type"],
     source_uri: "https://example.feishu.cn/docx/org-memory-template",
     owner_name: "组织运营组",
@@ -69,73 +71,48 @@ export default function OrgMemorySourcesTab() {
 
   async function handleIngest() {
     setCreating(true);
-    setMessage("正在导入源文档...");
+    setMessage("正在导入资料，并生成快照与治理版本...");
     try {
       const result = await ingestOrgMemorySource({
         ...draft,
         title: `${draft.title} ${new Date().toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}`,
       });
       await refreshSources(result.source_id);
-      setMessage(`已导入源文档 #${result.source_id}，现在可直接为它生成快照。`);
+      onSnapshotReady?.(result.snapshot_id);
+      setMessage(
+        `已完成资料导入 #${result.source_id}，生成快照 ${result.snapshot_version || "#—"}，治理版本 #${result.governance_version_id ?? "—"} 已就绪。`,
+      );
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "导入源文档失败");
+      setMessage(error instanceof Error ? error.message : "导入资料失败");
     }
     setCreating(false);
   }
 
-  async function handleSync(sourceId: number) {
-    setSyncingId(sourceId);
-    setMessage("正在生成结构化快照...");
-    try {
-      const result = await createOrgMemorySnapshot(sourceId);
-      await refreshSources(sourceId);
-      setMessage(`已为源文档 #${sourceId} 生成快照 #${result.snapshot_id}。`);
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : "生成快照失败");
-    }
-    setSyncingId(null);
-  }
-
   return (
-    <div className="space-y-4 p-6">
+    <div className="space-y-4">
       <div className="rounded-lg border border-border bg-card p-5">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <div className="text-sm font-semibold text-foreground">源文档</div>
+            <div className="text-sm font-semibold text-foreground">资料接入</div>
             <p className="mt-2 text-sm leading-6 text-muted-foreground">
-              源文档是组织 Memory 的唯一事实源。系统不直接维护组织对象，只记录导入、同步、解析与版本状态。
+              资料包是组织事实的唯一事实源。页面只保留导入入口，不再要求业务用户理解 baseline、objects、tags 或 schema。
             </p>
           </div>
-          <div className="flex flex-wrap gap-2">
-            {fallbackMode && (
-              <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-medium text-amber-700">
-                演示数据
-              </span>
-            )}
-            <button
-              onClick={handleIngest}
-              disabled={creating}
-              className="rounded border border-border px-3 py-1.5 text-xs font-medium text-foreground hover:bg-muted/50 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {creating ? "导入中..." : "导入源文档"}
-            </button>
-            <button
-              onClick={() => selected && handleSync(selected.id)}
-              disabled={!selected || syncingId !== null}
-              className="rounded bg-[#00A3C4] px-3 py-1.5 text-xs font-medium text-white hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {syncingId === selected?.id ? "生成中..." : "生成快照"}
-            </button>
-          </div>
+          {fallbackMode && (
+            <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-medium text-amber-700">
+              演示数据
+            </span>
+          )}
         </div>
         {loadError && (
           <div className="mt-3 rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
             {loadError}
           </div>
         )}
+
         <div className="mt-4 grid gap-3 md:grid-cols-4">
           <label className="space-y-1">
-            <span className="text-xs text-muted-foreground">标题</span>
+            <span className="text-xs text-muted-foreground">资料标题</span>
             <input
               value={draft.title}
               onChange={(event) => setDraft((current) => ({ ...current, title: event.target.value }))}
@@ -143,7 +120,7 @@ export default function OrgMemorySourcesTab() {
             />
           </label>
           <label className="space-y-1">
-            <span className="text-xs text-muted-foreground">来源类型</span>
+            <span className="text-xs text-muted-foreground">资料类型</span>
             <select
               value={draft.source_type}
               onChange={(event) => setDraft((current) => ({ ...current, source_type: event.target.value as OrgMemorySource["source_type"] }))}
@@ -155,7 +132,7 @@ export default function OrgMemorySourcesTab() {
             </select>
           </label>
           <label className="space-y-1">
-            <span className="text-xs text-muted-foreground">来源链接</span>
+            <span className="text-xs text-muted-foreground">资料链接</span>
             <input
               value={draft.source_uri}
               onChange={(event) => setDraft((current) => ({ ...current, source_uri: event.target.value }))}
@@ -171,13 +148,23 @@ export default function OrgMemorySourcesTab() {
             />
           </label>
         </div>
-        <div className="mt-3 text-sm text-muted-foreground">{message}</div>
+
+        <div className="mt-4 flex flex-wrap items-center gap-3">
+          <button
+            onClick={handleIngest}
+            disabled={creating}
+            className="rounded bg-[#00A3C4] px-4 py-2 text-sm font-medium text-white hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {creating ? "导入中..." : "导入并生成快照"}
+          </button>
+          <span className="text-sm text-muted-foreground">{message}</span>
+        </div>
       </div>
 
       <div className="grid gap-4 xl:grid-cols-[360px_1fr]">
         <div className="rounded-lg border border-border bg-card p-3">
           <div className="px-2 pb-3 pt-1 text-xs uppercase tracking-[0.18em] text-muted-foreground">
-            文档列表
+            已接入资料
           </div>
           <div className="space-y-2">
             {sources.map((item) => (
@@ -220,7 +207,7 @@ export default function OrgMemorySourcesTab() {
               </div>
 
               <div className="mt-5 grid gap-4 md:grid-cols-2">
-                <InfoItem label="来源类型" value={ORG_MEMORY_SOURCE_TYPE_LABELS[selected.source_type] || selected.source_type} />
+                <InfoItem label="资料类型" value={ORG_MEMORY_SOURCE_TYPE_LABELS[selected.source_type] || selected.source_type} />
                 <InfoItem label="归属团队" value={selected.owner_name} />
                 <InfoItem label="外部版本" value={selected.external_version || "待同步"} />
                 <InfoItem label="最近快照" value={selected.latest_snapshot_version || "未生成"} />
@@ -234,30 +221,17 @@ export default function OrgMemorySourcesTab() {
                 </div>
               )}
 
-              <div className="mt-5 flex flex-wrap items-center gap-3">
-                <button
-                  onClick={() => handleSync(selected.id)}
-                  disabled={syncingId !== null}
-                  className="rounded bg-[#00A3C4] px-4 py-2 text-sm font-medium text-white hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  {syncingId === selected.id ? "生成中..." : "为当前源生成快照"}
-                </button>
-                <span className="text-sm text-muted-foreground">
-                  已导入后即可生成结构化快照，供后续统一草案消费。
-                </span>
-              </div>
-
               <div className="mt-5 rounded-lg border border-border bg-background px-4 py-4">
-                <div className="text-sm font-medium text-foreground">源文档约束</div>
+                <div className="text-sm font-medium text-foreground">接入约束</div>
                 <ul className="mt-3 space-y-2 text-sm leading-6 text-muted-foreground">
-                  <li>必须提供组织架构、花名册、部门职责、岗位职责、OKR、业务流程六类关键信息。</li>
-                  <li>系统只做解析与版本化，不在这里编辑组织对象。</li>
-                  <li>后续所有分类规则、共享边界和 Skill 挂载都只消费解析后的快照与草案。</li>
+                  <li>如果资料导入成功，则系统会在同一链路内生成快照与治理版本。</li>
+                  <li>如果当前资料未直接服务主链路，则本轮不继续延展到旧治理工具页。</li>
+                  <li>如果后续要让 Skill 用数，则运行时只认当前 effective 的治理版本。</li>
                 </ul>
               </div>
             </>
           ) : (
-            <div className="text-sm text-muted-foreground">暂无源文档。</div>
+            <div className="text-sm text-muted-foreground">暂无资料。</div>
           )}
         </div>
       </div>

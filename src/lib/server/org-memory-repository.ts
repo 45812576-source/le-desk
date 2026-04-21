@@ -2,6 +2,7 @@ import type { OrgMemoryPersistentState } from "@/lib/server/org-memory-db";
 import type {
   ApprovalRequest,
   OrgMemoryAppliedConfigVersion,
+  OrgMemoryGovernanceVersion,
   OrgMemoryProposal,
   OrgMemorySnapshot,
   OrgMemorySource,
@@ -27,6 +28,10 @@ export function listProposals(state: OrgMemoryPersistentState) {
   return clone(state.proposals);
 }
 
+export function listGovernanceVersions(state: OrgMemoryPersistentState) {
+  return clone(state.governance_versions);
+}
+
 export function findSource(state: OrgMemoryPersistentState, id: number) {
   return state.sources.find((item) => item.id === id) || null;
 }
@@ -39,6 +44,14 @@ export function findProposal(state: OrgMemoryPersistentState, id: number) {
   return state.proposals.find((item) => item.id === id) || null;
 }
 
+export function findGovernanceVersion(state: OrgMemoryPersistentState, id: number) {
+  return state.governance_versions.find((item) => item.id === id) || null;
+}
+
+export function findGovernanceVersionBySnapshotId(state: OrgMemoryPersistentState, snapshotId: number) {
+  return state.governance_versions.find((item) => item.derived_from_snapshot_id === snapshotId) || null;
+}
+
 export function prependSource(state: OrgMemoryPersistentState, source: OrgMemorySource) {
   state.sources.unshift(source);
 }
@@ -49,6 +62,10 @@ export function prependSnapshot(state: OrgMemoryPersistentState, snapshot: OrgMe
 
 export function prependProposal(state: OrgMemoryPersistentState, proposal: OrgMemoryProposal) {
   state.proposals.unshift(proposal);
+}
+
+export function prependGovernanceVersion(state: OrgMemoryPersistentState, governanceVersion: OrgMemoryGovernanceVersion) {
+  state.governance_versions.unshift(governanceVersion);
 }
 
 export function listApprovals(state: OrgMemoryPersistentState) {

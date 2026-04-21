@@ -1,24 +1,32 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
-import type { OrgMemorySnapshot, OrgMemorySnapshotDiff } from "@/lib/types";
+import type { OrgMemoryEvidenceRef, OrgMemorySnapshot, OrgMemorySnapshotDiff } from "@/lib/types";
 import {
-  createOrgMemoryProposal,
   loadOrgMemorySnapshots,
   loadOrgMemorySnapshotDiff,
   ORG_MEMORY_PARSE_STATUS_LABELS,
   ORG_MEMORY_PARSE_STATUS_STYLES,
+  refreshOrgMemoryGovernanceVersion,
 } from "@/lib/org-memory";
 
-export default function OrgMemorySnapshotsTab() {
-  const router = useRouter();
+export default function OrgMemorySnapshotsTab({
+  selectedSnapshotId,
+  onSelectedSnapshotChange,
+  refreshSeed = 0,
+  onGovernanceVersionUpdated,
+}: {
+  selectedSnapshotId?: number | null;
+  onSelectedSnapshotChange?: (snapshotId: number | null) => void;
+  refreshSeed?: number;
+  onGovernanceVersionUpdated?: (governanceVersionId: number) => void;
+}) {
   const [snapshots, setSnapshots] = useState<OrgMemorySnapshot[]>([]);
-  const [selectedId, setSelectedId] = useState<number | null>(null);
+  const [selectedId, setSelectedId] = useState<number | null>(selectedSnapshotId ?? null);
   const [fallbackMode, setFallbackMode] = useState(false);
   const [loadError, setLoadError] = useState("");
-  const [generatingId, setGeneratingId] = useState<number | null>(null);
-  const [message, setMessage] = useState("可直接基于任一快照生成统一草案。");
+  const [refreshingId, setRefreshingId] = useState<number | null>(null);
+  const [message, setMessage] = useState("快照会直接承接六类对象、证据引用、低置信度问题与上一版差异。");
   const [diff, setDiff] = useState<OrgMemorySnapshotDiff | null>(null);
 
   const refreshSnapshots = useCallback(async (preferredId?: number) => {
@@ -26,6 +34,7 @@ export default function OrgMemorySnapshotsTab() {
       setSnapshots(result.data);
       setSelectedId((current) => {
         if (preferredId && result.data.some((item) => item.id === preferredId)) return preferredId;
+        if (selectedSnapshotId && result.data.some((item) => item.id === selectedSnapshotId)) return selectedSnapshotId;
         if (current && result.data.some((item) => item.id === current)) return current;
         return result.data[0]?.id ?? null;
       });
@@ -33,34 +42,20 @@ export default function OrgMemorySnapshotsTab() {
       setLoadError("");
       return result;
     });
-  }, []);
+  }, [selectedSnapshotId]);
 
   useEffect(() => {
-    let active = true;
-    loadOrgMemorySnapshots()
-      .then((result) => {
-        if (!active) return;
-        setSnapshots(result.data);
-        setSelectedId(result.data[0]?.id ?? null);
-        setFallbackMode(result.fallback);
-        setLoadError("");
-      })
-      .catch((error) => {
-        if (!active) return;
-        setSnapshots([]);
-        setSelectedId(null);
-        setFallbackMode(false);
-        setLoadError(error instanceof Error ? error.message : "结构化快照加载失败");
-      });
-    return () => {
-      active = false;
-    };
-  }, [refreshSnapshots]);
+    void refreshSnapshots(selectedSnapshotId ?? undefined);
+  }, [refreshSnapshots, refreshSeed, selectedSnapshotId]);
 
   const selected = useMemo(
-    () => snapshots.find((item) => item.id === selectedId) || snapshots[0] || null,
-    [selectedId, snapshots],
+    () => snapshots.find((item) => item.id === (selectedSnapshotId ?? selectedId)) || snapshots[0] || null,
+    [selectedId, selectedSnapshotId, snapshots],
   );
+
+  useEffect(() => {
+    onSelectedSnapshotChange?.(selected?.id ?? null);
+  }, [onSelectedSnapshotChange, selected]);
 
   useEffect(() => {
     if (!selected) return;
@@ -79,28 +74,51 @@ export default function OrgMemorySnapshotsTab() {
     };
   }, [selected]);
 
-  async function handleGenerateProposal(snapshotId: number) {
-    setGeneratingId(snapshotId);
-    setMessage("正在生成统一草案...");
-    try {
-      const result = await createOrgMemoryProposal(snapshotId);
-      await refreshSnapshots(snapshotId);
-      setMessage(`已生成草案 #${result.proposal_id}，正在切换到统一草案页。`);
-      router.push(`/admin/org-management?tab=proposals&proposal_id=${result.proposal_id}`);
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : "生成统一草案失败");
+  const selectedCounts = useMemo(() => {
+    if (!selected) {
+      return {
+        orgs: 0,
+        departments: 0,
+      };
     }
-    setGeneratingId(null);
+    return {
+      orgs: selected.units.filter((item) => item.unit_type === "org").length,
+      departments: selected.units.filter((item) => item.unit_type === "department").length,
+    };
+  }, [selected]);
+
+  const evidenceRefs = useMemo<OrgMemoryEvidenceRef[]>(() => {
+    if (!selected) return [];
+    return [
+      ...selected.units.flatMap((item) => item.evidence_refs),
+      ...selected.roles.flatMap((item) => item.evidence_refs),
+      ...selected.people.flatMap((item) => item.evidence_refs),
+      ...selected.okrs.flatMap((item) => item.evidence_refs),
+      ...selected.processes.flatMap((item) => item.evidence_refs),
+    ].slice(0, 8);
+  }, [selected]);
+
+  async function handleRefreshGovernanceVersion(snapshotId: number) {
+    setRefreshingId(snapshotId);
+    setMessage("正在刷新治理版本...");
+    try {
+      const result = await refreshOrgMemoryGovernanceVersion(snapshotId);
+      setMessage(`治理版本 #${result.governance_version_id} 已刷新，步骤 3 / 4 已同步更新。`);
+      onGovernanceVersionUpdated?.(result.governance_version_id);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "刷新治理版本失败");
+    }
+    setRefreshingId(null);
   }
 
   return (
-    <div className="space-y-4 p-6">
+    <div className="space-y-4">
       <div className="rounded-lg border border-border bg-card p-5">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <div className="text-sm font-semibold text-foreground">结构化快照</div>
+            <div className="text-sm font-semibold text-foreground">快照结果</div>
             <p className="mt-2 text-sm leading-6 text-muted-foreground">
-              快照承接组织、部门、岗位、人员、OKR 与流程六类对象，并保存证据引用与低置信度提示。
+              快照是主产物，页面需要让业务用户一眼看懂组织、部门、岗位、人员、OKR 与流程六类对象，以及证据和差异。
             </p>
           </div>
           {fallbackMode && (
@@ -163,8 +181,9 @@ export default function OrgMemorySnapshotsTab() {
                 </span>
               </div>
 
-              <div className="mt-5 grid gap-4 md:grid-cols-5">
-                <CountCard label="组织/部门" value={selected.entity_counts.units} />
+              <div className="mt-5 grid gap-4 md:grid-cols-3 xl:grid-cols-6">
+                <CountCard label="组织" value={selectedCounts.orgs} />
+                <CountCard label="部门" value={selectedCounts.departments} />
                 <CountCard label="岗位" value={selected.entity_counts.roles} />
                 <CountCard label="人员" value={selected.entity_counts.people} />
                 <CountCard label="OKR" value={selected.entity_counts.okrs} />
@@ -173,13 +192,24 @@ export default function OrgMemorySnapshotsTab() {
 
               <div className="mt-5 grid gap-4 xl:grid-cols-2">
                 <EntitySection
-                  title="组织与部门"
-                  items={selected.units.map((item) => ({
-                    title: item.name,
-                    subtitle: `${item.unit_type === "org" ? "组织" : "部门"} · ${item.parent_name || "根节点"}`,
-                    bullets: item.responsibilities,
-                    evidence: item.evidence_refs[0]?.excerpt || "暂无证据",
-                  }))}
+                  title="组织"
+                  items={selected.units
+                    .filter((item) => item.unit_type === "org")
+                    .map((item) => ({
+                      title: item.name,
+                      subtitle: item.leader_name || "未指定负责人",
+                      bullets: item.responsibilities,
+                    }))}
+                />
+                <EntitySection
+                  title="部门"
+                  items={selected.units
+                    .filter((item) => item.unit_type === "department")
+                    .map((item) => ({
+                      title: item.name,
+                      subtitle: `${item.parent_name || "根节点"} · ${item.leader_name || "未指定负责人"}`,
+                      bullets: item.responsibilities,
+                    }))}
                 />
                 <EntitySection
                   title="岗位"
@@ -187,7 +217,14 @@ export default function OrgMemorySnapshotsTab() {
                     title: item.name,
                     subtitle: item.department_name,
                     bullets: item.responsibilities,
-                    evidence: item.evidence_refs[0]?.excerpt || "暂无证据",
+                  }))}
+                />
+                <EntitySection
+                  title="人员"
+                  items={selected.people.map((item) => ({
+                    title: item.name,
+                    subtitle: `${item.department_name} · ${item.role_name}`,
+                    bullets: [item.manager_name ? `汇报：${item.manager_name}` : "汇报关系待补充", `状态：${item.employment_status}`],
                   }))}
                 />
                 <EntitySection
@@ -196,35 +233,61 @@ export default function OrgMemorySnapshotsTab() {
                     title: item.objective,
                     subtitle: `${item.owner_name} · ${item.period}`,
                     bullets: item.key_results,
-                    evidence: item.evidence_refs[0]?.excerpt || "暂无证据",
                   }))}
                 />
                 <EntitySection
-                  title="业务流程"
+                  title="流程"
                   items={selected.processes.map((item) => ({
                     title: item.name,
                     subtitle: item.owner_name,
                     bullets: item.risk_points.length > 0 ? item.risk_points : item.outputs,
-                    evidence: item.evidence_refs[0]?.excerpt || "暂无证据",
                   }))}
                 />
               </div>
 
-              <div className="mt-5 rounded-lg border border-border bg-background p-4">
-                <div className="flex items-center justify-between gap-3">
-                  <div className="text-sm font-medium text-foreground">与上一版差异</div>
+              <div className="mt-5 grid gap-4 xl:grid-cols-[1.2fr_1fr]">
+                <div className="rounded-lg border border-border bg-background p-4">
+                  <div className="text-sm font-medium text-foreground">证据引用</div>
+                  <div className="mt-3 space-y-3">
+                    {evidenceRefs.length === 0 && (
+                      <div className="text-sm text-muted-foreground">暂无证据引用。</div>
+                    )}
+                    {evidenceRefs.map((item, index) => (
+                      <div key={`${item.label}-${item.section}-${index}`} className="rounded-lg border border-border/70 px-3 py-3">
+                        <div className="text-xs font-medium text-foreground">{item.label} · {item.section}</div>
+                        <div className="mt-2 text-sm leading-6 text-muted-foreground">{item.excerpt}</div>
+                      </div>
+                    ))}
+                  </div>
                 </div>
+
+                <div className="rounded-lg border border-border bg-background p-4">
+                  <div className="text-sm font-medium text-foreground">低置信度问题</div>
+                  <div className="mt-3 space-y-3">
+                    {selected.low_confidence_items.length === 0 && (
+                      <div className="text-sm text-muted-foreground">当前快照未识别到低置信度问题。</div>
+                    )}
+                    {selected.low_confidence_items.map((item) => (
+                      <div key={item.label} className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-3">
+                        <div className="text-sm font-medium text-amber-800">{item.label}</div>
+                        <div className="mt-2 text-sm leading-6 text-amber-700">{item.reason}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              <div className="mt-5 rounded-lg border border-border bg-background p-4">
+                <div className="text-sm font-medium text-foreground">与上一版差异</div>
                 {diff ? (
                   <div className="mt-3 space-y-4">
-                    <div className="text-sm text-muted-foreground">
-                      {diff.summary}
-                    </div>
+                    <div className="text-sm text-muted-foreground">{diff.summary}</div>
                     <div className="grid gap-3 xl:grid-cols-2">
-                      <DiffBucketCard title="组织/部门" bucket={diff.units} />
-                      <DiffBucketCard title="岗位" bucket={diff.roles} />
-                      <DiffBucketCard title="人员" bucket={diff.people} />
-                      <DiffBucketCard title="OKR" bucket={diff.okrs} />
-                      <DiffBucketCard title="流程" bucket={diff.processes} />
+                      <DiffBucketCard title="组织 / 部门" added={[...diff.units.added]} removed={[...diff.units.removed]} />
+                      <DiffBucketCard title="岗位" added={diff.roles.added} removed={diff.roles.removed} />
+                      <DiffBucketCard title="人员" added={diff.people.added} removed={diff.people.removed} />
+                      <DiffBucketCard title="OKR" added={diff.okrs.added} removed={diff.okrs.removed} />
+                      <DiffBucketCard title="流程" added={diff.processes.added} removed={diff.processes.removed} />
                     </div>
                   </div>
                 ) : (
@@ -232,30 +295,16 @@ export default function OrgMemorySnapshotsTab() {
                 )}
               </div>
 
-              {selected.low_confidence_items.length > 0 && (
-                <div className="mt-5 rounded-lg border border-amber-200 bg-amber-50 px-4 py-4">
-                  <div className="text-sm font-medium text-amber-800">低置信度项</div>
-                  <div className="mt-3 space-y-2">
-                    {selected.low_confidence_items.map((item) => (
-                      <div key={item.label} className="text-sm text-amber-700">
-                        <span className="font-medium">{item.label}：</span>
-                        {item.reason}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
               <div className="mt-5 flex flex-wrap items-center gap-3">
                 <button
-                  onClick={() => handleGenerateProposal(selected.id)}
-                  disabled={generatingId !== null}
+                  onClick={() => handleRefreshGovernanceVersion(selected.id)}
+                  disabled={refreshingId !== null}
                   className="rounded bg-[#00A3C4] px-4 py-2 text-sm font-medium text-white hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
                 >
-                  {generatingId === selected.id ? "生成中..." : "基于当前快照生成草案"}
+                  {refreshingId === selected.id ? "刷新中..." : "刷新治理版本"}
                 </button>
                 <span className="text-sm text-muted-foreground">
-                  生成后会自动切到“统一草案”，方便继续提交审批。
+                  如果当前快照仍在主链路内，则治理版本会按最新快照重新派生。
                 </span>
               </div>
             </>
@@ -268,43 +317,11 @@ export default function OrgMemorySnapshotsTab() {
   );
 }
 
-function DiffBucketCard({
-  title,
-  bucket,
-}: {
-  title: string;
-  bucket: OrgMemorySnapshotDiff["units"];
-}) {
-  return (
-    <div className="rounded-lg border border-border/70 px-3 py-3">
-      <div className="text-sm font-medium text-foreground">{title}</div>
-      <div className="mt-2 flex flex-wrap gap-2 text-xs">
-        <span className="rounded-full bg-green-100 px-2 py-0.5 text-green-700">
-          新增 {bucket.added.length}
-        </span>
-        <span className="rounded-full bg-red-100 px-2 py-0.5 text-red-700">
-          移除 {bucket.removed.length}
-        </span>
-      </div>
-      <div className="mt-3 space-y-2 text-sm text-muted-foreground">
-        <div>
-          <span className="font-medium text-foreground">新增：</span>
-          {bucket.added.length > 0 ? bucket.added.join("、") : "无"}
-        </div>
-        <div>
-          <span className="font-medium text-foreground">移除：</span>
-          {bucket.removed.length > 0 ? bucket.removed.join("、") : "无"}
-        </div>
-      </div>
-    </div>
-  );
-}
-
 function CountCard({ label, value }: { label: string; value: number }) {
   return (
-    <div className="rounded-lg border border-border/80 bg-background px-4 py-3">
-      <div className="text-xs uppercase tracking-[0.16em] text-muted-foreground">{label}</div>
-      <div className="mt-2 text-xl font-semibold text-foreground">{value}</div>
+    <div className="rounded-lg border border-border bg-background px-4 py-4">
+      <div className="text-xs uppercase tracking-[0.18em] text-muted-foreground">{label}</div>
+      <div className="mt-3 text-2xl font-semibold text-foreground">{value}</div>
     </div>
   );
 }
@@ -318,29 +335,68 @@ function EntitySection({
     title: string;
     subtitle: string;
     bullets: string[];
-    evidence: string;
   }>;
 }) {
   return (
     <div className="rounded-lg border border-border bg-background p-4">
       <div className="text-sm font-medium text-foreground">{title}</div>
       <div className="mt-3 space-y-3">
-        {items.length === 0 && <div className="text-sm text-muted-foreground">暂无数据</div>}
+        {items.length === 0 && <div className="text-sm text-muted-foreground">暂无对象</div>}
         {items.map((item) => (
           <div key={`${title}-${item.title}`} className="rounded-lg border border-border/70 px-3 py-3">
             <div className="text-sm font-medium text-foreground">{item.title}</div>
             <div className="mt-1 text-xs text-muted-foreground">{item.subtitle}</div>
-            {item.bullets.length > 0 && (
-              <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-muted-foreground">
-                {item.bullets.map((bullet) => (
-                  <li key={bullet}>{bullet}</li>
-                ))}
-              </ul>
-            )}
-            <div className="mt-3 rounded border border-dashed border-border px-3 py-2 text-xs leading-5 text-muted-foreground">
-              {item.evidence}
-            </div>
+            <ul className="mt-2 space-y-1 text-sm leading-6 text-muted-foreground">
+              {item.bullets.length === 0 && <li>暂无补充说明</li>}
+              {item.bullets.map((bullet, index) => (
+                <li key={`${item.title}-${index}`}>• {bullet}</li>
+              ))}
+            </ul>
           </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function DiffBucketCard({
+  title,
+  added,
+  removed,
+}: {
+  title: string;
+  added: string[];
+  removed: string[];
+}) {
+  return (
+    <div className="rounded-lg border border-border/70 px-4 py-4">
+      <div className="text-sm font-medium text-foreground">{title}</div>
+      <div className="mt-3 grid gap-3 md:grid-cols-2">
+        <DiffList title="新增" tone="green" items={added} />
+        <DiffList title="移除" tone="red" items={removed} />
+      </div>
+    </div>
+  );
+}
+
+function DiffList({
+  title,
+  tone,
+  items,
+}: {
+  title: string;
+  tone: "green" | "red";
+  items: string[];
+}) {
+  const titleClass = tone === "green" ? "text-green-700" : "text-red-700";
+  const bgClass = tone === "green" ? "bg-green-50 border-green-200" : "bg-red-50 border-red-200";
+  return (
+    <div className={`rounded-lg border px-3 py-3 ${bgClass}`}>
+      <div className={`text-xs font-medium uppercase tracking-[0.16em] ${titleClass}`}>{title}</div>
+      <div className="mt-2 space-y-1 text-sm text-muted-foreground">
+        {items.length === 0 && <div>暂无</div>}
+        {items.map((item) => (
+          <div key={`${title}-${item}`}>{item}</div>
         ))}
       </div>
     </div>

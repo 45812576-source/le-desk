@@ -1,6 +1,7 @@
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import {
+  MOCK_ORG_MEMORY_GOVERNANCE_VERSIONS,
   MOCK_ORG_MEMORY_PROPOSALS,
   MOCK_ORG_MEMORY_SNAPSHOTS,
   MOCK_ORG_MEMORY_SOURCES,
@@ -9,6 +10,7 @@ import type {
   ApprovalRequest,
   OrgMemoryClassificationRule,
   OrgMemoryAppliedConfigVersion,
+  OrgMemoryGovernanceVersion,
   OrgMemoryProposal,
   OrgMemorySnapshot,
   OrgMemorySkillMount,
@@ -51,6 +53,7 @@ export interface OrgMemoryPersistentState {
   sources: OrgMemorySource[];
   snapshots: OrgMemorySnapshot[];
   proposals: OrgMemoryProposal[];
+  governance_versions: OrgMemoryGovernanceVersion[];
   approvals: ApprovalRequest[];
   approval_links: OrgMemoryApprovalLink[];
   formal_config_source: OrgMemoryFormalConfigSource | null;
@@ -76,6 +79,7 @@ function createSeedState(): OrgMemoryPersistentState {
     sources: clone(MOCK_ORG_MEMORY_SOURCES),
     snapshots: clone(MOCK_ORG_MEMORY_SNAPSHOTS),
     proposals: clone(MOCK_ORG_MEMORY_PROPOSALS),
+    governance_versions: clone(MOCK_ORG_MEMORY_GOVERNANCE_VERSIONS),
     approvals: [],
     approval_links: [],
     formal_config_source: null,
@@ -94,6 +98,9 @@ function normalizeState(value: unknown): OrgMemoryPersistentState {
     sources: Array.isArray(candidate.sources) ? candidate.sources : clone(MOCK_ORG_MEMORY_SOURCES),
     snapshots: Array.isArray(candidate.snapshots) ? candidate.snapshots : clone(MOCK_ORG_MEMORY_SNAPSHOTS),
     proposals: Array.isArray(candidate.proposals) ? candidate.proposals : clone(MOCK_ORG_MEMORY_PROPOSALS),
+    governance_versions: Array.isArray(candidate.governance_versions)
+      ? candidate.governance_versions
+      : clone(MOCK_ORG_MEMORY_GOVERNANCE_VERSIONS),
     approvals: Array.isArray(candidate.approvals) ? candidate.approvals : [],
     approval_links: Array.isArray(candidate.approval_links) ? candidate.approval_links : [],
     formal_config_source:
@@ -150,6 +157,7 @@ export async function resetOrgMemoryPersistentState() {
     state.sources = seed.sources;
     state.snapshots = seed.snapshots;
     state.proposals = seed.proposals;
+    state.governance_versions = seed.governance_versions;
     state.approvals = seed.approvals;
     state.approval_links = seed.approval_links;
     state.formal_config_source = seed.formal_config_source;

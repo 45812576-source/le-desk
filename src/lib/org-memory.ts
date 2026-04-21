@@ -2,6 +2,9 @@
 
 import { apiFetch } from "@/lib/api";
 import type {
+  OrgMemoryGovernanceVersion,
+  OrgMemoryGovernanceVersionActionResult,
+  OrgMemoryGovernanceVersionRefreshResult,
   OrgMemoryProposal,
   OrgMemoryAppliedConfigVersion,
   OrgMemoryProposalCreateResult,
@@ -14,6 +17,7 @@ import type {
   OrgMemorySourceIngestResult,
 } from "@/lib/types";
 import {
+  MOCK_ORG_MEMORY_GOVERNANCE_VERSIONS,
   MOCK_ORG_MEMORY_PROPOSALS,
   MOCK_ORG_MEMORY_SNAPSHOTS,
   MOCK_ORG_MEMORY_SOURCES,
@@ -61,6 +65,39 @@ export const ORG_MEMORY_RISK_STYLES: Record<string, string> = {
   high: "bg-red-100 text-red-700",
   medium: "bg-amber-100 text-amber-700",
   low: "bg-green-100 text-green-700",
+};
+
+export const ORG_MEMORY_GOVERNANCE_STATUS_LABELS: Record<string, string> = {
+  draft: "待生效",
+  effective: "已生效",
+  archived: "已归档",
+};
+
+export const ORG_MEMORY_GOVERNANCE_STATUS_STYLES: Record<string, string> = {
+  draft: "bg-slate-100 text-slate-700",
+  effective: "bg-green-100 text-green-700",
+  archived: "bg-amber-100 text-amber-700",
+};
+
+export const ORG_MEMORY_SCOPE_LABELS: Record<string, string> = {
+  self: "仅本人",
+  manager_chain: "汇报链",
+  department: "部门内",
+  cross_department: "跨部门",
+  company: "全公司",
+};
+
+export const ORG_MEMORY_REDACTION_MODE_LABELS: Record<string, string> = {
+  raw: "原文",
+  masked: "脱敏",
+  summary: "摘要",
+  pattern_only: "模式提炼",
+};
+
+export const ORG_MEMORY_ACCESS_DECISION_LABELS: Record<string, string> = {
+  allow: "直接放行",
+  require_approval: "需确认",
+  deny: "禁止访问",
 };
 
 export interface OrgMemoryLoadResult<T> {
@@ -291,6 +328,45 @@ function normalizeProposal(item: unknown): OrgMemoryProposal {
   };
 }
 
+function normalizeGovernanceVersion(item: unknown): OrgMemoryGovernanceVersion {
+  const obj = asObject(item);
+  return {
+    id: pickNumber(obj?.id),
+    derived_from_snapshot_id: pickNumber(obj?.derived_from_snapshot_id || obj?.snapshot_id),
+    derived_from_snapshot_version: pickString(obj?.derived_from_snapshot_version || obj?.snapshot_version, "snapshot"),
+    version: pickNumber(obj?.version, 1),
+    status: pickString(obj?.status, "draft") as OrgMemoryGovernanceVersion["status"],
+    summary: pickString(obj?.summary, ""),
+    impact_summary: pickString(obj?.impact_summary, ""),
+    knowledge_bases: asArray(obj?.knowledge_bases).map((value) => pickString(value)).filter(Boolean),
+    data_tables: asArray(obj?.data_tables).map((value) => pickString(value)).filter(Boolean),
+    affected_skills: asArray(obj?.affected_skills).map((entry) => {
+      const entryObj = asObject(entry);
+      return {
+        skill_id: pickNumber(entryObj?.skill_id),
+        skill_name: pickString(entryObj?.skill_name, "未命名 Skill"),
+      };
+    }),
+    skill_access_rules: asArray(obj?.skill_access_rules).map((entry) => {
+      const entryObj = asObject(entry);
+      return {
+        id: pickNumber(entryObj?.id),
+        skill_id: pickNumber(entryObj?.skill_id),
+        skill_name: pickString(entryObj?.skill_name, "未命名 Skill"),
+        knowledge_bases: asArray(entryObj?.knowledge_bases).map((value) => pickString(value)).filter(Boolean),
+        data_tables: asArray(entryObj?.data_tables).map((value) => pickString(value)).filter(Boolean),
+        access_scope: pickString(entryObj?.access_scope, "department") as OrgMemoryGovernanceVersion["skill_access_rules"][number]["access_scope"],
+        redaction_mode: pickString(entryObj?.redaction_mode, "summary") as OrgMemoryGovernanceVersion["skill_access_rules"][number]["redaction_mode"],
+        decision: pickString(entryObj?.decision, "allow") as OrgMemoryGovernanceVersion["skill_access_rules"][number]["decision"],
+        rationale: pickString(entryObj?.rationale, ""),
+        required_domains: asArray(entryObj?.required_domains).map((value) => pickString(value)).filter(Boolean),
+      };
+    }),
+    created_at: pickString(obj?.created_at, new Date().toISOString()),
+    activated_at: pickNullableString(obj?.activated_at),
+  };
+}
+
 function normalizeProposalSubmitResult(
   proposalId: number,
   payload: unknown,
@@ -391,6 +467,13 @@ export function loadOrgMemoryProposals() {
   );
 }
 
+export function loadOrgMemoryGovernanceVersions() {
+  return withFallback(
+    async () => extractItems(await apiFetch<unknown>("/org-memory/governance-versions"), normalizeGovernanceVersion),
+    MOCK_ORG_MEMORY_GOVERNANCE_VERSIONS,
+  );
+}
+
 export async function loadOrgMemoryOverviewData(): Promise<
   OrgMemoryLoadResult<{
     sources: OrgMemorySource[];
@@ -446,6 +529,50 @@ export function loadOrgMemoryProposalDetail(proposalId: number) {
 
 export function loadOrgMemorySnapshotDiff(snapshotId: number) {
   return apiFetch<unknown>(`/org-memory/snapshots/${snapshotId}/diff`).then((payload) => normalizeSnapshotDiff(payload));
+}
+
+export async function loadOrgMemorySnapshotGovernanceVersion(snapshotId: number): Promise<OrgMemoryLoadResult<OrgMemoryGovernanceVersion | null>> {
+  try {
+    const payload = await apiFetch<unknown>(`/org-memory/snapshots/${snapshotId}/governance-version`);
+    return { data: normalizeGovernanceVersion(payload), fallback: false };
+  } catch (error) {
+    if (!shouldEnableOrgMemoryClientFallback()) {
+      throw error instanceof Error ? error : new Error("治理版本加载失败");
+    }
+    const fallback = MOCK_ORG_MEMORY_GOVERNANCE_VERSIONS.find((item) => item.derived_from_snapshot_id === snapshotId) || null;
+    return { data: fallback, fallback: true };
+  }
+}
+
+export async function loadCurrentOrgMemoryGovernanceVersion(): Promise<OrgMemoryLoadResult<OrgMemoryGovernanceVersion | null>> {
+  try {
+    const payload = await apiFetch<unknown>("/org-memory/governance-versions/current");
+    return { data: normalizeGovernanceVersion(payload), fallback: false };
+  } catch (error) {
+    if (!shouldEnableOrgMemoryClientFallback()) {
+      throw error instanceof Error ? error : new Error("当前治理版本加载失败");
+    }
+    const fallback = MOCK_ORG_MEMORY_GOVERNANCE_VERSIONS.find((item) => item.status === "effective") || null;
+    return { data: fallback, fallback: true };
+  }
+}
+
+export function refreshOrgMemoryGovernanceVersion(snapshotId: number) {
+  return apiFetch<OrgMemoryGovernanceVersionRefreshResult>(`/org-memory/snapshots/${snapshotId}/governance-version`, {
+    method: "POST",
+  });
+}
+
+export function activateOrgMemoryGovernanceVersion(governanceVersionId: number) {
+  return apiFetch<OrgMemoryGovernanceVersionActionResult>(`/org-memory/governance-versions/${governanceVersionId}/activate`, {
+    method: "POST",
+  });
+}
+
+export function rollbackOrgMemoryGovernanceVersion(governanceVersionId: number) {
+  return apiFetch<OrgMemoryGovernanceVersionActionResult>(`/org-memory/governance-versions/${governanceVersionId}/rollback`, {
+    method: "POST",
+  });
 }
 
 export function loadOrgMemoryConfigVersions(proposalId: number) {

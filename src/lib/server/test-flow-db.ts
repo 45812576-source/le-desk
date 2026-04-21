@@ -54,9 +54,7 @@ export async function readTestFlowState(): Promise<TestFlowPersistentState> {
     return normalizeState(JSON.parse(raw));
   } catch (error) {
     if (error && typeof error === "object" && "code" in error && error.code === "ENOENT") {
-      const seed = createSeedState();
-      await persistState(seed);
-      return seed;
+      return createSeedState();
     }
     throw error;
   }

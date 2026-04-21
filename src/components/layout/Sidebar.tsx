@@ -277,14 +277,8 @@ export function Sidebar({ user, taskPending = 0, onLogout }: SidebarProps) {
             {isSuperAdmin && (
               <NavItem href="/admin/user-permissions" label="用户权限" icon={ICONS.users} {...navItemProps} />
             )}
-            {isSuperAdmin && (
-              <NavItem href="/admin/org-management" label="组织事实" icon={ICONS.users} {...navItemProps} />
-            )}
             {(isSuperAdmin || user.role === "dept_admin") && (
-              <NavItem href="/admin/governance" label="知识治理" icon={ICONS.review} {...navItemProps} />
-            )}
-            {isSuperAdmin && (
-              <NavItem href="/admin/advanced-governance" label="高级治理" icon={ICONS.settings} {...navItemProps} />
+              <NavItem href="/admin/org-management" label="组织事实 / 资料与治理" icon={ICONS.users} {...navItemProps} />
             )}
           </NavGroup>
 

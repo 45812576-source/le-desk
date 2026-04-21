@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
@@ -9,6 +10,7 @@ import {
   rememberTestFlowBackendResponse,
   resolveTestFlowRequest,
 } from "@/lib/server/test-flow-service";
+import { readTestFlowState } from "@/lib/server/test-flow-db";
 
 function ok<T>(data: T) {
   return { ok: true, data };
@@ -193,5 +195,15 @@ describe("test-flow-service", () => {
         source_conversation_id: 77,
       }),
     ]);
+  });
+
+  it("does not create local test-flow state file on passive read", async () => {
+    const stateFile = process.env.TEST_FLOW_STATE_FILE!;
+    expect(existsSync(stateFile)).toBe(false);
+
+    const state = await readTestFlowState();
+
+    expect(state.run_links_by_session_id).toEqual({});
+    expect(existsSync(stateFile)).toBe(false);
   });
 });

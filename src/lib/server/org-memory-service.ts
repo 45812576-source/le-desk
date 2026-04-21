@@ -17,6 +17,8 @@ import {
   clone,
   findApproval,
   findApprovalByProposalId,
+  findGovernanceVersion,
+  findGovernanceVersionBySnapshotId,
   findApprovalLinkByProposalId,
   findApprovalLinkByRequestId,
   findProposal,
@@ -24,10 +26,12 @@ import {
   findSource,
   getConfigVersions,
   listApprovals,
+  listGovernanceVersions,
   listProposals,
   listSnapshots,
   listSources,
   nextId,
+  prependGovernanceVersion,
   prependProposal,
   prependSnapshot,
   prependSource,
@@ -40,6 +44,9 @@ import type {
   ApprovalRequest,
   OrgMemoryAppliedConfig,
   OrgMemoryAppliedConfigVersion,
+  OrgMemoryGovernanceVersion,
+  OrgMemoryGovernanceVersionActionResult,
+  OrgMemoryGovernanceVersionRefreshResult,
   OrgMemoryProposal,
   OrgMemoryProposalCreateResult,
   OrgMemoryProposalSubmitResult,
@@ -85,6 +92,12 @@ function extractSourceId(path: string, suffix: string) {
 
 function extractSnapshotId(path: string, suffix: string) {
   const match = path.match(new RegExp(`^/org-memory/snapshots/(\\d+)${suffix}$`));
+  if (!match) return null;
+  return Number(match[1]);
+}
+
+function extractGovernanceVersionId(path: string, suffix: string) {
+  const match = path.match(new RegExp(`^/org-memory/governance-versions/(\\d+)${suffix}$`));
   if (!match) return null;
   return Number(match[1]);
 }
@@ -247,6 +260,149 @@ function createProposal(stateProposals: OrgMemoryProposal[], snapshot: OrgMemory
             excerpt: snapshot.summary,
           },
         ],
+  };
+}
+
+function governanceTableName(snapshotId: number, suffix: string) {
+  return `org_memory_snapshot_${snapshotId}_${suffix}`;
+}
+
+function createGovernanceVersion(
+  stateGovernanceVersions: OrgMemoryGovernanceVersion[],
+  snapshot: OrgMemorySnapshot,
+): OrgMemoryGovernanceVersion {
+  const id = nextId(stateGovernanceVersions);
+  const version = Math.max(0, ...stateGovernanceVersions.map((item) => item.version)) + 1;
+  const organizationPaths = snapshot.units
+    .slice(0, 3)
+    .map((unit) => {
+      if (unit.unit_type === "org") return `/${unit.name}/资料与治理`;
+      return `/${unit.parent_name || snapshot.source_title}/${unit.name}/资料与治理`;
+    });
+  const knowledgeBases = organizationPaths.length > 0
+    ? Array.from(new Set(organizationPaths))
+    : [`/${snapshot.source_title}/资料与治理`];
+  const dataTables = [
+    governanceTableName(snapshot.id, "knowledge_view"),
+    ...(snapshot.low_confidence_items.length > 0 ? [governanceTableName(snapshot.id, "risk_view")] : []),
+  ];
+  const baseDecision: OrgMemoryGovernanceVersion["skill_access_rules"][number]["decision"] =
+    snapshot.parse_status === "warning" || snapshot.low_confidence_items.length > 0
+    ? "require_approval"
+    : "allow";
+  const baseRedactionMode: OrgMemoryGovernanceVersion["skill_access_rules"][number]["redaction_mode"] =
+    snapshot.low_confidence_items.length > 0 ? "masked" : "summary";
+
+  const affectedSkills = [
+    snapshot.units.length > 0 || snapshot.people.length > 0
+      ? { skill_id: 6100 + snapshot.id, skill_name: "组织事实助手" }
+      : null,
+    snapshot.okrs.length > 0
+      ? { skill_id: 6200 + snapshot.id, skill_name: "OKR 对齐助手" }
+      : null,
+    snapshot.processes.length > 0
+      ? { skill_id: 6300 + snapshot.id, skill_name: "流程问答助手" }
+      : null,
+  ].filter((item): item is { skill_id: number; skill_name: string } => Boolean(item));
+
+  const skillAccessRules: OrgMemoryGovernanceVersion["skill_access_rules"] = affectedSkills.map((skill, index) => ({
+    id: id * 10 + index + 1,
+    skill_id: skill.skill_id,
+    skill_name: skill.skill_name,
+    knowledge_bases: knowledgeBases.slice(index === 0 ? 0 : Math.min(index - 1, knowledgeBases.length - 1), Math.min(index + 1, knowledgeBases.length)),
+    data_tables: dataTables.slice(0, skill.skill_name === "组织事实助手" ? 1 : dataTables.length),
+    access_scope: (snapshot.low_confidence_items.length > 0 ? "manager_chain" : "department") as OrgMemoryGovernanceVersion["skill_access_rules"][number]["access_scope"],
+    redaction_mode: skill.skill_name === "组织事实助手" ? "summary" : baseRedactionMode,
+    decision: baseDecision,
+    rationale:
+      skill.skill_name === "组织事实助手"
+        ? "组织事实查询默认只消费结构化摘要，避免直接暴露原始组织资料。"
+        : skill.skill_name === "OKR 对齐助手"
+          ? "OKR 相关查询仅开放治理版本允许的知识库与表视图。"
+          : "流程问答只能访问当前治理版本标注的流程知识与风险视图。",
+    required_domains:
+      skill.skill_name === "组织事实助手"
+        ? ["组织职责", "岗位与人员"]
+        : skill.skill_name === "OKR 对齐助手"
+          ? ["OKR", "组织目标"]
+          : ["业务流程", "风险点"],
+  }));
+
+  return {
+    id,
+    derived_from_snapshot_id: snapshot.id,
+    derived_from_snapshot_version: snapshot.snapshot_version,
+    version,
+    status: "draft",
+    summary: `已基于 ${snapshot.snapshot_version} 派生治理版本，供 Skill 统一按治理规则消费资料。`,
+    impact_summary: `影响 ${affectedSkills.length} 个 Skill、${knowledgeBases.length} 个知识库、${dataTables.length} 张数据表。`,
+    knowledge_bases: knowledgeBases,
+    data_tables: dataTables,
+    affected_skills: affectedSkills,
+    skill_access_rules: skillAccessRules,
+    created_at: nowIso(),
+    activated_at: null,
+  };
+}
+
+function findCurrentEffectiveGovernanceVersion(versions: OrgMemoryGovernanceVersion[]) {
+  return [...versions]
+    .filter((item) => item.status === "effective")
+    .sort((left, right) => (right.activated_at || "").localeCompare(left.activated_at || ""))
+    [0] || null;
+}
+
+function refreshGovernanceVersionForSnapshot(
+  state: { governance_versions: OrgMemoryGovernanceVersion[] },
+  snapshot: OrgMemorySnapshot,
+) {
+  state.governance_versions.forEach((item) => {
+    if (item.derived_from_snapshot_id === snapshot.id && item.status === "draft") {
+      item.status = "archived";
+    }
+  });
+  const governanceVersion = createGovernanceVersion(state.governance_versions, snapshot);
+  state.governance_versions.unshift(governanceVersion);
+  return governanceVersion;
+}
+
+function activateGovernanceVersion(
+  state: { governance_versions: OrgMemoryGovernanceVersion[] },
+  governanceVersion: OrgMemoryGovernanceVersion,
+): OrgMemoryGovernanceVersionActionResult {
+  state.governance_versions.forEach((item) => {
+    if (item.id !== governanceVersion.id && item.status === "effective") {
+      item.status = "archived";
+    }
+  });
+  governanceVersion.status = "effective";
+  governanceVersion.activated_at = nowIso();
+  return {
+    governance_version_id: governanceVersion.id,
+    status: governanceVersion.status,
+    message: `治理版本 v${governanceVersion.version} 已生效`,
+    current_effective_governance_version_id: governanceVersion.id,
+  };
+}
+
+function rollbackGovernanceVersion(
+  state: { governance_versions: OrgMemoryGovernanceVersion[] },
+  governanceVersion: OrgMemoryGovernanceVersion,
+): OrgMemoryGovernanceVersionActionResult | null {
+  const previous = [...state.governance_versions]
+    .filter((item) => item.id !== governanceVersion.id && item.activated_at)
+    .sort((left, right) => (right.activated_at || "").localeCompare(left.activated_at || ""))
+    [0] || null;
+  if (!previous) return null;
+  governanceVersion.status = "archived";
+  previous.status = "effective";
+  previous.activated_at = nowIso();
+  return {
+    governance_version_id: governanceVersion.id,
+    status: governanceVersion.status,
+    message: `已回滚到治理版本 v${previous.version}`,
+    current_effective_governance_version_id: previous.id,
+    rolled_back_to_governance_version_id: previous.id,
   };
 }
 
@@ -685,6 +841,20 @@ export async function resolveOrgMemoryRequest(
     return { body: { items: listSnapshots(state) } };
   }
 
+  if (method === "GET" && path === "/org-memory/governance-versions") {
+    const state = await readOrgMemoryState();
+    return { body: { items: listGovernanceVersions(state) } };
+  }
+
+  if (method === "GET" && path === "/org-memory/governance-versions/current") {
+    const state = await readOrgMemoryState();
+    const current = findCurrentEffectiveGovernanceVersion(state.governance_versions);
+    if (!current) {
+      return { status: 404, body: { detail: "当前没有已生效的治理版本" } };
+    }
+    return { body: clone(current) };
+  }
+
   if (method === "GET" && path === "/org-memory/proposals") {
     const state = await readOrgMemoryState();
     return { body: { items: listProposals(state) } };
@@ -724,6 +894,42 @@ export async function resolveOrgMemoryRequest(
     });
   }
 
+  const governanceVersionId = extractGovernanceVersionId(path, "");
+  if (method === "GET" && governanceVersionId != null) {
+    const state = await readOrgMemoryState();
+    const governanceVersion = findGovernanceVersion(state, governanceVersionId);
+    if (!governanceVersion) {
+      return { status: 404, body: { detail: "治理版本不存在" } };
+    }
+    return { body: clone(governanceVersion) };
+  }
+
+  const activateGovernanceVersionId = extractGovernanceVersionId(path, "/activate");
+  if (method === "POST" && activateGovernanceVersionId != null) {
+    return updateOrgMemoryState((state) => {
+      const governanceVersion = findGovernanceVersion(state, activateGovernanceVersionId);
+      if (!governanceVersion) {
+        return { status: 404, body: { detail: "治理版本不存在" } };
+      }
+      return { body: activateGovernanceVersion(state, governanceVersion) };
+    });
+  }
+
+  const rollbackGovernanceVersionId = extractGovernanceVersionId(path, "/rollback");
+  if (method === "POST" && rollbackGovernanceVersionId != null) {
+    return updateOrgMemoryState((state) => {
+      const governanceVersion = findGovernanceVersion(state, rollbackGovernanceVersionId);
+      if (!governanceVersion) {
+        return { status: 404, body: { detail: "治理版本不存在" } };
+      }
+      const result = rollbackGovernanceVersion(state, governanceVersion);
+      if (!result) {
+        return { status: 409, body: { detail: "没有可回滚的上一治理版本" } };
+      }
+      return { body: result };
+    });
+  }
+
   const snapshotDiffId = extractSnapshotId(path, "/diff");
   if (method === "GET" && snapshotDiffId != null) {
     const state = await readOrgMemoryState();
@@ -734,13 +940,51 @@ export async function resolveOrgMemoryRequest(
     return { body: createSnapshotDiff(state.snapshots, snapshot) };
   }
 
+  const snapshotGovernanceVersionId = extractSnapshotId(path, "/governance-version");
+  if (snapshotGovernanceVersionId != null) {
+    if (method === "GET") {
+      const state = await readOrgMemoryState();
+      const snapshot = findSnapshot(state, snapshotGovernanceVersionId);
+      if (!snapshot) {
+        return { status: 404, body: { detail: "组织 Memory 快照不存在" } };
+      }
+      const governanceVersion = findGovernanceVersionBySnapshotId(state, snapshot.id);
+      if (!governanceVersion) {
+        return { status: 404, body: { detail: "当前快照尚未派生治理版本" } };
+      }
+      return { body: clone(governanceVersion) };
+    }
+    if (method === "POST") {
+      return updateOrgMemoryState((state) => {
+        const snapshot = findSnapshot(state, snapshotGovernanceVersionId);
+        if (!snapshot) {
+          return { status: 404, body: { detail: "组织 Memory 快照不存在" } };
+        }
+        const governanceVersion = refreshGovernanceVersionForSnapshot(state, snapshot);
+        return {
+          body: {
+            governance_version_id: governanceVersion.id,
+            status: governanceVersion.status,
+          } satisfies OrgMemoryGovernanceVersionRefreshResult,
+        };
+      });
+    }
+  }
+
   if (method === "POST" && path === "/org-memory/sources/ingest") {
     return updateOrgMemoryState((state) => {
       const source = createSource(state.sources, payload);
       prependSource(state, source);
+      const snapshot = createSnapshot(state.snapshots, source);
+      prependSnapshot(state, snapshot);
+      const governanceVersion = createGovernanceVersion(state.governance_versions, snapshot);
+      prependGovernanceVersion(state, governanceVersion);
       const result: OrgMemorySourceIngestResult = {
         source_id: source.id,
-        status: source.ingest_status,
+        status: snapshot.parse_status,
+        snapshot_id: snapshot.id,
+        snapshot_version: snapshot.snapshot_version,
+        governance_version_id: governanceVersion.id,
       };
       return { body: result };
     });
@@ -755,9 +999,13 @@ export async function resolveOrgMemoryRequest(
       }
       const snapshot = createSnapshot(state.snapshots, source);
       prependSnapshot(state, snapshot);
+      const governanceVersion = createGovernanceVersion(state.governance_versions, snapshot);
+      prependGovernanceVersion(state, governanceVersion);
       const result: OrgMemorySnapshotCreateResult = {
         snapshot_id: snapshot.id,
         status: snapshot.parse_status,
+        snapshot_version: snapshot.snapshot_version,
+        governance_version_id: governanceVersion.id,
       };
       return { body: result };
     });

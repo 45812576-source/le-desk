@@ -1,4 +1,5 @@
 import type {
+  OrgMemoryGovernanceVersion,
   OrgMemoryProposal,
   OrgMemorySnapshot,
   OrgMemorySource,
@@ -395,5 +396,90 @@ export const MOCK_ORG_MEMORY_PROPOSALS: OrgMemoryProposal[] = [
         excerpt: "案例原文不得直接扩散；部门共享或模型使用都应基于摘要或去标识化版本。",
       },
     ],
+  },
+];
+
+export const MOCK_ORG_MEMORY_GOVERNANCE_VERSIONS: OrgMemoryGovernanceVersion[] = [
+  {
+    id: 401,
+    derived_from_snapshot_id: 201,
+    derived_from_snapshot_version: "snapshot-2026-04-15-01",
+    version: 7,
+    status: "effective",
+    summary: "销售组织快照已收敛为治理版本，供 Skill 统一按部门范围消费知识库与数据表。",
+    impact_summary: "影响 2 个 Skill、2 个知识库、1 张数据表，当前已生效。",
+    knowledge_bases: [
+      "/销售中心/销售管理/培训与复盘",
+      "/销售中心/商务一部/客户案例卡",
+    ],
+    data_tables: [
+      "sales_case_cards_masked",
+    ],
+    affected_skills: [
+      { skill_id: 402, skill_name: "销售复盘助手" },
+      { skill_id: 404, skill_name: "客户案例助手" },
+    ],
+    skill_access_rules: [
+      {
+        id: 4011,
+        skill_id: 402,
+        skill_name: "销售复盘助手",
+        knowledge_bases: ["/销售中心/销售管理/培训与复盘"],
+        data_tables: ["sales_case_cards_masked"],
+        access_scope: "department",
+        redaction_mode: "summary",
+        decision: "allow",
+        rationale: "只消费部门培训复盘摘要，运行时不需要原始客户字段。",
+        required_domains: ["培训与复盘", "销售 OKR"],
+      },
+      {
+        id: 4012,
+        skill_id: 404,
+        skill_name: "客户案例助手",
+        knowledge_bases: ["/销售中心/商务一部/客户案例卡"],
+        data_tables: ["sales_case_cards_masked"],
+        access_scope: "department",
+        redaction_mode: "masked",
+        decision: "require_approval",
+        rationale: "只能读取匿名案例卡，扩展范围前仍需人工确认。",
+        required_domains: ["客户案例卡", "复盘模板"],
+      },
+    ],
+    created_at: "2026-04-15T10:05:00+08:00",
+    activated_at: "2026-04-15T10:30:00+08:00",
+  },
+  {
+    id: 402,
+    derived_from_snapshot_id: 202,
+    derived_from_snapshot_version: "snapshot-2026-04-15-02",
+    version: 8,
+    status: "draft",
+    summary: "商务案例共享快照已派生出治理版本，当前等待业务确认共享边界后再生效。",
+    impact_summary: "影响 1 个 Skill、1 个知识库、1 张数据表，尚未生效。",
+    knowledge_bases: [
+      "/商务管理/案例共享/匿名案例卡",
+    ],
+    data_tables: [
+      "biz_case_summary_view",
+    ],
+    affected_skills: [
+      { skill_id: 404, skill_name: "客户案例助手" },
+    ],
+    skill_access_rules: [
+      {
+        id: 4021,
+        skill_id: 404,
+        skill_name: "客户案例助手",
+        knowledge_bases: ["/商务管理/案例共享/匿名案例卡"],
+        data_tables: ["biz_case_summary_view"],
+        access_scope: "department",
+        redaction_mode: "summary",
+        decision: "require_approval",
+        rationale: "如果供 LLM 检索，只允许读取摘要与模式提炼结果。",
+        required_domains: ["案例复盘", "匿名案例卡"],
+      },
+    ],
+    created_at: "2026-04-15T15:02:00+08:00",
+    activated_at: null,
   },
 ];

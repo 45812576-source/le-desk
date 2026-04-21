@@ -57,7 +57,10 @@ describe("org-memory-api-store", () => {
 
     expect(ingest?.body).toMatchObject({
       source_id: expect.any(Number),
-      status: "processing",
+      status: "ready",
+      snapshot_id: expect.any(Number),
+      snapshot_version: expect.any(String),
+      governance_version_id: expect.any(Number),
     });
 
     const sources = await resolveOrgMemoryRequest("GET", "/org-memory/sources");
@@ -67,6 +70,16 @@ describe("org-memory-api-store", () => {
           title: "客户成功组织蓝图",
           source_type: "upload",
           owner_name: "客户成功部",
+          ingest_status: "ready",
+        }),
+      ]),
+    });
+
+    const snapshots = await resolveOrgMemoryRequest("GET", "/org-memory/snapshots");
+    expect(snapshots?.body).toMatchObject({
+      items: expect.arrayContaining([
+        expect.objectContaining({
+          source_id: (ingest?.body as { source_id: number }).source_id,
         }),
       ]),
     });
@@ -88,6 +101,8 @@ describe("org-memory-api-store", () => {
     expect(snapshot?.body).toMatchObject({
       snapshot_id: expect.any(Number),
       status: "ready",
+      snapshot_version: expect.any(String),
+      governance_version_id: expect.any(Number),
     });
     expect(proposal?.body).toMatchObject({
       proposal_id: expect.any(Number),
@@ -139,6 +154,65 @@ describe("org-memory-api-store", () => {
         added: expect.any(Array),
         removed: expect.any(Array),
       }),
+    });
+  });
+
+  it("derives governance version during ingest and supports lookup by snapshot", async () => {
+    const ingest = await resolveOrgMemoryRequest("POST", "/org-memory/sources/ingest", {
+      title: "销售组织事实资料包",
+      source_type: "feishu_doc",
+      source_uri: "https://example.feishu.cn/docx/org-source",
+    });
+    const snapshotId = (ingest?.body as { snapshot_id: number }).snapshot_id;
+    const governanceVersionId = (ingest?.body as { governance_version_id: number }).governance_version_id;
+
+    const governanceVersion = await resolveOrgMemoryRequest("GET", `/org-memory/snapshots/${snapshotId}/governance-version`);
+    const detail = await resolveOrgMemoryRequest("GET", `/org-memory/governance-versions/${governanceVersionId}`);
+
+    expect(governanceVersion?.status ?? 200).toBe(200);
+    expect(detail?.status ?? 200).toBe(200);
+    expect(governanceVersion?.body).toMatchObject({
+      id: governanceVersionId,
+      derived_from_snapshot_id: snapshotId,
+      skill_access_rules: expect.any(Array),
+    });
+    expect(detail?.body).toMatchObject({
+      id: governanceVersionId,
+      version: expect.any(Number),
+      knowledge_bases: expect.any(Array),
+      data_tables: expect.any(Array),
+    });
+  });
+
+  it("activates and rolls back governance versions", async () => {
+    const list = await resolveOrgMemoryRequest("GET", "/org-memory/governance-versions");
+    const items = ((list?.body as { items: Array<{ id: number; status: string }> })?.items || []);
+    const draftVersion = items.find((item) => item.status === "draft");
+    expect(draftVersion).toBeTruthy();
+
+    const activate = await resolveOrgMemoryRequest("POST", `/org-memory/governance-versions/${draftVersion?.id}/activate`);
+    const current = await resolveOrgMemoryRequest("GET", "/org-memory/governance-versions/current");
+
+    expect(activate?.body).toMatchObject({
+      governance_version_id: draftVersion?.id,
+      status: "effective",
+    });
+    expect(current?.body).toMatchObject({
+      id: draftVersion?.id,
+      status: "effective",
+    });
+
+    const rollback = await resolveOrgMemoryRequest("POST", `/org-memory/governance-versions/${draftVersion?.id}/rollback`);
+    const rolledCurrent = await resolveOrgMemoryRequest("GET", "/org-memory/governance-versions/current");
+
+    expect(rollback?.body).toMatchObject({
+      governance_version_id: draftVersion?.id,
+      status: "archived",
+      rolled_back_to_governance_version_id: expect.any(Number),
+    });
+    expect(rolledCurrent?.body).toMatchObject({
+      id: (rollback?.body as { rolled_back_to_governance_version_id: number }).rolled_back_to_governance_version_id,
+      status: "effective",
     });
   });
 

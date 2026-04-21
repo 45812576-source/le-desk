@@ -1551,6 +1551,7 @@ export type OrgMemoryProposalStatus =
   | "approved"
   | "rejected"
   | "partially_approved";
+export type OrgMemoryGovernanceVersionStatus = "draft" | "effective" | "archived";
 export type OrgMemoryScope =
   | "self"
   | "manager_chain"
@@ -1717,6 +1718,38 @@ export interface OrgMemoryProposal {
   applied_config?: OrgMemoryAppliedConfig | null;
 }
 
+export interface OrgMemorySkillAccessRule {
+  id: number;
+  skill_id: number;
+  skill_name: string;
+  knowledge_bases: string[];
+  data_tables: string[];
+  access_scope: OrgMemoryScope;
+  redaction_mode: OrgMemoryRedactionMode;
+  decision: "allow" | "require_approval" | "deny";
+  rationale: string;
+  required_domains: string[];
+}
+
+export interface OrgMemoryGovernanceVersion {
+  id: number;
+  derived_from_snapshot_id: number;
+  derived_from_snapshot_version: string;
+  version: number;
+  status: OrgMemoryGovernanceVersionStatus;
+  summary: string;
+  impact_summary: string;
+  knowledge_bases: string[];
+  data_tables: string[];
+  affected_skills: Array<{
+    skill_id: number;
+    skill_name: string;
+  }>;
+  skill_access_rules: OrgMemorySkillAccessRule[];
+  created_at: string;
+  activated_at: string | null;
+}
+
 export interface OrgMemoryAppliedConfig {
   id: number;
   proposal_id: number;
@@ -1753,16 +1786,33 @@ export interface OrgMemorySourceIngestResult {
   source_id: number;
   status: string;
   snapshot_id: number | null;
+  snapshot_version: string | null;
+  governance_version_id: number | null;
 }
 
 export interface OrgMemorySnapshotCreateResult {
   snapshot_id: number;
   status: string;
+  snapshot_version: string | null;
+  governance_version_id: number | null;
 }
 
 export interface OrgMemoryProposalCreateResult {
   proposal_id: number;
   status: string;
+}
+
+export interface OrgMemoryGovernanceVersionRefreshResult {
+  governance_version_id: number;
+  status: OrgMemoryGovernanceVersionStatus;
+}
+
+export interface OrgMemoryGovernanceVersionActionResult {
+  governance_version_id: number;
+  status: OrgMemoryGovernanceVersionStatus;
+  message: string;
+  current_effective_governance_version_id: number | null;
+  rolled_back_to_governance_version_id?: number | null;
 }
 
 export interface OrgMemorySnapshotDiffBucket {
