@@ -308,6 +308,120 @@
   /* MarkdownBlock prose：arbitrary variant [&_pre]/[&_th] 不被 class 覆盖，需直接选元素 */
   .prose pre { background-color: var(--muted) !important; color: var(--foreground); }
   .prose th { background-color: var(--muted) !important; color: var(--foreground); }
+
+  /* ── md-body（MarkdownBlock 内联样式覆盖）── */
+  .md-body { color: var(--foreground); }
+  .md-body code:not(pre code) {
+    background: var(--muted) !important;
+    border-color: var(--border) !important;
+    color: oklch(0.7 0.15 25) !important;
+  }
+  .md-body pre {
+    background: var(--muted) !important;
+    border-color: var(--border) !important;
+    color: var(--foreground);
+  }
+  .md-body pre code { color: inherit; }
+  .md-body blockquote {
+    border-left-color: var(--border) !important;
+    color: var(--muted-foreground) !important;
+  }
+  .md-body th {
+    border-color: var(--border) !important;
+    background: var(--muted) !important;
+    color: var(--foreground);
+  }
+  .md-body td {
+    border-color: var(--border) !important;
+    color: var(--foreground);
+  }
+  .md-body a { color: oklch(0.7 0.1 220) !important; }
+  .md-body hr { border-top-color: var(--border) !important; }
+  .md-body table { border-color: var(--border); }
+
+  /* ── StudioWorkspace / Panel / Metric 浅色面板底色 ── */
+  .bg-\[\#F8FCFD\] { background-color: var(--background) !important; }
+  .bg-\[\#F4FBFF\] { background-color: var(--background) !important; }
+  .bg-\[\#FFF9F5\] { background-color: color-mix(in srgb, oklch(0.8 0.12 55) 8%, var(--background)) !important; }
+  .bg-\[\#FFFBF2\] { background-color: color-mix(in srgb, oklch(0.8 0.12 80) 8%, var(--background)) !important; }
+  .bg-\[\#ECFBFF\] { background-color: color-mix(in srgb, oklch(0.7 0.1 220) 10%, var(--card)) !important; }
+  .bg-\[\#F0FBFF\] { background-color: color-mix(in srgb, oklch(0.7 0.1 220) 10%, var(--card)) !important; }
+  .bg-\[\#F0FFF9\], .bg-\[\#F0FFF4\] { background-color: color-mix(in srgb, oklch(0.7 0.15 160) 10%, var(--card)) !important; }
+  .bg-\[\#CCFFF0\]\/60 { background-color: color-mix(in srgb, oklch(0.7 0.15 160) 12%, var(--card)) !important; }
+  .bg-\[\#DDFBED\] { background-color: color-mix(in srgb, oklch(0.7 0.15 160) 15%, var(--card)) !important; }
+  .bg-\[\#E0F7FF\] { background-color: color-mix(in srgb, oklch(0.7 0.1 220) 10%, var(--card)) !important; }
+  .bg-\[\#CCF2FF\]\/40 { background-color: color-mix(in srgb, oklch(0.7 0.1 220) 12%, var(--card)) !important; }
+  .bg-\[\#CCF2FF\]\/20 { background-color: color-mix(in srgb, oklch(0.7 0.1 220) 6%, var(--card)) !important; }
+  .bg-\[\#FFF5F5\] { background-color: color-mix(in srgb, var(--destructive) 10%, var(--card)) !important; }
+  .bg-\[\#FFFAF0\] { background-color: color-mix(in srgb, oklch(0.8 0.12 55) 10%, var(--card)) !important; }
+  .bg-emerald-50 { background-color: color-mix(in srgb, oklch(0.7 0.15 160) 10%, var(--card)) !important; }
+  .bg-red-400 { background-color: var(--destructive) !important; }
+  /* hover: 浅色面板 hover */
+  .hover\:bg-\[\#F0FFF4\]:hover { background-color: color-mix(in srgb, oklch(0.7 0.15 160) 12%, var(--card)) !important; }
+  .hover\:bg-\[\#FFFAF0\]:hover { background-color: color-mix(in srgb, oklch(0.8 0.12 55) 12%, var(--card)) !important; }
+  .hover\:bg-\[\#FFF5F5\]:hover { background-color: color-mix(in srgb, var(--destructive) 12%, var(--card)) !important; }
+  .hover\:bg-\[\#FAF5FF\]:hover { background-color: var(--secondary) !important; }
+  .hover\:bg-\[\#ECFBFF\]:hover { background-color: color-mix(in srgb, oklch(0.7 0.1 220) 15%, var(--card)) !important; }
+  .hover\:bg-\[\#E0ECF0\]:hover { background-color: var(--muted) !important; }
+  .hover\:bg-\[\#DDFBED\]:hover { background-color: color-mix(in srgb, oklch(0.7 0.15 160) 15%, var(--card)) !important; }
+  .hover\:bg-black:hover { background-color: var(--accent) !important; }
+  .hover\:bg-gray-100:hover { background-color: var(--muted) !important; }
+
+  /* ── 额外 border 覆盖 ── */
+  .border-gray-300, .border-gray-400 { border-color: var(--border); }
+  .border-\[\#CBD5E0\] { border-color: var(--border); }
+  .border-\[\#BEEFD7\] { border-color: oklch(0.7 0.15 160 / 30%); }
+  .border-slate-200, .border-slate-300 { border-color: var(--border); }
+  .border-amber-200, .border-amber-300 { border-color: oklch(0.8 0.12 80 / 30%); }
+  .border-emerald-200, .border-emerald-300 { border-color: oklch(0.7 0.15 160 / 30%); }
+  .border-red-300, .border-red-400 { border-color: oklch(0.7 0.19 22 / 40%); }
+  .border-\[\#68D391\] { border-color: oklch(0.7 0.15 160 / 40%); }
+  .border-\[\#FC8181\] { border-color: oklch(0.7 0.19 22 / 40%); }
+  .border-\[\#ED8936\] { border-color: oklch(0.75 0.15 55 / 40%); }
+  .border-l-2.border-\[\#00A3C4\] { border-left-color: oklch(0.7 0.1 220); }
+  .border-l-2.border-\[\#805AD5\] { border-left-color: oklch(0.6 0.15 290); }
+  .border-b-2.border-\[\#00D1FF\] { border-bottom-color: var(--border); }
+  .border-b-2.border-\[\#805AD5\] { border-bottom-color: oklch(0.6 0.15 290 / 40%); }
+
+  /* ── 额外 text 覆盖 ── */
+  .text-slate-500, .text-slate-600 { color: var(--muted-foreground); }
+  .text-gray-700, .text-gray-800, .text-gray-900 { color: var(--foreground); }
+  .text-amber-600, .text-amber-700 { color: oklch(0.8 0.12 80); }
+  .text-emerald-600 { color: oklch(0.7 0.15 160); }
+  .text-red-400, .text-red-500 { color: var(--destructive); }
+  .text-\[\#007A5E\] { color: oklch(0.7 0.15 160); }
+  .text-\[\#C53030\] { color: var(--destructive); }
+  .text-\[\#ED8936\] { color: oklch(0.75 0.15 55); }
+  .text-\[\#E53E3E\] { color: var(--destructive); }
+  .text-\[\#718096\] { color: var(--muted-foreground); }
+  .text-\[\#F59E0B\] { color: oklch(0.8 0.12 80); }
+  .text-\[\#C05621\] { color: oklch(0.7 0.12 55); }
+  .text-\[\#E11D48\] { color: oklch(0.7 0.19 22); }
+
+  /* ── bg-[#00CC99]/5, bg-[#00CC99]/10, bg-[#00A3C4]/30 等 alpha 变体 ── */
+  .bg-\[\#00CC99\]\/5, .bg-\[\#00CC99\]\/10 { background-color: color-mix(in srgb, oklch(0.7 0.15 160) 10%, var(--card)) !important; }
+  .bg-\[\#6B46C1\]\/10 { background-color: color-mix(in srgb, oklch(0.6 0.15 290) 12%, var(--card)) !important; }
+  .bg-\[\#00CC99\]\/10.text-\[\#00CC99\] { color: oklch(0.7 0.15 160); }
+  .border-\[\#00A3C4\]\/30, .border-\[\#00A3C4\]\/40, .border-\[\#00CC99\]\/30, .border-\[\#00CC99\]\/40 { border-color: var(--border); }
+  .border-\[\#1A202C\]\/10, .border-\[\#1A202C\]\/15, .border-\[\#1A202C\]\/20 { border-color: var(--border); }
+  .border-\[\#E9D8FD\] { border-color: oklch(0.6 0.15 290 / 30%); }
+
+  /* ── StudioWorkspace 面板内 action 按钮（白底 → card，hover 白亮 → muted）── */
+  .bg-\[\#E11D48\] { background-color: oklch(0.5 0.2 15) !important; }
+  .hover\:bg-\[\#00A3C4\]:hover { background-color: var(--muted) !important; }
+
+  /* ── SkillList 侧栏 ── */
+  .bg-\[\#E0ECF0\] { background-color: var(--muted) !important; }
+
+  /* ── input / select 覆盖 ── */
+  input, select { background-color: var(--card); color: var(--foreground); }
+
+  /* ── scrollbar ── */
+  ::-webkit-scrollbar-track { background: var(--background); }
+  ::-webkit-scrollbar-thumb { background: var(--muted); }
+
+  /* ── 登录页 ── */
+  .min-h-screen.bg-\[\#F0F4F8\] { background-color: var(--background) !important; }
 }
 
 /* ── 两个主题共用的结构覆盖 ── */
