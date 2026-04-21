@@ -227,18 +227,18 @@ export function SkillStudio({
     activeSandboxReport,
   }), [activeSandboxReport, governanceWorkbenchIntent, memo, selectedFile, selectedSkill, storeGovernanceCards, storeStagedEdits, storeWorkflowState]);
 
-  const preferredWorkbenchCardId = useMemo(
-    () => resolvePreferredWorkbenchCardId(computedWorkbenchCards, storeWorkflowState, activeWorkbenchCardId),
-    [activeWorkbenchCardId, computedWorkbenchCards, storeWorkflowState],
-  );
-
   const lastReplaceKeyRef = useRef<string | null>(null);
   useEffect(() => {
-    const key = JSON.stringify([computedWorkbenchCards.map((c) => `${c.id}:${c.status}`), preferredWorkbenchCardId]);
+    const preferredId = resolvePreferredWorkbenchCardId(
+      computedWorkbenchCards,
+      storeWorkflowState,
+      useStudioStore.getState().activeWorkbenchCardId,
+    );
+    const key = JSON.stringify([computedWorkbenchCards.map((c) => `${c.id}:${c.status}`), preferredId]);
     if (key === lastReplaceKeyRef.current) return;
     lastReplaceKeyRef.current = key;
-    replaceWorkbenchCards(computedWorkbenchCards, preferredWorkbenchCardId);
-  }, [computedWorkbenchCards, preferredWorkbenchCardId, replaceWorkbenchCards]);
+    replaceWorkbenchCards(computedWorkbenchCards, preferredId);
+  }, [computedWorkbenchCards, storeWorkflowState, replaceWorkbenchCards]);
 
   const workbenchCards = useMemo(
     () => storeCardOrder.map((id) => storeCardsById[id]).filter(Boolean),
