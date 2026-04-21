@@ -54,4 +54,23 @@ describe("parseStructuredStudioMessage", () => {
     expect(parsed.pendingGovernanceActions[0].title).toBe("补充边界条件");
     expect(parsed.cleanText).toBe("治理建议已生成，请在下方卡片中查看并决定是否采纳。");
   });
+
+  it("extracts STUDIO_META quick replies and strips hidden comments", () => {
+    const text = [
+      "接下来是否继续创建 **example-basic.md** 来验证这些约束在实例中是否被正确执行？",
+      "",
+      "<!--STUDIO_META:{\"phase\":\"extract\",\"turn\":5,\"quick_replies\":[\"继续创建 example 文件\",\"先查看测试问题清单\",\"修改其他部分\"]}-->",
+    ].join("\n");
+
+    const parsed = parseStructuredStudioMessage(text);
+
+    expect(parsed.cleanText).toBe("接下来是否继续创建 **example-basic.md** 来验证这些约束在实例中是否被正确执行？");
+    expect(parsed.studioMeta?.phase).toBe("extract");
+    expect(parsed.studioMeta?.turn).toBe(5);
+    expect(parsed.studioMeta?.quickReplies).toEqual([
+      "继续创建 example 文件",
+      "先查看测试问题清单",
+      "修改其他部分",
+    ]);
+  });
 });

@@ -1,5 +1,6 @@
 import type { WorkflowStateData } from "./workflow-protocol";
 import { parseStructuredStudioMessage } from "./message-parser";
+import type { StudioMetaDirective } from "./studio-meta";
 import type {
   ArchitectOodaDecision,
   ArchitectPhaseSummary,
@@ -39,6 +40,7 @@ export interface RecoveredStudioHistory {
   oodaDecisions: ArchitectOodaDecision[];
   pendingPhaseSummary: ArchitectPhaseSummary | null;
   architectReady: ArchitectReadyForDraft | null;
+  studioMeta: StudioMetaDirective | null;
   answeredQuestionIdx: number;
   confirmedPhases: string[];
 }
@@ -96,12 +98,14 @@ export function recoverStudioHistory(
   let oodaDecisions: ArchitectOodaDecision[] = [];
   let pendingPhaseSummary: ArchitectPhaseSummary | null = null;
   let architectReady: ArchitectReadyForDraft | null = null;
+  let studioMeta: StudioMetaDirective | null = null;
   let answeredQuestionIdx = -1;
   let currentArchitectPhase: string | null = null;
   const confirmedPhases: string[] = [];
 
   const messages = persistedMessages.map((message) => {
     if (message.role !== "assistant") {
+      studioMeta = null;
       const trimmedContent = message.content.trim();
       if (trimmedContent === "确认，进入下一阶段") {
         if (pendingPhaseSummary) {
@@ -142,6 +146,7 @@ export function recoverStudioHistory(
     }
 
     const parsed = parseStructuredStudioMessage(message.content);
+    studioMeta = parsed.studioMeta;
     const latestQuestion = parsed.architectQuestions[parsed.architectQuestions.length - 1] || null;
     const messageArchitectPhase = parsed.pendingPhaseSummary?.phase || latestQuestion?.phase || currentArchitectPhase;
 
@@ -263,6 +268,7 @@ export function recoverStudioHistory(
     oodaDecisions,
     pendingPhaseSummary,
     architectReady,
+    studioMeta,
     answeredQuestionIdx,
     confirmedPhases,
   };

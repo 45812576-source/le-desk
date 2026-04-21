@@ -1,13 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ChevronDown, X } from "lucide-react";
 import { PixelButton } from "@/components/pixel/PixelButton";
 import { apiFetch, getToken, dispatchAuthExpired } from "@/lib/api";
 import { consumeSandboxSessionStream } from "@/lib/sandbox-stream";
 import type { SkillDetail, SkillMemo, SandboxSession } from "@/lib/types";
 import { findMentionedSkillIds } from "@/lib/test-flow-client";
-import type { TestFlowResolveResponse, TestFlowSkillCandidate } from "@/lib/test-flow-types";
+import type { TestFlowResolveResponse, TestFlowSkillCandidate, TestFlowBlockedStage, TestFlowBlockedBefore, TestFlowGateReason, TestFlowGuidedStep } from "@/lib/test-flow-types";
 import { SkillMemoPanel } from "@/components/skill/SkillMemoPanel";
 import { useStudioStore } from "@/lib/studio-store";
 import { SummaryCard } from "./cards/SummaryCard";
@@ -22,6 +22,7 @@ import { applyOps, estimateMessagesTokens, getMetadataFieldPreview, TOKEN_COMPRE
 import { parseStructuredStudioMessage } from "./message-parser";
 import { recoverStudioHistory } from "./history-recovery";
 import { deriveStudioRecoveryDraftImpact, parseStudioRecoveryPayload, parseStudioStatePayload } from "./studio-state-adapter";
+import { resolveStudioMetaReply, resolveWorkflowNextActionMessage, type StudioMetaDirective } from "./studio-meta";
 import { isFrontendRunProtocolEnabled, isPatchProtocolEnabled } from "./feature-flags";
 import { normalizeAuditSummaryPayload, normalizeDeepPatchEnvelope, normalizeWorkflowCardPayload, normalizeWorkflowStagedEditPayload, parseStudioPatchEnvelope, parseWorkflowStatePayload } from "./workflow-adapter";
 import type { StudioPatchEnvelope, WorkflowActionResult, WorkflowStateData } from "./workflow-protocol";
@@ -126,6 +127,16 @@ export function StudioChat({
     triggerMessage: string;
     latestPlan: TestFlowResolveResponse["latest_plan"];
     mountCta?: string | null;
+    blockedStage?: TestFlowBlockedStage | null;
+    blockedBefore?: TestFlowBlockedBefore | null;
+    caseGenerationAllowed?: boolean;
+    qualityEvaluationStarted?: boolean;
+    verdictLabel?: string | null;
+    verdictReason?: string | null;
+    gateSummary?: string | null;
+    gateReasons?: TestFlowGateReason[];
+    guidedSteps?: TestFlowGuidedStep[];
+    primaryAction?: string | null;
   }) => void;
   onSelectSkillForTestFlow?: (skillId: number) => void;
 }) {
@@ -143,6 +154,7 @@ export function StudioChat({
   const [pendingFileSplit, setPendingFileSplit] = useState<StudioFileSplit | null>(null);
   const [splitting, setSplitting] = useState(false);
   const [overrideQuickActions, setOverrideQuickActions] = useState<TimelineQuickAction[] | null>(null);
+  const [studioMeta, setStudioMeta] = useState<StudioMetaDirective | null>(null);
   const [pendingTestFlowSelection, setPendingTestFlowSelection] = useState<{ skillId: number; content: string } | null>(null);
 
   // ── 治理抽屉状态 ──
@@ -428,6 +440,11 @@ export function StudioChat({
         }]);
         return;
       }
+      const studioMetaActionMessage = resolveWorkflowNextActionMessage(nextAction, studioMeta);
+      if (studioMetaActionMessage) {
+        await send(studioMetaActionMessage);
+        return;
+      }
       maybeAnnounceNextAction(nextAction);
     } catch (err) {
       setMessages((prev) => [...prev, {
@@ -478,6 +495,14 @@ export function StudioChat({
       setArchitectPhase((prev) => (prev && prev.phase ? null : prev));
     }
   }, [storeWorkflowState, setStoreSessionMode, setActiveAssistSkills]);
+
+  const studioMetaQuickActions = useMemo<TimelineQuickAction[] | null>(() => {
+    if (!studioMeta?.quickReplies.length) return null;
+    return studioMeta.quickReplies.map((reply) => ({
+      label: reply.length > 14 ? `${reply.slice(0, 14)}…` : reply,
+      msg: reply,
+    }));
+  }, [studioMeta]);
 
   // ── Staged edit adopt/reject handlers ──
 
@@ -1037,6 +1062,7 @@ export function StudioChat({
     setPendingSummary(null);
     setPendingToolSuggestion(null);
     setPendingFileSplit(null);
+    setStudioMeta(null);
     setArchitectPhase(null);
     setArchitectQuestions([]);
     setArchitectStructures([]);
@@ -1082,6 +1108,7 @@ export function StudioChat({
         }
         setPendingToolSuggestion(recovered.pendingToolSuggestion);
         setPendingFileSplit(recovered.pendingFileSplit);
+        setStudioMeta(recovered.studioMeta);
         setAuditResult(recovered.auditResult);
         setPendingGovernanceActions(recovered.pendingGovernanceActions);
         setPhaseProgress(recovered.phaseProgress);
@@ -1345,6 +1372,16 @@ export function StudioChat({
           triggerMessage: next.content,
           latestPlan: resolved.latest_plan ?? null,
           mountCta: resolved.mount_cta ?? null,
+          blockedStage: resolved.blocked_stage ?? null,
+          blockedBefore: resolved.blocked_before ?? null,
+          caseGenerationAllowed: resolved.case_generation_allowed,
+          qualityEvaluationStarted: resolved.quality_evaluation_started,
+          verdictLabel: resolved.verdict_label ?? null,
+          verdictReason: resolved.verdict_reason ?? null,
+          gateSummary: resolved.gate_summary ?? null,
+          gateReasons: resolved.gate_reasons ?? [],
+          guidedSteps: resolved.guided_steps ?? [],
+          primaryAction: resolved.primary_action ?? null,
         });
       } catch {
         setMessages((prev) => [
@@ -1356,35 +1393,36 @@ export function StudioChat({
   }, [onOpenTestFlowPanel, pendingTestFlowSelection, resolveStudioTestFlow, skillId]);
 
   async function send(userText: string) {
-    if (!userText.trim() || streaming) return;
+    const effectiveUserText = resolveStudioMetaReply(userText, studioMeta) ?? userText;
+    if (!effectiveUserText.trim() || streaming) return;
 
-    if (userText.length > CONTENT_MAX) {
+    if (effectiveUserText.length > CONTENT_MAX) {
       if (!skillId) {
         setMessages((prev) => [...prev,
-          { role: "user", text: userText.slice(0, 200) + "…" },
-          { role: "assistant", text: `文本较长（${userText.length.toLocaleString()} 字符）。请先选中一个 Skill，系统会自动分析并存储为子文件。`, loading: false },
+          { role: "user", text: effectiveUserText.slice(0, 200) + "…" },
+          { role: "assistant", text: `文本较长（${effectiveUserText.length.toLocaleString()} 字符）。请先选中一个 Skill，系统会自动分析并存储为子文件。`, loading: false },
         ]);
         setInput("");
         return;
       }
-      return ingestLongText(userText);
+      return ingestLongText(effectiveUserText);
     }
 
-    const mayBeBindingRequest = /绑定|解绑|取消绑定|移除|挂载|接入|数据表|业务表|工具|tool|table|bind|unbind/i.test(userText);
+    const mayBeBindingRequest = /绑定|解绑|取消绑定|移除|挂载|接入|数据表|业务表|工具|tool|table|bind|unbind/i.test(effectiveUserText);
     if (skillId && mayBeBindingRequest) {
       try {
         const resolved = await apiFetch<{ actions: Array<Record<string, unknown>> }>(
           `/skills/${skillId}/binding-actions/resolve`,
           {
             method: "POST",
-            body: JSON.stringify({ text: userText }),
+            body: JSON.stringify({ text: effectiveUserText }),
           }
         );
         if (resolved.actions.length > 0) {
           setInput("");
           setMessages((prev) => [
             ...prev,
-            { role: "user", text: userText },
+            { role: "user", text: effectiveUserText },
             {
               role: "assistant",
               text: "我先生成了可确认的绑定动作。确认后再真正修改 Skill 绑定。",
@@ -1406,7 +1444,7 @@ export function StudioChat({
               title,
               content: {
                 summary: ambiguous ? "匹配到多个相近资源，请确认候选后再执行。" : "已按资源名称匹配到候选动作。",
-                reason: `来自用户输入：${userText}`,
+                reason: `来自用户输入：${effectiveUserText}`,
                 preflight_action: "binding_action",
                 action_payload: {
                   ...action,
@@ -1428,12 +1466,12 @@ export function StudioChat({
     }
 
     try {
-      const resolved = await resolveStudioTestFlow(userText);
+      const resolved = await resolveStudioTestFlow(effectiveUserText);
       if (resolved.action === "pick_skill" && resolved.candidates && resolved.candidates.length > 0) {
         setInput("");
         setMessages((prev) => [
           ...prev,
-          { role: "user", text: userText },
+          { role: "user", text: effectiveUserText },
           {
             role: "assistant",
             text: "检测到多个待测 Skill。先选 1 个目标，我就继续当前这条消息里的测试流程。",
@@ -1444,7 +1482,7 @@ export function StudioChat({
           resolved.candidates.map((candidate) => ({
             label: candidate.name,
             msg: candidate.name,
-            payload: { kind: "select_test_skill", skillId: candidate.id, content: userText },
+            payload: { kind: "select_test_skill", skillId: candidate.id, content: effectiveUserText },
           })),
         );
         return;
@@ -1453,12 +1491,12 @@ export function StudioChat({
         setInput("");
         setMessages((prev) => [
           ...prev,
-          { role: "user", text: userText },
+          { role: "user", text: effectiveUserText },
           {
             role: "assistant",
             text:
               resolved.action === "mount_blocked"
-                ? "该 Skill 还未完成权限挂载，我先把你带到测试流程面板里的阻断位置。"
+                ? "当前卡在测试用例生成前置门禁，我先把你带到治理面板查看具体缺口。"
                 : resolved.action === "choose_existing_plan"
                   ? "检测到已有测试用例，我先切到测试流程面板，供你选择复用、修改或重新生成。"
                   : "测试意图已明确，我先直接切到测试流程面板并生成测试用例草案。",
@@ -1469,9 +1507,19 @@ export function StudioChat({
         onOpenTestFlowPanel?.({
           skillId: resolved.skill.id,
           mode: resolved.action,
-          triggerMessage: userText,
+          triggerMessage: effectiveUserText,
           latestPlan: resolved.latest_plan ?? null,
           mountCta: resolved.mount_cta ?? null,
+          blockedStage: resolved.blocked_stage ?? null,
+          blockedBefore: resolved.blocked_before ?? null,
+          caseGenerationAllowed: resolved.case_generation_allowed,
+          qualityEvaluationStarted: resolved.quality_evaluation_started,
+          verdictLabel: resolved.verdict_label ?? null,
+          verdictReason: resolved.verdict_reason ?? null,
+          gateSummary: resolved.gate_summary ?? null,
+          gateReasons: resolved.gate_reasons ?? [],
+          guidedSteps: resolved.guided_steps ?? [],
+          primaryAction: resolved.primary_action ?? null,
         });
         return;
       }
@@ -1483,12 +1531,13 @@ export function StudioChat({
     setMessages((prev) => {
       msgIdx = prev.length + 1;
       return [...prev,
-        { role: "user", text: userText },
+        { role: "user", text: effectiveUserText },
         { role: "assistant", text: "", loading: true },
       ];
     });
     setStreaming(true);
     setInput("");
+    setStudioMeta(null);
     setReconciledFacts([]);
     setDirectionShift(null);
     setFileNeedStatus(null);
@@ -1502,6 +1551,7 @@ export function StudioChat({
     let accText = "";
     const syncStructuredMessage = (rawText: string) => {
       const parsed = parseStructuredStudioMessage(rawText);
+      setStudioMeta(parsed.studioMeta);
       if (parsed.draft) {
         setPendingDraft(parsed.draft);
         setDrawerOpen(true);
@@ -1517,7 +1567,7 @@ export function StudioChat({
         method: "POST",
         headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
         body: JSON.stringify({
-          content: userText,
+          content: effectiveUserText,
           selected_skill_id: skillId ?? undefined,
           editor_prompt: currentPrompt || undefined,
           editor_is_dirty: editorIsDirty,
@@ -2043,7 +2093,7 @@ export function StudioChat({
             confirmedPhases={confirmedPhases}
             architectStructures={architectStructures}
             architectPriorities={architectPriorities ? [architectPriorities] : []}
-            overrideQuickActions={overrideQuickActions}
+            overrideQuickActions={overrideQuickActions ?? studioMetaQuickActions}
             onArchitectAnswer={(answer) => {
               setAnsweredQuestionIdx(architectQuestions.length - 1);
               send(answer);

@@ -15,6 +15,7 @@ import type {
   StudioSummary,
   StudioToolSuggestion,
 } from "./types";
+import { extractStudioMeta, type StudioMetaDirective } from "./studio-meta";
 
 const STRUCTURED_BLOCK_PATTERN = /```(studio_draft|studio_diff|studio_test_result|studio_summary|studio_tool_suggestion|studio_file_split|studio_memo_status|studio_task_focus|studio_editor_target|studio_persistent_notices|studio_context_rollup|studio_audit|studio_governance_action|studio_phase_progress|architect_question|architect_phase_summary|architect_structure|architect_priority_matrix|architect_ooda_decision|architect_ready_for_draft)\s*\n([\s\S]*?)\n```/gi;
 
@@ -22,6 +23,7 @@ const TRAILING_OPEN_BLOCK_PATTERN = /```(?:studio_\w+|architect_\w+)\s*[\s\S]*$/
 
 export interface ParsedStructuredStudioMessage {
   cleanText: string;
+  studioMeta: StudioMetaDirective | null;
   draft: StudioDraft | null;
   summary: StudioSummary | null;
   toolSuggestion: StudioToolSuggestion | null;
@@ -228,9 +230,11 @@ export function parseStructuredStudioMessage(text: string): ParsedStructuredStud
 
   let cleanText = text.replace(STRUCTURED_BLOCK_PATTERN, "");
   cleanText = cleanText.replace(TRAILING_OPEN_BLOCK_PATTERN, "");
-  cleanText = cleanText.replace(/\n{3,}/g, "\n\n").trim();
+  const studioMetaResult = extractStudioMeta(cleanText);
+  cleanText = studioMetaResult.cleanText;
 
   const parsedWithoutText = {
+    studioMeta: studioMetaResult.meta,
     draft,
     summary,
     toolSuggestion,
