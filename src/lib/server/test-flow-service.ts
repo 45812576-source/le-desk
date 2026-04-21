@@ -11,6 +11,8 @@ import type {
   TestFlowResolveResponse,
   TestFlowRunLink,
   TestFlowSkillCandidate,
+  TestFlowGateReason,
+  TestFlowGuidedStep,
 } from "@/lib/test-flow-types";
 
 export type TestFlowApiResult = {
@@ -126,6 +128,69 @@ async function loadReadinessAndPlanFromBackend(input: {
   };
 }
 
+const GATE_REASON_MAP: Record<string, { title: string; detail: string; severity: "critical" | "warning" | "info"; step_id: string; action: string; order: number }> = {
+  missing_bound_assets: { title: "未绑定可测试数据资产", detail: "Skill 未绑定任何数据表，无法生成测试用例。请先在治理面板绑定数据资产。", severity: "critical", step_id: "bind_assets", action: "go_bound_assets", order: 1 },
+  missing_confirmed_declaration: { title: "未确认权限声明", detail: "权限声明尚未生成或确认。请先生成并采纳权限声明。", severity: "critical", step_id: "confirm_declaration", action: "generate_declaration", order: 2 },
+  missing_skill_data_grant: { title: "数据表授权未配置", detail: "Skill 的数据表授权尚未配置，请在治理面板补齐。", severity: "critical", step_id: "complete_table_governance", action: "go_readiness", order: 3 },
+  grant_missing_view_binding: { title: "数据表视图未绑定", detail: "数据表视图尚未绑定到 Skill，请在治理面板补齐。", severity: "critical", step_id: "complete_table_governance", action: "go_readiness", order: 4 },
+  missing_role_group_binding: { title: "角色组未绑定", detail: "Skill 的角色组尚未绑定，请在治理面板补齐。", severity: "critical", step_id: "complete_table_governance", action: "go_readiness", order: 5 },
+  missing_table_permission_policy: { title: "表权限策略未配置", detail: "数据表的权限策略尚未配置，请在治理面板补齐。", severity: "critical", step_id: "complete_table_governance", action: "go_readiness", order: 6 },
+  skill_content_version_mismatch: { title: "Skill 内容版本已变化", detail: "Skill 内容在上次治理之后发生了变化，需要刷新治理状态。", severity: "warning", step_id: "refresh_governance", action: "refresh_governance", order: 7 },
+  governance_version_mismatch: { title: "治理版本已变化", detail: "治理版本与当前状态不一致，需要刷新。", severity: "warning", step_id: "refresh_governance", action: "refresh_governance", order: 8 },
+  stale_governance_bundle: { title: "治理包已过期", detail: "治理包版本已过期，需要刷新治理状态。", severity: "warning", step_id: "refresh_governance", action: "refresh_governance", order: 9 },
+};
+
+const GUIDED_STEP_DEFS: Record<string, { order: number; title: string; detail: string; action: string; action_label: string }> = {
+  bind_assets: { order: 1, title: "绑定数据资产", detail: "在治理面板中为 Skill 绑定需要测试的数据表。", action: "go_bound_assets", action_label: "去绑定" },
+  confirm_declaration: { order: 2, title: "生成并确认权限声明", detail: "生成权限声明文本并采纳挂载到 Skill。", action: "generate_declaration", action_label: "生成声明" },
+  complete_table_governance: { order: 3, title: "补齐表治理配置", detail: "完成数据表授权、视图绑定、角色组绑定、权限策略等配置。", action: "go_readiness", action_label: "去配置" },
+  refresh_governance: { order: 4, title: "刷新治理状态", detail: "Skill 内容或治理版本发生变化，需要刷新以同步最新状态。", action: "refresh_governance", action_label: "刷新" },
+};
+
+function buildLocalGateDetails(issues: string[]): Omit<TestFlowResolveResponse, "action" | "reason" | "skill" | "blocking_issues" | "mount_cta" | "latest_plan"> {
+  const gateReasons: TestFlowGateReason[] = issues.map((code) => {
+    const info = GATE_REASON_MAP[code];
+    if (!info) return { code, title: code.replace(/_/g, " "), detail: `阻断原因：${code}`, severity: "warning" as const, step_id: "unknown", action: "go_readiness" };
+    return { code, title: info.title, detail: info.detail, severity: info.severity, step_id: info.step_id, action: info.action };
+  }).sort((a, b) => (GATE_REASON_MAP[a.code]?.order ?? 99) - (GATE_REASON_MAP[b.code]?.order ?? 99));
+
+  const seenStepIds = new Set(gateReasons.map((r) => r.step_id));
+  const rawSteps = Object.entries(GUIDED_STEP_DEFS)
+    .sort(([, a], [, b]) => a.order - b.order)
+    .map(([stepId, def]) => ({
+      id: stepId,
+      order: def.order,
+      title: def.title,
+      detail: def.detail,
+      isBlocked: seenStepIds.has(stepId),
+      action: def.action,
+      action_label: def.action_label,
+    }));
+  // blocked 之前为 done，第一个 blocked 高亮，之后全部 todo
+  let firstBlockedSeen = false;
+  const guidedSteps: TestFlowGuidedStep[] = rawSteps.map(({ isBlocked, ...step }) => {
+    if (!firstBlockedSeen) {
+      if (isBlocked) { firstBlockedSeen = true; return { ...step, status: "blocked" as const }; }
+      return { ...step, status: "done" as const };
+    }
+    return { ...step, status: "todo" as const };
+  });
+
+  const reasonTitles = gateReasons.slice(0, 3).map((r) => r.title).join("、");
+  return {
+    blocked_stage: "case_generation_gate",
+    blocked_before: "case_generation",
+    case_generation_allowed: false,
+    quality_evaluation_started: false,
+    verdict_label: "尚未开始质量检测",
+    verdict_reason: reasonTitles ? `前置条件未完成：${reasonTitles}` : "前置条件未完成",
+    gate_summary: reasonTitles ? `需要先完成：${reasonTitles}` : "前置条件未满足",
+    gate_reasons: gateReasons,
+    guided_steps: guidedSteps,
+    primary_action: gateReasons[0]?.action ?? null,
+  };
+}
+
 async function resolveEntry(
   payload: TestFlowResolveRequest,
   context: { backendUrl: string; authorization?: string | null },
@@ -178,12 +243,15 @@ async function resolveEntry(
 
   const skill = candidates.get(skillId) || { id: skillId, name: `Skill #${skillId}` };
   if (!readiness?.readiness?.ready) {
+    const issues = readiness?.readiness?.blocking_issues || ["missing_permission_mount"];
+    const gateDetails = buildLocalGateDetails(issues);
     return ok<TestFlowResolveResponse>({
       action: "mount_blocked",
-      reason: "skill_mount_not_ready",
+      reason: "case_generation_gate_blocked",
       skill,
-      blocking_issues: readiness?.readiness?.blocking_issues || ["missing_permission_mount"],
+      blocking_issues: issues,
       latest_plan: summarizePlan(latest?.plan || null),
+      ...gateDetails,
     });
   }
 

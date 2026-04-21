@@ -54,7 +54,7 @@ export function PreflightReport({
       {/* Header */}
       <div className="flex items-center gap-2">
         <span className="text-[9px] font-bold uppercase tracking-widest text-[#6B46C1]">
-          {running ? "质量检测中..." : "质量检测（沙盒标准）"}
+          {running ? "质量检测中..." : "质量检测"}
         </span>
         {result && !running && (
           <>
@@ -62,7 +62,13 @@ export function PreflightReport({
               {result.score != null ? `${result.score} / 100` : ""}
             </span>
             <span className={`text-[9px] font-bold ${result.passed ? "text-[#00CC99]" : "text-red-500"}`}>
-              {result.passed ? "✓ 通过" : result.blocked_by ? `✗ 未通过 — ${result.blocked_by}` : "✗ 质量未达标"}
+              {result.passed
+                ? "✓ 通过"
+                : result.blocked_by
+                  ? `✗ 未通过 — ${result.blocked_by}`
+                  : (!result.tests || result.tests.length === 0)
+                    ? "尚未开始质量检测（无测试用例）"
+                    : "✗ 质量检测未通过"}
             </span>
           </>
         )}

@@ -1421,13 +1421,17 @@ function Step5Report({
 
       {/* 总判定 */}
       <div className={`border-2 px-3 py-2 text-xs font-bold ${
-        session.approval_eligible
-          ? "border-[#00CC99] bg-[#F0FFF4] text-[#00CC99]"
-          : "border-red-400 bg-red-50 text-red-600"
+        !session.executed_case_count
+          ? "border-gray-300 bg-gray-50 text-gray-500"
+          : session.approval_eligible
+            ? "border-[#00CC99] bg-[#F0FFF4] text-[#00CC99]"
+            : "border-red-400 bg-red-50 text-red-600"
       }`}>
-        {session.approval_eligible
-          ? "OK 三项全部通过，可提交审批"
-          : "FAIL 未满足全部通过条件"
+        {!session.executed_case_count
+          ? "尚未执行测试用例，质量检测未开始"
+          : session.approval_eligible
+            ? "OK 三项全部通过，可提交审批"
+            : "FAIL 未满足全部通过条件"
         }
       </div>
 

@@ -6,7 +6,7 @@ import { PanelRightOpen, PanelRightClose, Pin, ShieldCheck } from "lucide-react"
 import { apiFetch } from "@/lib/api";
 import { consumeSandboxSessionStream } from "@/lib/sandbox-stream";
 import type { SkillDetail, SkillMemo, SandboxReport } from "@/lib/types";
-import type { TestFlowPlanSummary } from "@/lib/test-flow-types";
+import type { TestFlowPlanSummary, TestFlowBlockedStage, TestFlowBlockedBefore, TestFlowGateReason, TestFlowGuidedStep } from "@/lib/test-flow-types";
 import type { Suggestion } from "@/components/skill/CommentsPanel";
 import { ImportSkillModal } from "@/components/skill/ImportSkillModal";
 import { SandboxTestModal } from "@/components/skill/SandboxTestModal";
@@ -82,6 +82,16 @@ export function SkillStudio({
     triggerMessage: string;
     latestPlan: TestFlowPlanSummary | null;
     mountCta?: string | null;
+    blockedStage?: TestFlowBlockedStage | null;
+    blockedBefore?: TestFlowBlockedBefore | null;
+    caseGenerationAllowed?: boolean;
+    qualityEvaluationStarted?: boolean;
+    verdictLabel?: string | null;
+    verdictReason?: string | null;
+    gateSummary?: string | null;
+    gateReasons?: TestFlowGateReason[];
+    guidedSteps?: TestFlowGuidedStep[];
+    primaryAction?: string | null;
   } | null>(null);
   const [memo, setMemo] = useState<SkillMemo | null>(null);
   const [sandboxEntryHandled, setSandboxEntryHandled] = useState(false);
@@ -179,6 +189,16 @@ export function SkillStudio({
     triggerMessage: string;
     latestPlan: TestFlowPlanSummary | null | undefined;
     mountCta?: string | null;
+    blockedStage?: TestFlowBlockedStage | null;
+    blockedBefore?: TestFlowBlockedBefore | null;
+    caseGenerationAllowed?: boolean;
+    qualityEvaluationStarted?: boolean;
+    verdictLabel?: string | null;
+    verdictReason?: string | null;
+    gateSummary?: string | null;
+    gateReasons?: TestFlowGateReason[];
+    guidedSteps?: TestFlowGuidedStep[];
+    primaryAction?: string | null;
   }) => {
     if (!selectedFile || selectedFile.skillId !== intent.skillId) {
       setSelectedFile({ skillId: intent.skillId, fileType: "prompt" });
@@ -190,6 +210,16 @@ export function SkillStudio({
       conversationId: convId,
       latestPlan: intent.latestPlan ?? null,
       mountCta: intent.mountCta ?? null,
+      blockedStage: intent.blockedStage ?? null,
+      blockedBefore: intent.blockedBefore ?? null,
+      caseGenerationAllowed: intent.caseGenerationAllowed,
+      qualityEvaluationStarted: intent.qualityEvaluationStarted,
+      verdictLabel: intent.verdictLabel ?? null,
+      verdictReason: intent.verdictReason ?? null,
+      gateSummary: intent.gateSummary ?? null,
+      gateReasons: intent.gateReasons ?? [],
+      guidedSteps: intent.guidedSteps ?? [],
+      primaryAction: intent.primaryAction ?? null,
     });
   }, [convId, selectedFile, setSelectedFile]);
 
@@ -835,6 +865,7 @@ export function SkillStudio({
                   onFileSaved={handleFileSaved}
                   sandboxVersionMismatch={sandboxVersionMismatch}
                   sandboxVersionMismatchMessage={sandboxVersionMismatchMessage}
+                  onOpenTestFlowPanel={handleOpenChatTestFlowPanel}
                 />
               )}
             </div>

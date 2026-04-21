@@ -12,6 +12,29 @@ export type TestFlowAction =
   | "choose_existing_plan"
   | "generate_cases";
 
+export type TestFlowBlockedStage = "case_generation_gate" | "case_generation" | "test_execution" | "quality_evaluation";
+export type TestFlowBlockedBefore = "case_generation" | "test_execution" | "quality_evaluation" | "final_verdict";
+
+export interface TestFlowGateReason {
+  code: string;
+  title: string;
+  detail: string;
+  severity: "critical" | "warning" | "info";
+  step_id: string;
+  action: string;
+}
+
+export interface TestFlowGuidedStep {
+  id: string;
+  order: number;
+  title: string;
+  detail: string;
+  status: "blocked" | "todo" | "done";
+  action: string;
+  action_label: string;
+  anchor_id?: string | null;
+}
+
 export interface TestFlowSkillCandidate {
   id: number;
   name: string;
@@ -36,6 +59,16 @@ export interface TestFlowResolveResponse {
   blocking_issues?: string[];
   mount_cta?: string | null;
   latest_plan?: TestFlowPlanSummary | null;
+  blocked_stage?: TestFlowBlockedStage | null;
+  blocked_before?: TestFlowBlockedBefore | null;
+  case_generation_allowed?: boolean;
+  quality_evaluation_started?: boolean;
+  verdict_label?: string | null;
+  verdict_reason?: string | null;
+  gate_summary?: string | null;
+  gate_reasons?: TestFlowGateReason[];
+  guided_steps?: TestFlowGuidedStep[];
+  primary_action?: string | null;
 }
 
 export interface TestFlowResolveRequest {

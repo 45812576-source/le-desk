@@ -16,7 +16,7 @@ import { SkillGovernancePanel } from "@/components/skill-studio/SkillGovernanceP
 import { useTheme } from "@/lib/theme";
 import { isEditableSkillStatus, isPublishedSkillStatus } from "@/lib/skill-status";
 import { findMentionedSkillIds } from "@/lib/test-flow-client";
-import type { TestFlowResolveResponse, TestFlowSkillCandidate } from "@/lib/test-flow-types";
+import type { TestFlowResolveResponse, TestFlowSkillCandidate, TestFlowBlockedStage, TestFlowBlockedBefore, TestFlowGateReason, TestFlowGuidedStep } from "@/lib/test-flow-types";
 
 // Module-level workspace cache — survives route navigation
 type WorkspaceData = { workspace_type?: string; welcome_message?: string; skills: { id: number; name: string; description?: string; status?: string }[]; tools: { id: number; name: string; display_name: string; description?: string; tool_type?: string }[] };
@@ -425,7 +425,13 @@ function SandboxHistoryModal({
                     <div><span className="text-gray-400">工具确认：</span><span className="font-bold text-[#1A202C]">{sessionDetail.tool_review?.length ?? 0}</span></div>
                     <div><span className="text-gray-400">理论组合：</span><span className="font-bold text-[#1A202C]">{sessionDetail.theoretical_combo_count ?? "—"}</span></div>
                     <div><span className="text-gray-400">已执行用例：</span><span className="font-bold text-[#1A202C]">{sessionDetail.executed_case_count ?? "—"}</span></div>
-                    <div><span className="text-gray-400">质量通过：</span><span className="font-bold text-[#1A202C]">{sessionDetail.quality_passed == null ? "—" : sessionDetail.quality_passed ? "是" : "否"}</span></div>
+                    <div><span className="text-gray-400">质量通过：</span><span className="font-bold text-[#1A202C]">{
+                      (sessionDetail.executed_case_count == null || sessionDetail.executed_case_count === 0)
+                        ? "未开始"
+                        : sessionDetail.quality_passed == null
+                          ? "未出结论"
+                          : sessionDetail.quality_passed ? "是" : "否"
+                    }</span></div>
                     <div><span className="text-gray-400">可提审：</span><span className="font-bold text-[#1A202C]">{sessionDetail.approval_eligible == null ? "—" : sessionDetail.approval_eligible ? "是" : "否"}</span></div>
                   </div>
                 </div>
@@ -440,7 +446,11 @@ function SandboxHistoryModal({
                     <div className="grid grid-cols-2 gap-2 text-[10px]">
                       <div><span className="text-gray-500">知识库存证：</span><span className="font-bold text-[#1A202C]">{reportDetail.knowledge_entry_id ?? "—"}</span></div>
                       <div><span className="text-gray-500">Hash：</span><span className="font-bold text-[#1A202C]">{reportDetail.report_hash?.slice(0, 12) ?? "—"}</span></div>
-                      <div><span className="text-gray-500">质量通过：</span><span className="font-bold text-[#1A202C]">{reportDetail.quality_passed == null ? "—" : reportDetail.quality_passed ? "是" : "否"}</span></div>
+                      <div><span className="text-gray-500">质量通过：</span><span className="font-bold text-[#1A202C]">{
+                        reportDetail.quality_passed == null
+                          ? "未出结论"
+                          : reportDetail.quality_passed ? "是" : "否"
+                      }</span></div>
                       <div><span className="text-gray-500">反幻觉通过：</span><span className="font-bold text-[#1A202C]">{reportDetail.anti_hallucination_passed == null ? "—" : reportDetail.anti_hallucination_passed ? "是" : "否"}</span></div>
                     </div>
                     <pre className="text-[9px] leading-relaxed whitespace-pre-wrap break-words bg-white border border-[#BEEFD7] p-3 overflow-x-auto">
@@ -530,6 +540,16 @@ export default function ChatDetailPage() {
     triggerMessage: string;
     latestPlan: TestFlowResolveResponse["latest_plan"];
     mountCta?: string | null;
+    blockedStage?: TestFlowBlockedStage | null;
+    blockedBefore?: TestFlowBlockedBefore | null;
+    caseGenerationAllowed?: boolean;
+    qualityEvaluationStarted?: boolean;
+    verdictLabel?: string | null;
+    verdictReason?: string | null;
+    gateSummary?: string | null;
+    gateReasons?: TestFlowGateReason[];
+    guidedSteps?: TestFlowGuidedStep[];
+    primaryAction?: string | null;
   } | null>(null);
   const [sandboxTestSessionModal, setSandboxTestSessionModal] = useState<{
     skillId: number;
@@ -781,6 +801,16 @@ export default function ChatDetailPage() {
       triggerMessage: string;
       latestPlan: TestFlowResolveResponse["latest_plan"];
       mountCta?: string | null;
+      blockedStage?: TestFlowBlockedStage | null;
+      blockedBefore?: TestFlowBlockedBefore | null;
+      caseGenerationAllowed?: boolean;
+      qualityEvaluationStarted?: boolean;
+      verdictLabel?: string | null;
+      verdictReason?: string | null;
+      gateSummary?: string | null;
+      gateReasons?: TestFlowGateReason[];
+      guidedSteps?: TestFlowGuidedStep[];
+      primaryAction?: string | null;
     },
   ) => {
     setSandboxGovernanceLoading(true);
@@ -794,6 +824,16 @@ export default function ChatDetailPage() {
         triggerMessage: intent.triggerMessage,
         latestPlan: intent.latestPlan,
         mountCta: intent.mountCta ?? null,
+        blockedStage: intent.blockedStage ?? null,
+        blockedBefore: intent.blockedBefore ?? null,
+        caseGenerationAllowed: intent.caseGenerationAllowed,
+        qualityEvaluationStarted: intent.qualityEvaluationStarted,
+        verdictLabel: intent.verdictLabel ?? null,
+        verdictReason: intent.verdictReason ?? null,
+        gateSummary: intent.gateSummary ?? null,
+        gateReasons: intent.gateReasons ?? [],
+        guidedSteps: intent.guidedSteps ?? [],
+        primaryAction: intent.primaryAction ?? null,
       });
     } finally {
       setSandboxGovernanceLoading(false);
@@ -834,6 +874,16 @@ export default function ChatDetailPage() {
       triggerMessage: content,
       latestPlan: resolved.latest_plan ?? null,
       mountCta: resolved.mount_cta ?? null,
+      blockedStage: resolved.blocked_stage ?? null,
+      blockedBefore: resolved.blocked_before ?? null,
+      caseGenerationAllowed: resolved.case_generation_allowed,
+      qualityEvaluationStarted: resolved.quality_evaluation_started,
+      verdictLabel: resolved.verdict_label ?? null,
+      verdictReason: resolved.verdict_reason ?? null,
+      gateSummary: resolved.gate_summary ?? null,
+      gateReasons: resolved.gate_reasons ?? [],
+      guidedSteps: resolved.guided_steps ?? [],
+      primaryAction: resolved.primary_action ?? null,
     });
     return true;
   }, [convId, openSandboxGovernancePanel, sandboxSkillId, sandboxSkills]);

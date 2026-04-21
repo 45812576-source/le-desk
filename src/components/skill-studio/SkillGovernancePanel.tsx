@@ -6,7 +6,8 @@ import { apiFetch } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { loadOrgMemorySnapshots } from "@/lib/org-memory";
 import type { Department, OrgMemorySnapshot, SkillDetail } from "@/lib/types";
-import type { TestFlowDecisionMode, TestFlowEntrySource, TestFlowPlanSummary } from "@/lib/test-flow-types";
+import type { TestFlowDecisionMode, TestFlowEntrySource, TestFlowPlanSummary, TestFlowBlockedStage, TestFlowBlockedBefore, TestFlowGateReason, TestFlowGuidedStep } from "@/lib/test-flow-types";
+import { CaseGenerationGateCard } from "./CaseGenerationGateCard";
 import {
   BoundAssetsCard,
   buildDeclarationStaleReasons,
@@ -95,6 +96,16 @@ export function SkillGovernancePanel({
     triggerMessage?: string | null;
     latestPlan?: TestFlowPlanSummary | null;
     mountCta?: string | null;
+    blockedStage?: TestFlowBlockedStage | null;
+    blockedBefore?: TestFlowBlockedBefore | null;
+    caseGenerationAllowed?: boolean;
+    qualityEvaluationStarted?: boolean;
+    verdictLabel?: string | null;
+    verdictReason?: string | null;
+    gateSummary?: string | null;
+    gateReasons?: TestFlowGateReason[];
+    guidedSteps?: TestFlowGuidedStep[];
+    primaryAction?: string | null;
   } | null;
   onMaterializedSession?: (sessionId: number) => void;
 }) {
@@ -437,6 +448,10 @@ export function SkillGovernancePanel({
   }
 
   const generateCasePlan = useCallback(async () => {
+    if (!readiness?.ready) {
+      setError("前置条件未满足，请先完成治理配置后再生成测试用例。");
+      return;
+    }
     setRunningCasePlanJob(true);
     setError(null);
     const label = casePlan ? "重新生成权限测试集" : "生成权限测试集";
@@ -467,7 +482,7 @@ export function SkillGovernancePanel({
     } finally {
       setRunningCasePlanJob(false);
     }
-  }, [casePlan, load, skill.id, waitGovernanceJob]);
+  }, [casePlan, load, readiness?.ready, skill.id, testFlowDecisionMode, testFlowIntent?.conversationId, testFlowIntent?.entrySource, waitGovernanceJob]);
 
   useEffect(() => {
     if (!testFlowIntent) {
@@ -479,7 +494,7 @@ export function SkillGovernancePanel({
       setTestFlowDecisionMode(null);
       return;
     }
-    if (!loading && testFlowIntent.mode === "generate_cases" && readiness?.ready && !runningCasePlanJob && testFlowAutoHandled !== testFlowIntentKey) {
+    if (!loading && testFlowIntent.mode === "generate_cases" && readiness?.ready && testFlowIntent.caseGenerationAllowed !== false && !runningCasePlanJob && testFlowAutoHandled !== testFlowIntentKey) {
       setTestFlowDecisionMode("regenerate");
       setTestFlowAutoHandled(testFlowIntentKey);
       void generateCasePlan();
@@ -620,48 +635,27 @@ export function SkillGovernancePanel({
             聊天触发测试流程
           </div>
           {testFlowIntent.mode === "mount_blocked" && (
-            <div className="text-[9px] text-slate-600 leading-relaxed space-y-2">
-              <div>该 Skill 还未完成权限挂载，当前先进入阻断态。先补齐挂载，再继续生成测试用例。</div>
-              {testFlowIntent.mountCta === "complete_permission_declaration" && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    void generateDeclaration();
-                    document.getElementById("gov-declaration")?.scrollIntoView({ behavior: "smooth", block: "center" });
-                  }}
-                  disabled={runningDeclarationJob || !canGenerateDeclaration}
-                  className="px-2 py-1 text-[8px] font-bold border border-amber-500 text-amber-700 bg-amber-50 hover:bg-amber-100 disabled:opacity-50"
-                >
-                  生成权限声明
-                </button>
-              )}
-              {testFlowIntent.mountCta === "mount_data_assets" && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    void refreshGovernance();
-                    document.getElementById("gov-bound-assets")?.scrollIntoView({ behavior: "smooth", block: "center" });
-                  }}
-                  disabled={loading}
-                  className="px-2 py-1 text-[8px] font-bold border border-amber-500 text-amber-700 bg-amber-50 hover:bg-amber-100 disabled:opacity-50"
-                >
-                  刷新数据资产
-                </button>
-              )}
-              {testFlowIntent.mountCta === "resolve_blocking_issues" && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    void refreshGovernance();
-                    document.getElementById("gov-readiness")?.scrollIntoView({ behavior: "smooth", block: "center" });
-                  }}
-                  disabled={loading}
-                  className="px-2 py-1 text-[8px] font-bold border border-amber-500 text-amber-700 bg-amber-50 hover:bg-amber-100 disabled:opacity-50"
-                >
-                  刷新治理状态
-                </button>
-              )}
-            </div>
+            <CaseGenerationGateCard
+              verdictLabel={testFlowIntent.verdictLabel}
+              verdictReason={testFlowIntent.verdictReason}
+              gateSummary={testFlowIntent.gateSummary}
+              gateReasons={testFlowIntent.gateReasons}
+              guidedSteps={testFlowIntent.guidedSteps}
+              primaryAction={testFlowIntent.primaryAction}
+              onAction={(action) => {
+                if (action === "go_bound_assets") {
+                  void refreshGovernance();
+                  document.getElementById("gov-bound-assets")?.scrollIntoView({ behavior: "smooth", block: "center" });
+                } else if (action === "generate_declaration") {
+                  void generateDeclaration();
+                  document.getElementById("gov-declaration")?.scrollIntoView({ behavior: "smooth", block: "center" });
+                } else if (action === "go_readiness") {
+                  document.getElementById("gov-readiness")?.scrollIntoView({ behavior: "smooth", block: "center" });
+                } else if (action === "refresh_governance") {
+                  void refreshGovernance();
+                }
+              }}
+            />
           )}
           {testFlowIntent.mode === "choose_existing_plan" && (
             <>

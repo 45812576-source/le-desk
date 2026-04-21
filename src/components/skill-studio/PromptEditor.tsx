@@ -15,12 +15,39 @@ import { KnowledgeConfirmModal } from "./KnowledgeConfirmModal";
 import type { GovernanceCardData, PreflightResult, PreflightGate, StagedEdit, DiffOp } from "./types";
 import type { WorkflowStateData } from "./workflow-protocol";
 import { getMetadataFieldPreview, normalizeStagedEditPayload } from "./utils";
+import type {
+  TestFlowBlockedBefore,
+  TestFlowBlockedStage,
+  TestFlowGateReason,
+  TestFlowGuidedStep,
+  TestFlowPlanSummary,
+  TestFlowResolveResponse,
+} from "@/lib/test-flow-types";
 
 interface SkillStatusUpdateResult {
   id: number;
   status: SkillDetail["status"];
   scope: SkillDetail["scope"];
   approval_stage?: SkillDetail["approval_stage"];
+}
+
+const TEST_FLOW_BLOCKING_LABELS: Record<string, string> = {
+  missing_bound_assets: "未绑定可测试数据资产",
+  missing_confirmed_declaration: "未确认权限声明",
+  missing_skill_data_grant: "数据表授权未配置",
+  grant_missing_view_binding: "数据表视图未绑定",
+  missing_role_group_binding: "角色组未绑定",
+  missing_table_permission_policy: "表权限策略未配置",
+  skill_content_version_mismatch: "Skill 内容版本已变化",
+  governance_version_mismatch: "治理版本已变化",
+  stale_governance_bundle: "治理包已过期",
+};
+
+function formatBlockingIssues(issues: string[] | undefined): string {
+  const normalized = (issues || [])
+    .map((issue) => TEST_FLOW_BLOCKING_LABELS[issue] || issue)
+    .filter(Boolean);
+  return normalized.join("、") || "前置条件未满足";
 }
 
 function SkillIcon({ size }: { size: number }) {
@@ -73,6 +100,7 @@ export function PromptEditor({
   onFileSaved,
   sandboxVersionMismatch,
   sandboxVersionMismatchMessage,
+  onOpenTestFlowPanel,
 }: {
   skill: SkillDetail | null;
   isNew: boolean;
@@ -88,6 +116,23 @@ export function PromptEditor({
   onFileSaved?: (filename: string, contentSize: number) => void;
   sandboxVersionMismatch?: boolean;
   sandboxVersionMismatchMessage?: string | null;
+  onOpenTestFlowPanel?: (intent: {
+    skillId: number;
+    mode: "mount_blocked" | "choose_existing_plan" | "generate_cases";
+    triggerMessage: string;
+    latestPlan: TestFlowPlanSummary | null | undefined;
+    mountCta?: string | null;
+    blockedStage?: TestFlowBlockedStage | null;
+    blockedBefore?: TestFlowBlockedBefore | null;
+    caseGenerationAllowed?: boolean;
+    qualityEvaluationStarted?: boolean;
+    verdictLabel?: string | null;
+    verdictReason?: string | null;
+    gateSummary?: string | null;
+    gateReasons?: TestFlowGateReason[];
+    guidedSteps?: TestFlowGuidedStep[];
+    primaryAction?: string | null;
+  }) => void;
 }) {
   const { user } = useAuth();
   const [name, setName] = useState("");
@@ -326,6 +371,52 @@ export function PromptEditor({
 
   async function runPreflight() {
     if (!skill) return;
+    // 前置门禁检查：未通过则阻断并提示
+    try {
+      const gateResp = await apiFetch<{ ok: boolean; data: { skill_id: number; readiness: { ready: boolean; blocking_issues?: string[] } } }>(
+        `/sandbox-case-plans/${skill.id}/readiness`,
+      );
+      const readiness = gateResp?.data?.readiness;
+      if (readiness && !readiness.ready) {
+        const issueSummary = formatBlockingIssues(readiness.blocking_issues);
+        try {
+          const resolved = await apiFetch<{ ok: boolean; data: TestFlowResolveResponse }>("/test-flow/resolve-entry", {
+            method: "POST",
+            body: JSON.stringify({
+              entry_source: "skill_studio_chat",
+              content: "生成测试用例",
+              mentioned_skill_ids: [skill.id],
+              candidate_skills: [{ id: skill.id, name: skill.name, status: skill.status }],
+            }),
+          });
+          if (resolved?.data?.action === "mount_blocked" && resolved.data.skill?.id) {
+            onOpenTestFlowPanel?.({
+              skillId: resolved.data.skill.id,
+              mode: resolved.data.action,
+              triggerMessage: "生成测试用例",
+              latestPlan: resolved.data.latest_plan ?? null,
+              mountCta: resolved.data.mount_cta ?? null,
+              blockedStage: resolved.data.blocked_stage ?? null,
+              blockedBefore: resolved.data.blocked_before ?? null,
+              caseGenerationAllowed: resolved.data.case_generation_allowed,
+              qualityEvaluationStarted: resolved.data.quality_evaluation_started,
+              verdictLabel: resolved.data.verdict_label ?? null,
+              verdictReason: resolved.data.verdict_reason ?? null,
+              gateSummary: resolved.data.gate_summary ?? null,
+              gateReasons: resolved.data.gate_reasons ?? [],
+              guidedSteps: resolved.data.guided_steps ?? [],
+              primaryAction: resolved.data.primary_action ?? null,
+            });
+          }
+        } catch {
+          // resolve-entry 失败时退回纯文案提示
+        }
+        setSaveMsg(`质量检测门禁未通过：${issueSummary}。请先在治理面板补齐前置条件后再运行质量检测。`);
+        return;
+      }
+    } catch {
+      // 门禁检查失败不阻断，让后端 409 兜底
+    }
     setPreflightRunning(true);
     setPreflightResult(null);
     setPreflightStage("启动检测...");
