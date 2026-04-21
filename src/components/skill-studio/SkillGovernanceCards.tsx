@@ -2184,3 +2184,83 @@ export function PermissionContractReviewCard({
     </Card>
   );
 }
+
+/* ─── 简单模式数据提取函数 ─── */
+
+export type SensitiveFieldSummaryItem = {
+  policyId: number;
+  ruleId: number;
+  fieldName: string;
+  assetName: string;
+  currentPolicy: "normal" | "partial" | "full";
+  policyOptions: Array<{ value: "normal" | "partial" | "full"; label: string }>;
+  confidence: number;
+  riskLevel: string | null;
+};
+
+const MASK_POLICY_OPTIONS: SensitiveFieldSummaryItem["policyOptions"] = [
+  { value: "normal", label: "正常显示" },
+  { value: "partial", label: "部分隐藏" },
+  { value: "full", label: "完全隐藏" },
+];
+
+function normalizeMaskPolicy(maskStyle?: string | null, suggestedPolicy?: string): SensitiveFieldSummaryItem["currentPolicy"] {
+  if (maskStyle === "full" || suggestedPolicy === "deny") return "full";
+  if (maskStyle === "partial" || suggestedPolicy === "mask") return "partial";
+  return "normal";
+}
+
+export function extractSensitiveFieldSummary(
+  policies: RoleAssetPolicyItem[],
+): SensitiveFieldSummaryItem[] {
+  const results: SensitiveFieldSummaryItem[] = [];
+  for (const policy of policies) {
+    for (const rule of policy.granular_rules || []) {
+      if (rule.granularity_type !== "field") continue;
+      if ((rule.confidence_score ?? rule.confidence) < 0.5 && rule.risk_level === "low") continue;
+      results.push({
+        policyId: policy.id,
+        ruleId: rule.id,
+        fieldName: rule.target_summary || rule.target_ref,
+        assetName: policy.asset.name,
+        currentPolicy: normalizeMaskPolicy(rule.mask_style, rule.suggested_policy),
+        policyOptions: MASK_POLICY_OPTIONS,
+        confidence: rule.confidence_score ?? rule.confidence,
+        riskLevel: rule.risk_level || null,
+      });
+    }
+  }
+  return results;
+}
+
+export type PermissionSummaryData = {
+  tables: Array<{ name: string; note: string }>;
+  knowledge: Array<{ name: string }>;
+  tools: Array<{ name: string; accessLabel: string }>;
+};
+
+export function extractPermissionSummary(
+  permissions: MountedPermissions | null,
+): PermissionSummaryData {
+  if (!permissions) return { tables: [], knowledge: [], tools: [] };
+
+  const tables = permissions.table_permissions
+    .filter((t) => t.grant_mode !== "deny")
+    .map((t) => ({
+      name: t.table_name,
+      note: t.masked_fields.length > 0
+        ? `${t.masked_fields.join("、")}会部分隐藏`
+        : "",
+    }));
+
+  const knowledge = permissions.knowledge_permissions
+    .filter((k) => k.grant_actions.length > 0)
+    .map((k) => ({ name: k.title }));
+
+  const tools = permissions.tool_permissions.map((t) => ({
+    name: t.tool_name,
+    accessLabel: t.write_capable ? "可写" : "只读",
+  }));
+
+  return { tables, knowledge, tools };
+}

@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { RefreshCcw, ShieldCheck, X } from "lucide-react";
+import { ChevronRight, RefreshCcw, ShieldCheck, X } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { loadOrgMemorySnapshots } from "@/lib/org-memory";
@@ -36,6 +36,7 @@ import {
   type TestCaseDraftItem,
 } from "./SkillGovernanceCards";
 import { RoleRecommendationWorkbench } from "./RoleRecommendationWorkbench";
+import { SimpleGovernanceWizard } from "./SimpleGovernanceWizard";
 import type { PositionLite } from "./role-recommendation";
 import {
   serializeRolePackageWriteback,
@@ -136,6 +137,7 @@ export function SkillGovernancePanel({
   const [positions, setPositions] = useState<PositionLite[]>([]);
   const [orgMemorySnapshots, setOrgMemorySnapshots] = useState<OrgMemorySnapshot[]>([]);
   const [orgMemoryFallback, setOrgMemoryFallback] = useState(false);
+  const [wizardMode, setWizardMode] = useState<"simple" | "advanced">("simple");
 
   const declarationStaleReasons = useMemo(
     () => buildDeclarationStaleReasons(declaration),
@@ -611,7 +613,7 @@ export function SkillGovernancePanel({
       <div className="px-3 py-2 border-b-2 border-[#1A202C] bg-[#EBF4F7] flex items-center gap-2">
         <ShieldCheck size={13} className="text-[#00A3C4]" />
         <div className="min-w-0 flex-1">
-          <div className="text-[10px] font-bold uppercase tracking-widest text-[#1A202C]">权限快捷挂载助手</div>
+          <div className="text-[10px] font-bold uppercase tracking-widest text-[#1A202C]">使用权限设置</div>
           <div className="text-[8px] text-slate-500 truncate">{skill.name}</div>
         </div>
         <GovernanceStatusBadge summary={summary} />
@@ -629,7 +631,7 @@ export function SkillGovernancePanel({
         </div>
       )}
 
-      {testFlowIntent && (
+      {testFlowIntent && !(wizardMode === "simple" && testFlowIntent.mode === "mount_blocked") && (
         <div className="px-3 py-2 border-b border-[#00A3C4]/20 bg-[#F0FAFF] space-y-2">
           <div className="text-[8px] font-bold uppercase tracking-widest text-[#00A3C4]">
             聊天触发测试流程
@@ -712,80 +714,126 @@ export function SkillGovernancePanel({
 
       <div className="flex-1 overflow-auto p-3 space-y-3 bg-[#F8FBFD]">
         <GovernanceJobProgressStrip job={activeJob} />
-        <RoleRecommendationWorkbench
-          skill={skill}
-          user={user}
-          roles={roles}
-          assets={assets}
-          policies={policies}
-          mountContext={mountContext}
-          mountedPermissions={mountedPermissions}
-          loading={loading}
-          orgMemoryFallback={orgMemoryFallback}
-          snapshots={orgMemorySnapshots}
-          departments={departments}
-          positions={positions}
-          onSave={saveRoles}
-          onSavePackage={saveRolePackage}
-        />
-        <div id="gov-bound-assets">
-          <BoundAssetsCard assets={assets} loading={loading} />
-        </div>
-        <MountContextCard context={mountContext} loading={loading} />
-        <MountedPermissionsCard permissions={mountedPermissions} loading={loading} />
-        {(policies.length > 0 || bundle?.id) && (
-          <RoleAssetPolicyCard
-            bundle={bundle}
-            policies={policies}
-            loading={loading}
-            running={runningPolicyJob}
-            readOnly={legacyPolicyReadOnly}
-            onGenerate={generatePolicies}
-            onConfirm={confirmPolicy}
-          />
+
+        {wizardMode === "simple" ? (
+          <>
+            <SimpleGovernanceWizard
+              skill={skill}
+              user={user}
+              roles={roles}
+              assets={assets}
+              policies={policies}
+              mountedPermissions={mountedPermissions}
+              loading={loading}
+              snapshots={orgMemorySnapshots}
+              departments={departments}
+              positions={positions}
+              onSaveRoles={saveRoles}
+              onGeneratePolicies={generatePolicies}
+              onGenerateDeclaration={generateDeclaration}
+              onMountDeclaration={mountDeclaration}
+              onSaveGranularRule={saveGranularRule}
+              autoStart={testFlowIntent?.mode === "mount_blocked"}
+              autoStartReason={
+                testFlowIntent?.mode === "mount_blocked"
+                  ? "需要先完成权限设置才能启动检测，系统正在自动帮你配置"
+                  : null
+              }
+            />
+            <button
+              type="button"
+              onClick={() => setWizardMode("advanced")}
+              className="flex items-center gap-1 text-[8px] font-bold text-slate-400 hover:text-slate-600 w-full justify-center py-2"
+            >
+              <ChevronRight size={10} />
+              查看详细设置
+            </button>
+          </>
+        ) : (
+          <>
+            <button
+              type="button"
+              onClick={() => setWizardMode("simple")}
+              className="flex items-center gap-1 text-[8px] font-bold text-[#00A3C4] hover:text-[#008BA6] w-full justify-center py-1"
+            >
+              ← 返回简单模式
+            </button>
+            <RoleRecommendationWorkbench
+              skill={skill}
+              user={user}
+              roles={roles}
+              assets={assets}
+              policies={policies}
+              mountContext={mountContext}
+              mountedPermissions={mountedPermissions}
+              loading={loading}
+              orgMemoryFallback={orgMemoryFallback}
+              snapshots={orgMemorySnapshots}
+              departments={departments}
+              positions={positions}
+              onSave={saveRoles}
+              onSavePackage={saveRolePackage}
+            />
+            <div id="gov-bound-assets">
+              <BoundAssetsCard assets={assets} loading={loading} />
+            </div>
+            <MountContextCard context={mountContext} loading={loading} />
+            <MountedPermissionsCard permissions={mountedPermissions} loading={loading} />
+            {(policies.length > 0 || bundle?.id) && (
+              <RoleAssetPolicyCard
+                bundle={bundle}
+                policies={policies}
+                loading={loading}
+                running={runningPolicyJob}
+                readOnly={legacyPolicyReadOnly}
+                onGenerate={generatePolicies}
+                onConfirm={confirmPolicy}
+              />
+            )}
+            {policies.some((policy) => (policy.granular_rules || []).length > 0) && (
+              <GranularRulesCard
+                policies={policies}
+                loading={loading}
+                readOnly={legacyPolicyReadOnly}
+                onSaveRule={saveGranularRule}
+              />
+            )}
+            <div id="gov-declaration">
+              <PermissionDeclarationCard
+                declaration={declaration}
+                running={runningDeclarationJob}
+                mounting={mountingDeclaration}
+                staleReasons={declarationStaleReasons}
+                canGenerate={canGenerateDeclaration}
+                onGenerate={generateDeclaration}
+                onMount={mountDeclaration}
+                onSaveText={saveDeclarationText}
+              />
+            </div>
+            <div id="gov-readiness">
+              <CasePlanReadinessCard
+                readiness={readiness}
+                declaration={declaration}
+                plan={casePlan}
+                generating={runningCasePlanJob}
+                staleReasons={declarationStaleReasons}
+                onGenerate={generateCasePlan}
+              />
+            </div>
+            <CaseDraftListCard
+              plan={casePlan}
+              loading={loading}
+              onUpdateStatus={updateCaseDraftStatus}
+              onSaveDraft={saveCaseDraft}
+              onMaterialize={materializeCasePlan}
+              materializing={materializingCases}
+            />
+            <PermissionContractReviewCard
+              review={contractReview}
+              loading={loading}
+            />
+          </>
         )}
-        {policies.some((policy) => (policy.granular_rules || []).length > 0) && (
-          <GranularRulesCard
-            policies={policies}
-            loading={loading}
-            readOnly={legacyPolicyReadOnly}
-            onSaveRule={saveGranularRule}
-          />
-        )}
-        <div id="gov-declaration">
-          <PermissionDeclarationCard
-            declaration={declaration}
-            running={runningDeclarationJob}
-            mounting={mountingDeclaration}
-            staleReasons={declarationStaleReasons}
-            canGenerate={canGenerateDeclaration}
-            onGenerate={generateDeclaration}
-            onMount={mountDeclaration}
-            onSaveText={saveDeclarationText}
-          />
-        </div>
-        <div id="gov-readiness">
-          <CasePlanReadinessCard
-            readiness={readiness}
-            declaration={declaration}
-            plan={casePlan}
-            generating={runningCasePlanJob}
-            staleReasons={declarationStaleReasons}
-            onGenerate={generateCasePlan}
-          />
-        </div>
-        <CaseDraftListCard
-          plan={casePlan}
-          loading={loading}
-          onUpdateStatus={updateCaseDraftStatus}
-          onSaveDraft={saveCaseDraft}
-          onMaterialize={materializeCasePlan}
-          materializing={materializingCases}
-        />
-        <PermissionContractReviewCard
-          review={contractReview}
-          loading={loading}
-        />
       </div>
     </aside>
   );
