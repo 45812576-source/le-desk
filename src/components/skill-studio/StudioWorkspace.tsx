@@ -15,7 +15,7 @@ import { CaseGenerationGateCard } from "./CaseGenerationGateCard";
 import type { WorkflowStateData } from "./workflow-protocol";
 import type { WorkbenchCard } from "./workbench";
 
-type WorkspaceAction = {
+export type WorkspaceAction = {
   id: string;
   label: string;
   tone?: "primary" | "secondary" | "danger";
@@ -27,27 +27,27 @@ type WorkspaceActionSection = {
   actions: WorkspaceAction[];
 };
 
-type WorkspaceMetric = {
+export type WorkspaceMetric = {
   label: string;
   value: string;
   hint?: string | null;
   tone?: "cyan" | "amber";
 };
 
-type WorkspaceSummaryItem = {
+export type WorkspaceSummaryItem = {
   icon: ReactNode;
   label: string;
   text: string;
   tone?: "neutral" | "warn" | "success";
 };
 
-type WorkspaceDescriptor = {
+export type WorkspaceDescriptor = {
   description: string;
   metrics: WorkspaceMetric[];
   summaries: WorkspaceSummaryItem[];
 };
 
-type WorkspaceGovernanceIntent = {
+export type WorkspaceGovernanceIntent = {
   mode: "mount_blocked" | "choose_existing_plan" | "generate_cases";
   entrySource: TestFlowEntrySource;
   conversationId: number;
@@ -140,7 +140,7 @@ function MetricCard({
   );
 }
 
-function MetricGrid({ metrics }: { metrics: WorkspaceMetric[] }) {
+export function MetricGrid({ metrics }: { metrics: WorkspaceMetric[] }) {
   if (metrics.length === 0) return null;
   return (
     <div className="grid grid-cols-2 gap-3">
@@ -157,7 +157,7 @@ function MetricGrid({ metrics }: { metrics: WorkspaceMetric[] }) {
   );
 }
 
-function ActionGroup({
+export function ActionGroup({
   title,
   actions,
 }: {
@@ -202,7 +202,7 @@ function dedupeActions(actions: WorkspaceAction[]) {
   });
 }
 
-function buildWorkspaceActionSections(input: {
+export function buildWorkspaceActionSections(input: {
   kind: "analysis" | "governance" | "report";
   workflowState?: WorkflowStateData | null;
   memo?: SkillMemo | null;
@@ -439,7 +439,7 @@ function CardQueueList({
   );
 }
 
-function SummaryList({
+export function SummaryList({
   items,
 }: {
   items: Array<{ icon: ReactNode; label: string; text: string; tone?: "neutral" | "warn" | "success" }>;
@@ -502,7 +502,7 @@ function getReportCounts(report: SandboxReport | null) {
   };
 }
 
-function buildAnalysisDescriptor(input: {
+export function buildAnalysisDescriptor(input: {
   card: WorkbenchCard | null;
   workflowState: WorkflowStateData | null;
   memo: SkillMemo | null;
@@ -585,7 +585,7 @@ function buildAnalysisDescriptor(input: {
   };
 }
 
-function buildGovernanceDescriptor(input: {
+export function buildGovernanceDescriptor(input: {
   skill: SkillDetail | null;
   memo: SkillMemo | null;
   activeSandboxReport: SandboxReport | null;
@@ -684,7 +684,7 @@ function buildGovernanceDescriptor(input: {
   };
 }
 
-function buildReportDescriptor(input: {
+export function buildReportDescriptor(input: {
   memo: SkillMemo | null;
   activeSandboxReport: SandboxReport | null;
   pendingGovernanceCount: number;

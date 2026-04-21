@@ -44,7 +44,7 @@ const AuditReportCard = memo(function AuditReportCard({ audit, onDismiss }: { au
   const sevClass = SEVERITY_COLORS[audit.severity] || SEVERITY_COLORS.medium;
   const entryTheme = audit.phase_entry ? PHASE_THEME[audit.phase_entry] : null;
   return (
-    <div className={`mx-3 my-2 border-2 ${sevClass} text-[9px] font-mono`}>
+    <div className={`mx-3 my-2 border ${sevClass} rounded-lg text-[9px] font-mono overflow-hidden`}>
       {/* 标题栏 */}
       <div className="px-3 py-2 border-b border-inherit flex items-center gap-2">
         <span className="font-bold uppercase tracking-widest text-[8px] flex-1">
@@ -124,7 +124,7 @@ const GovernanceActionCardComponent = memo(function GovernanceActionCardComponen
   const phaseTheme = action.phase ? PHASE_THEME[action.phase] : null;
   const fwLabel = action.framework ? FRAMEWORK_LABELS[action.framework] || action.framework : null;
   return (
-    <div className={`mx-3 my-1.5 border-2 ${phaseTheme ? phaseTheme.border : "border-[#00A3C4]/30 dark:border-cyan-900"} bg-white dark:bg-card text-[9px] font-mono`}>
+    <div className={`mx-3 my-1.5 border ${phaseTheme ? phaseTheme.border : "border-[#00A3C4]/30 dark:border-cyan-900"} rounded-lg bg-white dark:bg-card text-[9px] font-mono overflow-hidden`}>
       {/* 标题栏：阶段色带 + 标题 + 风险徽章 */}
       <div className={`px-2.5 py-1.5 border-b ${phaseTheme ? phaseTheme.border : "border-gray-200 dark:border-zinc-700"} flex items-center gap-2`}>
         {phaseTheme && (
@@ -166,7 +166,7 @@ const GovernanceActionCardComponent = memo(function GovernanceActionCardComponen
 const DeepPatchCard = memo(function DeepPatchCard({ patch }: { patch: StudioDeepPatch }) {
   const isEvidence = patch.patch_type === "evidence_patch";
   return (
-    <div className="mx-3 my-1.5 border-2 border-purple-300 dark:border-purple-800 bg-purple-50 dark:bg-purple-950/30 text-[9px] font-mono">
+    <div className="mx-3 my-1.5 border border-purple-300 dark:border-purple-800 rounded-lg bg-purple-50 dark:bg-purple-950/30 text-[9px] font-mono overflow-hidden">
       <div className="px-3 py-1.5 border-b border-purple-300 dark:border-purple-800 flex items-center gap-2">
         <span className="bg-purple-600 dark:bg-purple-500 text-white px-1.5 py-0.5 text-[7px] font-bold uppercase tracking-widest">
           {isEvidence ? "Evidence" : "Deep Lane"}
@@ -200,7 +200,7 @@ const PhaseProgressCard = memo(function PhaseProgressCard({ progress }: { progre
   const theme = PHASE_THEME[progress.completed_phase] || PHASE_THEME.phase1;
   const nextTheme = progress.next_phase ? PHASE_THEME[progress.next_phase] : null;
   return (
-    <div className={`mx-3 my-2 border-2 ${theme.border} ${theme.bg} text-[9px] font-mono`}>
+    <div className={`mx-3 my-2 border ${theme.border} ${theme.bg} rounded-lg text-[9px] font-mono overflow-hidden`}>
       <div className={`px-3 py-1.5 border-b ${theme.border} flex items-center gap-2`}>
         <span className={`${theme.accent} text-white px-1.5 py-0.5 text-[7px] font-bold uppercase tracking-widest`}>
           ✓ {theme.label}
@@ -260,8 +260,10 @@ const MessageBubble = memo(function MessageBubble({
 
   return (
     <div className={`flex flex-col ${message.role === "user" ? "items-end" : "items-start"}`}>
-      <div className={`max-w-[95%] px-2.5 py-2 text-[9px] font-mono leading-relaxed whitespace-pre-wrap border ${
-        message.role === "user" ? "bg-[#1A202C] text-white border-[#1A202C]" : "bg-[#F0F4F8] text-[#1A202C] border-gray-200"
+      <div className={`max-w-[95%] px-3 py-2.5 text-[9px] font-mono leading-relaxed whitespace-pre-wrap border ${
+        message.role === "user"
+          ? "bg-[#1A202C] text-white border-[#1A202C] rounded-2xl rounded-br-sm"
+          : "bg-[#F0F4F8] text-[#1A202C] border-gray-200 rounded-2xl rounded-bl-sm"
       } ${isLongAssistant ? "studio-collapsible" : ""}`}>
         {message.loading && !message.text ? (
           <StageIndicator stage={streaming ? streamStage : null} />
@@ -285,7 +287,7 @@ const MessageBubble = memo(function MessageBubble({
             <button
               key={action.label}
               onClick={() => onQuickAction?.(action)}
-              className="text-[7px] px-1.5 py-0.5 border border-gray-300 text-gray-500 hover:border-[#00A3C4] hover:text-[#00A3C4] transition-colors font-mono uppercase tracking-wider"
+              className="text-[7px] px-2 py-1 border border-gray-300 rounded-full text-gray-500 hover:border-[#00A3C4] hover:text-[#00A3C4] hover:bg-[#ECFBFF] transition-colors font-mono uppercase tracking-wider"
             >
               {action.label}
             </button>
@@ -528,7 +530,7 @@ export function GovernanceTimeline({
       ))}
 
       {governanceCompleted && (
-        <div className="mx-3 my-2 border-2 border-emerald-300 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-950/30 text-[9px] font-mono">
+        <div className="mx-3 my-2 border border-emerald-300 dark:border-emerald-800 rounded-lg bg-emerald-50 dark:bg-emerald-950/30 text-[9px] font-mono overflow-hidden">
           <div className="px-3 py-1.5 border-b border-emerald-300 dark:border-emerald-800 flex items-center gap-2">
             <span className="bg-emerald-600 dark:bg-emerald-500 text-white px-1.5 py-0.5 text-[7px] font-bold uppercase tracking-widest">
               ✓ Governance

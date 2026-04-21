@@ -20,8 +20,6 @@ import { StudioChat } from "./StudioChat";
 import { AssetFileEditor } from "./AssetFileEditor";
 import { SkillGovernancePanel } from "./SkillGovernancePanel";
 import { StudioCardRail } from "./StudioCardRail";
-import { ActiveCardHeader } from "./ActiveCardHeader";
-import { StudioWorkspace } from "./StudioWorkspace";
 import { buildAssetEditorTarget, buildAssetLoadingTarget, buildEditorErrorTarget, buildPromptEditorTarget, editorTargetFromSelectedFile, selectedFileFromEditorTarget, type StudioEditorTarget } from "./editor-target";
 import { normalizeStagedEditPayload } from "./utils";
 import { normalizeWorkflowCardPayload, parseWorkflowStatePayload } from "./workflow-adapter";
@@ -151,6 +149,9 @@ export function SkillStudio({
     }
     prevSelectedFileRef.current = selectedFile;
   }, [selectedFile, editorVisibility, editorManuallyCollapsed, setEditorVisibility]);
+
+  // File workspace panel visibility: visible unless user manually collapsed
+  const editorVisible = editorVisibility !== "collapsed";
 
   const router = useRouter();
 
@@ -755,32 +756,43 @@ export function SkillStudio({
           {selectedFile?.fileType === "asset"
             ? `${selectedSkill?.name ?? ""} / ${(selectedFile as { filename: string }).filename}`
             : selectedSkill
-              ? `正在编辑：${selectedSkill.name} / SKILL.md`
+              ? `${selectedSkill.name} / SKILL.md`
               : isNew
                 ? "新建 Skill"
                 : "选择或新建 Skill 开始"}
         </span>
-        <div className="ml-auto" />
-        {selectedSkill && (
-          <button
-            type="button"
-            onClick={() => setShowGovernancePanel((prev) => !prev)}
-            className={`text-[8px] font-bold uppercase tracking-widest border px-2 py-1 flex items-center gap-1 transition-colors ${
-              showGovernancePanel
-                ? "border-[#00A3C4] bg-[#00A3C4] text-white"
-                : "border-[#00A3C4]/40 text-[#00A3C4] bg-white hover:bg-[#00A3C4]/10"
-            }`}
-          >
-            <ShieldCheck size={10} />
-            权限助手
-          </button>
-        )}
-      </div>
-
-      {/* 工程文件区共用提示 */}
-      <div className="flex-shrink-0 px-4 py-1 bg-violet-50 border-b border-violet-200 text-[9px] text-violet-600 font-mono flex items-center gap-1.5">
-        <span className="w-1.5 h-1.5 bg-violet-400 rounded-full inline-block" />
-        当前与 OpenCode 共用个人工程文件区
+        <div className="ml-auto flex items-center gap-2">
+          {activeWorkbenchCard && (
+            <div className="flex items-center gap-1.5">
+              <span className="text-[7px] font-bold uppercase tracking-widest text-[#00A3C4]">
+                {activeWorkbenchCard.kind === "architect" ? "架构卡" : activeWorkbenchCard.kind === "governance" ? "治理卡" : activeWorkbenchCard.kind === "validation" ? "验证卡" : "系统卡"}
+              </span>
+              <span className={`text-[7px] font-bold uppercase tracking-widest px-1.5 py-0.5 border ${
+                activeWorkbenchCard.status === "pending" || activeWorkbenchCard.status === "active"
+                  ? "border-[#F59E0B]/40 bg-[#FFFBF2] text-[#F59E0B]"
+                  : activeWorkbenchCard.status === "adopted"
+                    ? "border-[#00CC99]/40 bg-emerald-50 text-[#00CC99]"
+                    : "border-gray-300 bg-gray-50 text-gray-400"
+              }`}>
+                {activeWorkbenchCard.status === "pending" ? "待处理" : activeWorkbenchCard.status === "active" ? "进行中" : activeWorkbenchCard.status === "reviewing" ? "待确认" : activeWorkbenchCard.status === "adopted" ? "已采纳" : activeWorkbenchCard.status === "rejected" ? "已拒绝" : "已关闭"}
+              </span>
+            </div>
+          )}
+          {selectedSkill && (
+            <button
+              type="button"
+              onClick={() => setShowGovernancePanel((prev) => !prev)}
+              className={`text-[8px] font-bold uppercase tracking-widest border px-2 py-1 flex items-center gap-1 transition-colors ${
+                showGovernancePanel
+                  ? "border-[#00A3C4] bg-[#00A3C4] text-white"
+                  : "border-[#00A3C4]/40 text-[#00A3C4] bg-white hover:bg-[#00A3C4]/10"
+              }`}
+            >
+              <ShieldCheck size={10} />
+              权限助手
+            </button>
+          )}
+        </div>
       </div>
 
       {/* 沙盒报告入口提示 */}
@@ -833,7 +845,7 @@ export function SkillStudio({
         </div>
       )}
 
-      {/* Workbench body: SkillList | Card Rail | Workspace | Chat | Governance */}
+      {/* Workbench body: SkillList | Card Queue | Chat | File Workspace (slide-out) | Governance */}
       <div className="flex-1 flex overflow-hidden">
         {/* Left: Skill list */}
         <SkillList
@@ -845,6 +857,9 @@ export function SkillStudio({
           onSelectFile={(f) => {
             setSelectedFile(f);
             setIsNew(false);
+            if (!editorManuallyCollapsed) {
+              setEditorVisibility("auto_expanded");
+            }
           }}
           onNew={handleNewFromList}
           onImport={() => setShowImportModal(true)}
@@ -853,89 +868,29 @@ export function SkillStudio({
           onToggleCollapse={() => setSkillListCollapsed((v) => !v)}
         />
 
+        {/* Card Queue + expanded card detail */}
         <StudioCardRail
           skill={selectedSkill}
           workflowState={storeWorkflowState}
           cards={workbenchCards}
           activeCardId={activeWorkbenchId}
+          memo={memo}
+          activeSandboxReport={activeSandboxReport}
+          governanceIntent={chatTestFlowIntent}
+          pendingGovernanceCount={pendingGovernanceCount}
+          pendingStagedEditCount={pendingStagedEditCount}
+          activeCardActions={activeCardActions}
           onSelect={setActiveWorkbenchCardId}
+          onOpenGovernancePanel={() => setShowGovernancePanel(true)}
+          onOpenSandbox={() => {
+            if (selectedSkill) setShowSandbox(selectedSkill.id);
+          }}
+          onOpenPrompt={handleOpenPromptFromWorkspace}
+          onFocusChat={handleFocusChatFromWorkspace}
         />
 
-        <div className="flex-1 min-w-0 flex flex-col border-r-2 border-[#1A202C] bg-[#F4FAFC]">
-          <ActiveCardHeader
-            card={activeWorkbenchCard}
-            skill={selectedSkill}
-          />
-          {editorErrorMessage && (
-            <div className="mx-5 mt-4 rounded border border-red-300 bg-red-50 px-3 py-2 text-[10px] font-bold text-red-600">
-              {editorErrorMessage}
-            </div>
-          )}
-          <StudioWorkspace
-            activeCard={activeWorkbenchCard}
-            workflowState={storeWorkflowState}
-            memo={memo}
-            selectedSkill={selectedSkill}
-            activeSandboxReport={activeSandboxReport}
-            governanceIntent={chatTestFlowIntent}
-            pendingGovernanceCount={pendingGovernanceCount}
-            pendingStagedEditCount={pendingStagedEditCount}
-            activeCardActions={activeCardActions}
-            pendingCards={pendingWorkbenchCards}
-            onOpenGovernancePanel={() => setShowGovernancePanel(true)}
-            onOpenSandbox={() => {
-              if (selectedSkill) setShowSandbox(selectedSkill.id);
-            }}
-            onOpenPrompt={handleOpenPromptFromWorkspace}
-            onFocusChat={handleFocusChatFromWorkspace}
-            onSelectWorkbenchCard={setActiveWorkbenchCardId}
-          >
-            {showAssetEditor && selectedSkill ? (
-              <AssetFileEditor
-                skill={selectedSkill}
-                filename={(selectedFile as { filename: string }).filename}
-                onDeleted={() => {
-                  refreshSkill(selectedSkill.id);
-                  setSelectedFile({ skillId: selectedSkill.id, fileType: "prompt" });
-                }}
-                onFileSaved={handleFileSaved}
-                adoptedPreviewEdit={adoptedAssetPreview}
-                onContentChange={setPrompt}
-                onBaselineChange={setSavedPrompt}
-                onLoadStart={(nextFilename) => {
-                  setEditorTarget(buildAssetLoadingTarget({ skillId: selectedSkill.id, fileType: "asset", filename: nextFilename }, selectedFile, "asset_load_start"));
-                }}
-                onLoadSuccess={(nextFilename) => {
-                  setEditorTarget(buildAssetEditorTarget(selectedSkill.id, nextFilename, "asset_load_success"));
-                }}
-                onLoadError={(_nextFilename, message) => {
-                  setAdoptedAssetPreview(null);
-                  setEditorTarget(buildEditorErrorTarget(message, { skillId: selectedSkill.id, fileType: "prompt" }, "asset_load_failed"));
-                }}
-              />
-            ) : (
-              <PromptEditor
-                skill={selectedSkill}
-                isNew={isNew}
-                prompt={prompt}
-                externalName={externalName}
-                externalDescription={externalDescription}
-                pendingDiffBase={pendingDiffBase}
-                saveRef={editorSaveRef}
-                onPromptChange={setPrompt}
-                onBaselineChange={setSavedPrompt}
-                onSaved={handleSaved}
-                onFork={handleFork}
-                onFileSaved={handleFileSaved}
-                sandboxVersionMismatch={sandboxVersionMismatch}
-                sandboxVersionMismatchMessage={sandboxVersionMismatchMessage}
-                onOpenTestFlowPanel={handleOpenChatTestFlowPanel}
-              />
-            )}
-          </StudioWorkspace>
-        </div>
-
-        <div className="w-[420px] flex-shrink-0 overflow-hidden bg-white">
+        {/* Studio Chat */}
+        <div className="w-[420px] flex-shrink-0 overflow-hidden bg-white border-r-2 border-[#1A202C]">
           <StudioChat
             convId={convId}
             skillId={selectedSkill?.id ?? null}
@@ -961,7 +916,7 @@ export function SkillStudio({
             onRefreshSkill={() => { if (selectedSkill) refreshSkill(selectedSkill.id); }}
             onOpenTestFlowPanel={handleOpenChatTestFlowPanel}
             onSelectSkillForTestFlow={handleSelectSkillForTestFlow}
-            editorExpanded={activeWorkbenchCard?.mode === "file"}
+            editorExpanded={editorVisible}
             activeCardTitle={activeWorkbenchCard?.title ?? null}
             activeCardSummary={activeWorkbenchCard?.summary ?? null}
             activeCardMode={activeWorkbenchCard?.mode ?? null}
@@ -974,6 +929,79 @@ export function SkillStudio({
           />
         </div>
 
+        {/* File Workspace - 从右侧推出 */}
+        <div className={`flex-shrink-0 border-l-2 border-[#1A202C] bg-white transition-all duration-300 ease-in-out overflow-hidden ${
+          editorVisible ? "w-[480px] opacity-100" : "w-0 opacity-0 border-l-0"
+        }`}>
+          <div className="w-[480px] h-full flex flex-col">
+            <div className="flex-shrink-0 px-3 py-1.5 border-b border-gray-200 flex items-center justify-between bg-[#F8FCFD]">
+              <span className="text-[8px] font-bold uppercase tracking-widest text-[#00A3C4]">
+                {selectedFile?.fileType === "asset" ? (selectedFile as { filename: string }).filename : "SKILL.md"}
+              </span>
+              <button
+                type="button"
+                onClick={() => {
+                  setEditorManuallyCollapsed(true);
+                  setEditorVisibility("collapsed");
+                }}
+                className="text-[8px] font-bold text-gray-400 hover:text-[#1A202C] border border-gray-300 px-1.5 py-0.5 hover:bg-gray-100 transition-colors"
+              >
+                收起 ✕
+              </button>
+            </div>
+            {editorErrorMessage && (
+              <div className="mx-3 mt-2 border border-red-300 bg-red-50 px-3 py-2 text-[10px] font-bold text-red-600">
+                {editorErrorMessage}
+              </div>
+            )}
+            <div className="flex-1 min-h-0 overflow-hidden">
+              {showAssetEditor && selectedSkill ? (
+                <AssetFileEditor
+                  skill={selectedSkill}
+                  filename={(selectedFile as { filename: string }).filename}
+                  onDeleted={() => {
+                    refreshSkill(selectedSkill.id);
+                    setSelectedFile({ skillId: selectedSkill.id, fileType: "prompt" });
+                  }}
+                  onFileSaved={handleFileSaved}
+                  adoptedPreviewEdit={adoptedAssetPreview}
+                  onContentChange={setPrompt}
+                  onBaselineChange={setSavedPrompt}
+                  onLoadStart={(nextFilename) => {
+                    setEditorTarget(buildAssetLoadingTarget({ skillId: selectedSkill.id, fileType: "asset", filename: nextFilename }, selectedFile, "asset_load_start"));
+                  }}
+                  onLoadSuccess={(nextFilename) => {
+                    setEditorTarget(buildAssetEditorTarget(selectedSkill.id, nextFilename, "asset_load_success"));
+                  }}
+                  onLoadError={(_nextFilename, message) => {
+                    setAdoptedAssetPreview(null);
+                    setEditorTarget(buildEditorErrorTarget(message, { skillId: selectedSkill.id, fileType: "prompt" }, "asset_load_failed"));
+                  }}
+                />
+              ) : (
+                <PromptEditor
+                  skill={selectedSkill}
+                  isNew={isNew}
+                  prompt={prompt}
+                  externalName={externalName}
+                  externalDescription={externalDescription}
+                  pendingDiffBase={pendingDiffBase}
+                  saveRef={editorSaveRef}
+                  onPromptChange={setPrompt}
+                  onBaselineChange={setSavedPrompt}
+                  onSaved={handleSaved}
+                  onFork={handleFork}
+                  onFileSaved={handleFileSaved}
+                  sandboxVersionMismatch={sandboxVersionMismatch}
+                  sandboxVersionMismatchMessage={sandboxVersionMismatchMessage}
+                  onOpenTestFlowPanel={handleOpenChatTestFlowPanel}
+                />
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Governance Panel */}
         {showGovernancePanel && selectedSkill && (
           <div className="w-[460px] flex-shrink-0 border-l-2 border-[#1A202C] overflow-hidden bg-white">
             <SkillGovernancePanel

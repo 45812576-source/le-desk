@@ -21,7 +21,7 @@ export function SummaryCard({
   const hasEdits = editedItems.some((item, i) => item.value !== summary.items[i]?.value);
 
   return (
-    <div className="mx-3 my-2 border-2 border-[#00CC99] bg-[#F0FFF9] flex-shrink-0">
+    <div className="mx-3 my-2 border border-[#00CC99] rounded-lg overflow-hidden bg-[#F0FFF9] flex-shrink-0">
       <div className="px-3 py-2 border-b border-[#CCFFF0] flex items-center gap-2">
         <span className="text-[9px] font-bold uppercase tracking-widest text-[#00CC99] flex-1">
           ◈ {summary.title || "需求理解摘要"}

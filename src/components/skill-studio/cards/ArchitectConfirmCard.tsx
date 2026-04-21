@@ -55,7 +55,7 @@ export const ArchitectConfirmCard = memo(function ArchitectConfirmCard({
   }
 
   return (
-    <div className={`mx-3 my-2 border-2 ${theme.border} ${theme.bg} text-[9px] font-mono`}>
+    <div className={`mx-3 my-2 border ${theme.border} rounded-lg overflow-hidden ${theme.bg} text-[9px] font-mono`}>
       {/* Header */}
       <div className={`px-3 py-1.5 border-b ${theme.border} flex items-center gap-2`}>
         <span className={`${theme.accent} text-white px-1.5 py-0.5 text-[7px] font-bold uppercase tracking-widest`}>

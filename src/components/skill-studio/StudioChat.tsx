@@ -2209,7 +2209,7 @@ export function StudioChat({
         <AssistSkillsBar skills={storeAssistSkills} />
 
         {(activeCardTitle || activeCardSummary) && (
-          <div className="px-3 py-2 border-b border-[#CFEAF1] bg-[#F4FBFF] flex-shrink-0">
+          <div className="mx-3 mt-2 px-3 py-2 border border-[#CFEAF1] bg-[#F4FBFF] rounded-lg flex-shrink-0">
             <div className="flex items-center gap-2 flex-wrap">
               <span className="text-[7px] font-bold uppercase tracking-[0.2em] text-[#00A3C4]">当前卡片</span>
               {activeCardMode && (
@@ -2409,10 +2409,10 @@ export function StudioChat({
         )}
 
         {/* Input */}
-        <div className="border-t-2 border-[#1A202C] p-3 flex-shrink-0 min-h-[60px] relative z-10">
+        <div className="border-t border-gray-200 p-3 flex-shrink-0 min-h-[60px] relative z-10 bg-white">
           <div className="flex gap-2 relative">
             {hashQuery !== null && (
-              <div className="absolute bottom-full left-0 right-0 mb-1 bg-white border-2 border-[#1A202C] shadow-lg z-50 max-h-48 overflow-y-auto">
+              <div className="absolute bottom-full left-0 right-0 mb-1 bg-white border border-gray-200 rounded-xl shadow-lg z-50 max-h-48 overflow-y-auto">
                 {filteredSkills.length === 0 ? (
                   <div className="px-3 py-2 text-[9px] font-bold text-gray-400 uppercase tracking-widest">无匹配 Skill</div>
                 ) : (
@@ -2443,7 +2443,7 @@ export function StudioChat({
               placeholder="描述需求、说「帮我测试」、# 引用 Skill，Ctrl+Enter 发送..."
               disabled={streaming}
               rows={2}
-              className="flex-1 border-2 border-[#1A202C] px-2 py-1.5 text-[9px] font-mono focus:outline-none focus:border-[#00D1FF] disabled:opacity-50 resize-none"
+              className="flex-1 border border-gray-300 rounded-xl px-3 py-2 text-[9px] font-mono focus:outline-none focus:border-[#00D1FF] focus:ring-1 focus:ring-[#00D1FF]/30 disabled:opacity-50 resize-none"
               onKeyDown={(e) => {
                 if (hashQuery !== null && filteredSkills.length > 0) {
                   if (e.key === "ArrowDown") { e.preventDefault(); setHashActiveIdx((i) => (i + 1) % filteredSkills.length); return; }

@@ -117,7 +117,7 @@ const ValueChainView = memo(function ValueChainView({ structure }: { structure: 
 
 const PriorityMatrixView = memo(function PriorityMatrixView({ matrix }: { matrix: ArchitectPriorityMatrix }) {
   return (
-    <div className="mx-3 my-2 border-2 border-gray-300 dark:border-zinc-700 bg-white dark:bg-card text-[9px] font-mono">
+    <div className="mx-3 my-2 border border-gray-300 rounded-lg overflow-hidden dark:border-zinc-700 bg-white dark:bg-card text-[9px] font-mono">
       {/* Header */}
       <div className="px-3 py-1.5 border-b border-gray-300 dark:border-zinc-700 flex items-center gap-2">
         <span className="font-bold text-[#1A202C] dark:text-foreground text-[8px] uppercase tracking-widest">◈ 优先级矩阵</span>
@@ -175,7 +175,7 @@ export const ArchitectStructureCard = memo(function ArchitectStructureCard({
   const isValueChain = structure.type === "value_chain";
 
   return (
-    <div className="mx-3 my-2 border-2 border-gray-300 dark:border-zinc-700 bg-white dark:bg-card text-[9px] font-mono">
+    <div className="mx-3 my-2 border border-gray-300 rounded-lg overflow-hidden dark:border-zinc-700 bg-white dark:bg-card text-[9px] font-mono">
       {/* Header */}
       <div className="px-3 py-1.5 border-b border-gray-300 dark:border-zinc-700 flex items-center gap-2">
         <span className="font-bold text-[#1A202C] dark:text-foreground text-[8px] uppercase tracking-widest">◈ {typeLabel}</span>

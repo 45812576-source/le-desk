@@ -25,7 +25,7 @@ export function FileSplitCard({
   const hasDiff = currentPrompt !== split.main_prompt_after_split;
 
   return (
-    <div className="mx-3 my-2 border-2 border-[#E9D5FF] bg-[#FAF5FF] flex-shrink-0">
+    <div className="mx-3 my-2 border border-[#E9D5FF] rounded-lg overflow-hidden bg-[#FAF5FF] flex-shrink-0">
       <div className="px-3 py-2 border-b border-[#E9D5FF] flex items-center gap-2">
         <span className="text-[9px] font-bold uppercase tracking-widest text-[#6B46C1] flex-1">
           ✦ 文件拆分建议

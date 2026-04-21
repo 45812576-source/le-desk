@@ -24,7 +24,7 @@ export function DraftCard({
   const hasDiff = hasPromptDiff || hasDescriptionDiff;
 
   return (
-    <div className="mx-3 my-2 border-2 border-[#00A3C4] bg-[#F0FAFF] flex-shrink-0">
+    <div className="mx-3 my-2 border border-[#00A3C4] rounded-lg overflow-hidden bg-[#F0FAFF] flex-shrink-0">
       <div className="px-3 py-2 border-b border-[#CCE8F4] flex items-center gap-2">
         <span className="text-[9px] font-bold uppercase tracking-widest text-[#00A3C4] flex-1">
           ✦ 待采纳草稿{draft.name ? `：${draft.name}` : ""}

@@ -45,7 +45,7 @@ export const ArchitectQuestionCard = memo(function ArchitectQuestionCard({
   }
 
   return (
-    <div className={`mx-3 my-2 border-2 ${theme.border} bg-white dark:bg-card text-[9px] font-mono`}>
+    <div className={`mx-3 my-2 border ${theme.border} rounded-lg overflow-hidden bg-white dark:bg-card text-[9px] font-mono`}>
       {/* Header: phase + framework */}
       <div className={`px-2.5 py-1.5 border-b ${theme.border} flex items-center gap-2`}>
         <span className={`${theme.accent} text-white px-1 py-0.5 text-[6px] font-bold uppercase tracking-widest`}>

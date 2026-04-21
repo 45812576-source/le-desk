@@ -30,7 +30,7 @@ export function ToolSuggestionCard({
   }
 
   return (
-    <div className="border-2 border-[#6B46C1] bg-[#6B46C1]/5 p-3 space-y-2">
+    <div className="border border-[#6B46C1] rounded-lg overflow-hidden bg-[#6B46C1]/5 p-3 space-y-2">
       <div className="flex items-center gap-1.5">
         <Package size={10} className="text-[#6B46C1]" />
         <span className="text-[9px] font-bold uppercase tracking-widest text-[#6B46C1]">工具建议</span>
