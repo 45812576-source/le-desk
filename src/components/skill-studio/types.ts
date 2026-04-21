@@ -4,6 +4,7 @@ export interface ChatMessage {
   role: "user" | "assistant";
   text: string;
   loading?: boolean;
+  cardId?: string | null;
 }
 
 export interface StudioDraft {

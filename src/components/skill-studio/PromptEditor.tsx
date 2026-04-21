@@ -12,8 +12,8 @@ import { ICONS, PixelIcon } from "@/components/pixel";
 import { DiffViewer, LineNumberedEditor } from "./DiffViewer";
 import { PreflightReport } from "./PreflightReport";
 import { KnowledgeConfirmModal } from "./KnowledgeConfirmModal";
-import type { GovernanceCardData, PreflightResult, PreflightGate, StagedEdit, DiffOp } from "./types";
-import type { WorkflowStateData } from "./workflow-protocol";
+import type { PreflightResult, PreflightGate, StagedEdit, DiffOp } from "./types";
+import { normalizeWorkflowCardPayload, parseWorkflowStatePayload } from "./workflow-adapter";
 import { getMetadataFieldPreview, normalizeStagedEditPayload } from "./utils";
 import type {
   TestFlowBlockedBefore,
@@ -496,8 +496,8 @@ export function PromptEditor({
                   } else {
                     try {
                       const remediation = await apiFetch<{
-                        workflow_state?: WorkflowStateData;
-                        cards: GovernanceCardData[];
+                        workflow_state?: Record<string, unknown> | null;
+                        cards: Record<string, unknown>[];
                         staged_edits: Record<string, unknown>[];
                       }>(
                         `/sandbox/preflight/${skill.id}/remediation-actions`,
@@ -506,8 +506,15 @@ export function PromptEditor({
                           body: JSON.stringify({ result: finalResult }),
                         }
                       );
-                      setWorkflowState(remediation.workflow_state ?? null);
-                      syncGovernanceCards(preflightSource, remediation.cards || []);
+                      setWorkflowState(
+                        remediation.workflow_state
+                          ? parseWorkflowStatePayload(remediation.workflow_state)
+                          : null,
+                      );
+                      syncGovernanceCards(
+                        preflightSource,
+                        (remediation.cards || []).map((card) => normalizeWorkflowCardPayload(card, preflightSource)),
+                      );
                       syncStagedEdits(preflightSource, (remediation.staged_edits || []).map(normalizeStagedEdit));
                     } catch (remediationErr) {
                       console.error("Preflight remediation sync failed", remediationErr);

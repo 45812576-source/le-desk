@@ -1,8 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { PanelRightOpen, PanelRightClose, Pin, ShieldCheck } from "lucide-react";
+import { ShieldCheck } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 import { consumeSandboxSessionStream } from "@/lib/sandbox-stream";
 import type { SkillDetail, SkillMemo, SandboxReport } from "@/lib/types";
@@ -13,16 +13,20 @@ import { SandboxTestModal } from "@/components/skill/SandboxTestModal";
 import { isEditableSkillStatus, isPublishedSkillStatus } from "@/lib/skill-status";
 import { useStudioStore } from "@/lib/studio-store";
 
-import type { ChatMessage, SelectedFile, StudioDraft, StagedEdit, GovernanceCardData } from "./types";
+import type { ChatMessage, SelectedFile, StudioDraft, StagedEdit } from "./types";
 import { SkillList, SkillIcon } from "./SkillList";
 import { PromptEditor } from "./PromptEditor";
 import { StudioChat } from "./StudioChat";
 import { AssetFileEditor } from "./AssetFileEditor";
 import { SkillGovernancePanel } from "./SkillGovernancePanel";
+import { StudioCardRail } from "./StudioCardRail";
+import { ActiveCardHeader } from "./ActiveCardHeader";
+import { StudioWorkspace } from "./StudioWorkspace";
 import { buildAssetEditorTarget, buildAssetLoadingTarget, buildEditorErrorTarget, buildPromptEditorTarget, editorTargetFromSelectedFile, selectedFileFromEditorTarget, type StudioEditorTarget } from "./editor-target";
 import { normalizeStagedEditPayload } from "./utils";
 import { normalizeWorkflowCardPayload, parseWorkflowStatePayload } from "./workflow-adapter";
 import type { WorkflowStateData } from "./workflow-protocol";
+import { buildWorkbenchCards, resolvePreferredWorkbenchCardId } from "./workbench";
 
 // ─── Main page ────────────────────────────────────────────────────────────────
 
@@ -39,6 +43,12 @@ export function SkillStudio({
   sandboxReportId?: string;
   sandboxSessionId?: string;
 }) {
+  const [activeCardActions, setActiveCardActions] = useState<Array<{
+    id: string;
+    label: string;
+    tone?: "primary" | "secondary" | "danger";
+    onClick: () => void;
+  }>>([]);
   const [skills, setSkills] = useState<SkillDetail[]>([]);
   const [skillsLoading, setSkillsLoading] = useState(true);
   const [editorTarget, _setEditorTarget] = useState<StudioEditorTarget>(() => {
@@ -117,12 +127,18 @@ export function SkillStudio({
   const setEditorVisibility = useStudioStore((s) => s.setEditorVisibility);
   const editorManuallyCollapsed = useStudioStore((s) => s.editorManuallyCollapsed);
   const setEditorManuallyCollapsed = useStudioStore((s) => s.setEditorManuallyCollapsed);
+  const activeWorkbenchCardId = useStudioStore((s) => s.activeWorkbenchCardId);
+  const setActiveWorkbenchCardId = useStudioStore((s) => s.setActiveWorkbenchCardId);
+  const replaceWorkbenchCards = useStudioStore((s) => s.replaceWorkbenchCards);
+  const setWorkbenchMode = useStudioStore((s) => s.setWorkbenchMode);
+  const storeCardsById = useStudioStore((s) => s.cardsById);
+  const storeCardOrder = useStudioStore((s) => s.cardOrder);
+  const storeWorkflowState = useStudioStore((s) => s.workflowState);
   const syncGovernanceCards = useStudioStore((s) => s.syncGovernanceCards);
   const syncStagedEdits = useStudioStore((s) => s.syncStagedEdits);
   const setStoreMemo = useStudioStore((s) => s.setMemo);
   const setWorkflowState = useStudioStore((s) => s.setWorkflowState);
   const resetWorkflowArtifacts = useStudioStore((s) => s.resetWorkflowArtifacts);
-  const editorExpanded = editorVisibility !== "collapsed";
   const hydratedRecoveryRef = useRef<string | null>(null);
 
   // Auto-expand editor when selecting a file to edit
@@ -172,6 +188,8 @@ export function SkillStudio({
   const selectedSkill = selectedFile
     ? (skills.find((s) => s.id === selectedFile.skillId) ?? null)
     : null;
+  const storeGovernanceCards = useStudioStore((s) => s.governanceCards);
+  const storeStagedEdits = useStudioStore((s) => s.stagedEdits);
   const sandboxVersionMismatch = Boolean(
     fromSandbox &&
     activeSandboxReport &&
@@ -182,6 +200,72 @@ export function SkillStudio({
   const sandboxVersionMismatchMessage = sandboxVersionMismatch
     ? `当前 Skill 已是 v${selectedSkill?.current_version}，但整改来源报告基于 v${activeSandboxReport?.target_version}。如果要继续提交审批，请先重新运行质量检测生成新报告。`
     : null;
+
+  const governanceWorkbenchIntent = useMemo(() => ({
+    visible: showGovernancePanel,
+    skillId: selectedSkill?.id ?? null,
+    mode: chatTestFlowIntent?.mode ?? null,
+    latestPlan: chatTestFlowIntent?.latestPlan ?? null,
+    entrySource: chatTestFlowIntent?.entrySource ?? null,
+    sessionId: sandboxSessionId ? Number(sandboxSessionId) : null,
+    reportId: sandboxReportId ? Number(sandboxReportId) : null,
+    blockedStage: chatTestFlowIntent?.blockedStage ?? null,
+    blockedBefore: chatTestFlowIntent?.blockedBefore ?? null,
+    summary: chatTestFlowIntent?.gateSummary
+      ?? chatTestFlowIntent?.verdictReason
+      ?? (showGovernancePanel ? "当前卡片需要通过治理面板继续推进" : null),
+  }), [chatTestFlowIntent?.blockedBefore, chatTestFlowIntent?.blockedStage, chatTestFlowIntent?.entrySource, chatTestFlowIntent?.gateSummary, chatTestFlowIntent?.latestPlan, chatTestFlowIntent?.mode, chatTestFlowIntent?.verdictReason, sandboxReportId, sandboxSessionId, selectedSkill?.id, showGovernancePanel]);
+
+  const computedWorkbenchCards = useMemo(() => buildWorkbenchCards({
+    governanceCards: storeGovernanceCards,
+    stagedEdits: storeStagedEdits,
+    selectedFile,
+    selectedSkill,
+    workflowState: storeWorkflowState,
+    memo,
+    governanceIntent: governanceWorkbenchIntent,
+    activeSandboxReport,
+  }), [activeSandboxReport, governanceWorkbenchIntent, memo, selectedFile, selectedSkill, storeGovernanceCards, storeStagedEdits, storeWorkflowState]);
+
+  const preferredWorkbenchCardId = useMemo(
+    () => resolvePreferredWorkbenchCardId(computedWorkbenchCards, storeWorkflowState, activeWorkbenchCardId),
+    [activeWorkbenchCardId, computedWorkbenchCards, storeWorkflowState],
+  );
+
+  useEffect(() => {
+    replaceWorkbenchCards(computedWorkbenchCards, preferredWorkbenchCardId);
+  }, [computedWorkbenchCards, preferredWorkbenchCardId, replaceWorkbenchCards]);
+
+  const workbenchCards = useMemo(
+    () => storeCardOrder.map((id) => storeCardsById[id]).filter(Boolean),
+    [storeCardOrder, storeCardsById],
+  );
+
+  const pendingGovernanceCount = useMemo(
+    () => storeGovernanceCards.filter((card) => card.status === "pending").length,
+    [storeGovernanceCards],
+  );
+  const pendingStagedEditCount = useMemo(
+    () => storeStagedEdits.filter((edit) => edit.status === "pending").length,
+    [storeStagedEdits],
+  );
+
+  const activeWorkbenchId = activeWorkbenchCardId;
+  const activeWorkbenchCard = workbenchCards.find((card) => card.id === activeWorkbenchId) ?? null;
+  const pendingWorkbenchCards = useMemo(
+    () => workbenchCards.filter((card) => card.id !== activeWorkbenchId && (card.status === "pending" || card.status === "active")),
+    [activeWorkbenchId, workbenchCards],
+  );
+
+  const handleOpenPromptFromWorkspace = useCallback(() => {
+    const targetSkillId = selectedSkill?.id ?? selectedFile?.skillId ?? initialSkillId;
+    if (!targetSkillId) return;
+    setSelectedFile({ skillId: targetSkillId, fileType: "prompt" });
+  }, [initialSkillId, selectedFile?.skillId, selectedSkill?.id, setSelectedFile]);
+
+  const handleFocusChatFromWorkspace = useCallback((text: string) => {
+    setInputRef.current?.(text);
+  }, []);
 
   const handleOpenChatTestFlowPanel = useCallback((intent: {
     skillId: number;
@@ -226,6 +310,42 @@ export function SkillStudio({
   const handleSelectSkillForTestFlow = useCallback((targetSkillId: number) => {
     setSelectedFile({ skillId: targetSkillId, fileType: "prompt" });
   }, [setSelectedFile]);
+
+  useEffect(() => {
+    if (!activeWorkbenchCard) {
+      setWorkbenchMode("analysis");
+      return;
+    }
+    setWorkbenchMode(activeWorkbenchCard.mode);
+
+    if (activeWorkbenchCard.mode === "governance" && !showGovernancePanel && selectedSkill) {
+      setShowGovernancePanel(true);
+    }
+
+    if (activeWorkbenchCard.mode !== "file" || !selectedSkill) {
+      return;
+    }
+
+    if (activeWorkbenchCard.target.type === "prompt" && selectedFile?.fileType !== "prompt") {
+      setSelectedFile({ skillId: selectedSkill.id, fileType: "prompt" });
+      return;
+    }
+
+    if (
+      activeWorkbenchCard.target.type === "source_file"
+      && activeWorkbenchCard.target.key
+      && (selectedFile?.fileType !== "asset" || selectedFile.filename !== activeWorkbenchCard.target.key)
+    ) {
+      setSelectedFile({ skillId: selectedSkill.id, fileType: "asset", filename: activeWorkbenchCard.target.key });
+    }
+  }, [
+    activeWorkbenchCard,
+    selectedFile,
+    selectedSkill,
+    setSelectedFile,
+    setWorkbenchMode,
+    showGovernancePanel,
+  ]);
 
   // ── Memo: fetch when selected skill changes ──
   const fetchMemo = useCallback((skillId: number) => {
@@ -311,7 +431,7 @@ export function SkillStudio({
             if (!cancelled) setSandboxRemediationLoading(true);
             const remediation = await apiFetch<{
               workflow_state?: WorkflowStateData;
-              cards: GovernanceCardData[];
+              cards: Record<string, unknown>[];
               staged_edits: Record<string, unknown>[];
             }>(
               `/sandbox/interactive/by-report/${reportIdForRemediation}/remediation-actions`,
@@ -325,7 +445,10 @@ export function SkillStudio({
                 setWorkflowState(workflowState);
               }
               const source = `sandbox-report:${reportIdForRemediation}`;
-              syncGovernanceCards(source, remediation.cards || []);
+              syncGovernanceCards(
+                source,
+                (remediation.cards || []).map((card) => normalizeWorkflowCardPayload(card, source)),
+              );
               syncStagedEdits(source, (remediation.staged_edits || []).map(normalizeStagedEdit));
               setSandboxRemediationSummary({
                 cards: remediation.cards?.length || 0,
@@ -706,7 +829,7 @@ export function SkillStudio({
         </div>
       )}
 
-      {/* Three-column body: SkillList | StudioChat(main) | Editor(collapsible) */}
+      {/* Workbench body: SkillList | Card Rail | Workspace | Chat | Governance */}
       <div className="flex-1 flex overflow-hidden">
         {/* Left: Skill list */}
         <SkillList
@@ -726,43 +849,129 @@ export function SkillStudio({
           onToggleCollapse={() => setSkillListCollapsed((v) => !v)}
         />
 
-        {/* Center: Chat (main work area) */}
-        <StudioChat
-          convId={convId}
-          skillId={selectedSkill?.id ?? null}
-          currentPrompt={prompt}
-          currentDescription={selectedSkill?.description ?? ""}
-          editorIsDirty={editorIsDirty}
-          selectedSourceFile={selectedEditorFilename}
-          allSkills={searchableSkills}
-          memo={memo}
-          onApplyDraft={handleApplyDraft}
-          onNewSession={handleNewSession}
-          onToolBound={() => { if (selectedSkill) { refreshSkill(selectedSkill.id); handleMemoRefresh(); } }}
-          onDevStudio={handleDevStudioJump}
-          onFileSplitDone={() => { if (selectedSkill) refreshSkill(selectedSkill.id); }}
-          onMemoRefresh={handleMemoRefresh}
-          onOpenSandbox={(id) => setShowSandbox(id)}
-          onEditorTarget={handleEditorTarget}
-          clearRef={clearChatRef}
-          setInputRef={setInputRef}
-          onViewReport={selectedFile?.skillId ? () => setShowSandbox(selectedFile.skillId) : undefined}
-          sandboxReportId={fromSandbox ? sandboxReportId : undefined}
-          fromSandbox={fromSandbox}
-          onRefreshSkill={() => { if (selectedSkill) refreshSkill(selectedSkill.id); }}
-          onOpenTestFlowPanel={handleOpenChatTestFlowPanel}
-          onSelectSkillForTestFlow={handleSelectSkillForTestFlow}
-          onExpandEditor={() => {
-            setEditorManuallyCollapsed(false);
-            if (editorVisibility !== "pinned_open") {
-              setEditorVisibility("auto_expanded");
-            }
-          }}
-          editorExpanded={editorExpanded}
+        <StudioCardRail
+          skill={selectedSkill}
+          workflowState={storeWorkflowState}
+          cards={workbenchCards}
+          activeCardId={activeWorkbenchId}
+          onSelect={setActiveWorkbenchCardId}
         />
 
+        <div className="flex-1 min-w-0 flex flex-col border-r-2 border-[#1A202C] bg-[#F4FAFC]">
+          <ActiveCardHeader
+            card={activeWorkbenchCard}
+            skill={selectedSkill}
+          />
+          {editorErrorMessage && (
+            <div className="mx-5 mt-4 rounded border border-red-300 bg-red-50 px-3 py-2 text-[10px] font-bold text-red-600">
+              {editorErrorMessage}
+            </div>
+          )}
+          <StudioWorkspace
+            activeCard={activeWorkbenchCard}
+            workflowState={storeWorkflowState}
+            memo={memo}
+            selectedSkill={selectedSkill}
+            activeSandboxReport={activeSandboxReport}
+            governanceIntent={chatTestFlowIntent}
+            pendingGovernanceCount={pendingGovernanceCount}
+            pendingStagedEditCount={pendingStagedEditCount}
+            activeCardActions={activeCardActions}
+            pendingCards={pendingWorkbenchCards}
+            onOpenGovernancePanel={() => setShowGovernancePanel(true)}
+            onOpenSandbox={() => {
+              if (selectedSkill) setShowSandbox(selectedSkill.id);
+            }}
+            onOpenPrompt={handleOpenPromptFromWorkspace}
+            onFocusChat={handleFocusChatFromWorkspace}
+            onSelectWorkbenchCard={setActiveWorkbenchCardId}
+          >
+            {showAssetEditor && selectedSkill ? (
+              <AssetFileEditor
+                skill={selectedSkill}
+                filename={(selectedFile as { filename: string }).filename}
+                onDeleted={() => {
+                  refreshSkill(selectedSkill.id);
+                  setSelectedFile({ skillId: selectedSkill.id, fileType: "prompt" });
+                }}
+                onFileSaved={handleFileSaved}
+                adoptedPreviewEdit={adoptedAssetPreview}
+                onContentChange={setPrompt}
+                onBaselineChange={setSavedPrompt}
+                onLoadStart={(nextFilename) => {
+                  setEditorTarget(buildAssetLoadingTarget({ skillId: selectedSkill.id, fileType: "asset", filename: nextFilename }, selectedFile, "asset_load_start"));
+                }}
+                onLoadSuccess={(nextFilename) => {
+                  setEditorTarget(buildAssetEditorTarget(selectedSkill.id, nextFilename, "asset_load_success"));
+                }}
+                onLoadError={(_nextFilename, message) => {
+                  setAdoptedAssetPreview(null);
+                  setEditorTarget(buildEditorErrorTarget(message, { skillId: selectedSkill.id, fileType: "prompt" }, "asset_load_failed"));
+                }}
+              />
+            ) : (
+              <PromptEditor
+                skill={selectedSkill}
+                isNew={isNew}
+                prompt={prompt}
+                externalName={externalName}
+                externalDescription={externalDescription}
+                pendingDiffBase={pendingDiffBase}
+                saveRef={editorSaveRef}
+                onPromptChange={setPrompt}
+                onBaselineChange={setSavedPrompt}
+                onSaved={handleSaved}
+                onFork={handleFork}
+                onFileSaved={handleFileSaved}
+                sandboxVersionMismatch={sandboxVersionMismatch}
+                sandboxVersionMismatchMessage={sandboxVersionMismatchMessage}
+                onOpenTestFlowPanel={handleOpenChatTestFlowPanel}
+              />
+            )}
+          </StudioWorkspace>
+        </div>
+
+        <div className="w-[420px] flex-shrink-0 overflow-hidden bg-white">
+          <StudioChat
+            convId={convId}
+            skillId={selectedSkill?.id ?? null}
+            currentPrompt={prompt}
+            currentDescription={selectedSkill?.description ?? ""}
+            editorIsDirty={editorIsDirty}
+            selectedSourceFile={selectedEditorFilename}
+            allSkills={searchableSkills}
+            memo={memo}
+            onApplyDraft={handleApplyDraft}
+            onNewSession={handleNewSession}
+            onToolBound={() => { if (selectedSkill) { refreshSkill(selectedSkill.id); handleMemoRefresh(); } }}
+            onDevStudio={handleDevStudioJump}
+            onFileSplitDone={() => { if (selectedSkill) refreshSkill(selectedSkill.id); }}
+            onMemoRefresh={handleMemoRefresh}
+            onOpenSandbox={(id) => setShowSandbox(id)}
+            onEditorTarget={handleEditorTarget}
+            clearRef={clearChatRef}
+            setInputRef={setInputRef}
+            onViewReport={selectedFile?.skillId ? () => setShowSandbox(selectedFile.skillId) : undefined}
+            sandboxReportId={fromSandbox ? sandboxReportId : undefined}
+            fromSandbox={fromSandbox}
+            onRefreshSkill={() => { if (selectedSkill) refreshSkill(selectedSkill.id); }}
+            onOpenTestFlowPanel={handleOpenChatTestFlowPanel}
+            onSelectSkillForTestFlow={handleSelectSkillForTestFlow}
+            editorExpanded={activeWorkbenchCard?.mode === "file"}
+            activeCardTitle={activeWorkbenchCard?.title ?? null}
+            activeCardSummary={activeWorkbenchCard?.summary ?? null}
+            activeCardMode={activeWorkbenchCard?.mode ?? null}
+            activeCardTarget={activeWorkbenchCard?.target.key ?? null}
+            activeCardId={activeWorkbenchCard?.id ?? null}
+            activeCardSourceCardId={activeWorkbenchCard?.sourceCardId ?? null}
+            activeCardStagedEditId={activeWorkbenchCard?.stagedEditId ?? null}
+            activeCardValidationSource={activeWorkbenchCard?.validationSource ?? null}
+            onActiveCardActionsChange={setActiveCardActions}
+          />
+        </div>
+
         {showGovernancePanel && selectedSkill && (
-          <div className="flex-shrink-0 border-l-2 border-[#1A202C] overflow-hidden">
+          <div className="w-[460px] flex-shrink-0 border-l-2 border-[#1A202C] overflow-hidden bg-white">
             <SkillGovernancePanel
               skill={selectedSkill}
               testFlowIntent={chatTestFlowIntent}
@@ -779,114 +988,6 @@ export function SkillStudio({
               }}
             />
           </div>
-        )}
-
-        {/* Right: Collapsible editor panel */}
-        <div
-          className={`flex-shrink-0 border-l-2 border-[#1A202C] transition-[width] duration-200 overflow-hidden ${
-            editorExpanded ? "w-[480px]" : "w-0 border-l-0"
-          }`}
-        >
-          {editorExpanded && (
-            <div className="w-[480px] h-full flex flex-col">
-              {/* Editor panel header with collapse/pin controls */}
-              <div className="px-3 py-1.5 border-b border-gray-200 bg-[#F0F4F8] flex items-center gap-2 flex-shrink-0">
-                <span className="text-[8px] font-bold uppercase tracking-widest text-gray-400 flex-1">
-                  {showAssetEditor ? (selectedFile as { filename: string }).filename : "Prompt 编辑"}
-                </span>
-                <button
-                  onClick={() => {
-                    setEditorManuallyCollapsed(false);
-                    setEditorVisibility(editorVisibility === "pinned_open" ? "auto_expanded" : "pinned_open");
-                  }}
-                  className={`p-0.5 transition-colors ${
-                    editorVisibility === "pinned_open"
-                      ? "text-[#00A3C4]"
-                      : "text-gray-300 hover:text-gray-500"
-                  }`}
-                  title={editorVisibility === "pinned_open" ? "取消固定" : "固定编辑区"}
-                >
-                  <Pin size={10} />
-                </button>
-                <button
-                  onClick={() => {
-                    setEditorManuallyCollapsed(true);
-                    setEditorVisibility("collapsed");
-                  }}
-                  className="text-gray-400 hover:text-gray-600 p-0.5"
-                  title="收起编辑区"
-                >
-                  <PanelRightClose size={12} />
-                </button>
-              </div>
-
-              {/* Editor content */}
-              {editorErrorMessage && (
-                <div className="mx-4 mt-3 rounded border border-red-300 bg-red-50 px-3 py-2 text-[10px] font-bold text-red-600">
-                  {editorErrorMessage}
-                </div>
-              )}
-              {showAssetEditor && selectedSkill ? (
-                <AssetFileEditor
-                  skill={selectedSkill}
-                  filename={(selectedFile as { filename: string }).filename}
-                  onDeleted={() => {
-                    refreshSkill(selectedSkill.id);
-                    setSelectedFile({ skillId: selectedSkill.id, fileType: "prompt" });
-                  }}
-                  onFileSaved={handleFileSaved}
-                  adoptedPreviewEdit={adoptedAssetPreview}
-                  onContentChange={setPrompt}
-                  onBaselineChange={setSavedPrompt}
-                  onLoadStart={(nextFilename) => {
-                    setEditorTarget(buildAssetLoadingTarget({ skillId: selectedSkill.id, fileType: "asset", filename: nextFilename }, selectedFile, "asset_load_start"));
-                  }}
-                  onLoadSuccess={(nextFilename) => {
-                    setEditorTarget(buildAssetEditorTarget(selectedSkill.id, nextFilename, "asset_load_success"));
-                  }}
-                  onLoadError={(_nextFilename, message) => {
-                    setAdoptedAssetPreview(null);
-                    setEditorTarget(buildEditorErrorTarget(message, { skillId: selectedSkill.id, fileType: "prompt" }, "asset_load_failed"));
-                  }}
-                />
-              ) : (
-                <PromptEditor
-                  skill={selectedSkill}
-                  isNew={isNew}
-                  prompt={prompt}
-                  externalName={externalName}
-                  externalDescription={externalDescription}
-                  pendingDiffBase={pendingDiffBase}
-                  saveRef={editorSaveRef}
-                  onPromptChange={setPrompt}
-                  onBaselineChange={setSavedPrompt}
-                  onSaved={handleSaved}
-                  onFork={handleFork}
-                  onFileSaved={handleFileSaved}
-                  sandboxVersionMismatch={sandboxVersionMismatch}
-                  sandboxVersionMismatchMessage={sandboxVersionMismatchMessage}
-                  onOpenTestFlowPanel={handleOpenChatTestFlowPanel}
-                />
-              )}
-            </div>
-          )}
-        </div>
-
-        {/* Collapsed editor toggle (shown when editor is hidden) */}
-        {!editorExpanded && selectedSkill && (
-          <button
-            onClick={() => {
-              setEditorManuallyCollapsed(false);
-              setEditorVisibility("auto_expanded");
-            }}
-            className="flex-shrink-0 w-8 border-l-2 border-[#1A202C] bg-[#F0F4F8] hover:bg-[#E0ECF0] flex flex-col items-center justify-center gap-1 transition-colors"
-            title="展开编辑区"
-          >
-            <PanelRightOpen size={12} className="text-gray-400" />
-            <span className="text-[7px] text-gray-400 font-bold writing-mode-vertical" style={{ writingMode: "vertical-rl" }}>
-              编辑
-            </span>
-          </button>
         )}
       </div>
 

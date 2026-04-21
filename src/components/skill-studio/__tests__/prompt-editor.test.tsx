@@ -65,6 +65,7 @@ vi.mock("../KnowledgeConfirmModal", () => ({
 
 describe("PromptEditor", () => {
   beforeEach(() => {
+    vi.restoreAllMocks();
     mockStoreState.stagedEdits = [];
     mockStoreState.syncGovernanceCards.mockReset();
     mockStoreState.syncStagedEdits.mockReset();
@@ -211,5 +212,131 @@ describe("PromptEditor", () => {
     });
 
     expect(screen.getByText("质量检测门禁未通过：未绑定可测试数据资产。请先在治理面板补齐前置条件后再运行质量检测。")).toBeTruthy();
+  });
+
+  it("normalizes preflight remediation cards before syncing store", async () => {
+    const encoder = new TextEncoder();
+    const sse = [
+      "event: done",
+      `data: ${JSON.stringify({
+        passed: false,
+        blocked_by: "quality",
+        gates: [
+          { gate: "quality", label: "质量", status: "failed" },
+        ],
+      })}`,
+      "",
+    ].join("\n");
+
+    vi.stubGlobal("fetch", vi.fn(() =>
+      Promise.resolve({
+        ok: true,
+        body: {
+          getReader() {
+            let done = false;
+            return {
+              async read() {
+                if (done) return { done: true, value: undefined };
+                done = true;
+                return { done: false, value: encoder.encode(sse) };
+              },
+            };
+          },
+        },
+      }),
+    ));
+
+    mockApiFetch.mockImplementation((path: string) => {
+      if (path === "/skills/1") {
+        return Promise.resolve({
+          id: 1,
+          name: "测试 Skill",
+          description: "旧描述",
+          status: "draft",
+          versions: [{ id: 11, version: 1, system_prompt: "## 角色\n你是助手", created_at: "2026-04-17T00:00:00" }],
+          system_prompt: "## 角色\n你是助手",
+          data_queries: [],
+        });
+      }
+      if (path === "/skills/1/files/SKILL.md") {
+        return Promise.reject(new Error("missing"));
+      }
+      if (path === "/sandbox-case-plans/1/readiness") {
+        return Promise.resolve({
+          ok: true,
+          data: {
+            skill_id: 1,
+            readiness: {
+              ready: true,
+              blocking_issues: [],
+            },
+          },
+        });
+      }
+      if (path === "/sandbox/preflight/1/remediation-actions") {
+        return Promise.resolve({
+          workflow_state: {
+            session_mode: "optimize_existing_skill",
+            workflow_mode: "governance_mode",
+            phase: "governance_execution",
+            next_action: "review_cards",
+          },
+          cards: [
+            {
+              title: "补齐权限声明",
+              summary: "需要确认并补齐权限声明文本",
+              suggested_action: "staged_edit",
+              target_file: "SKILL.md",
+              acceptance_rule_text: "声明内容与治理包一致",
+            },
+          ],
+          staged_edits: [],
+        });
+      }
+      return Promise.resolve([]);
+    });
+
+    render(
+      <PromptEditor
+        skill={{ id: 1, name: "测试 Skill", description: "旧描述", status: "draft" } as never}
+        isNew={false}
+        prompt="## 角色\n你是助手"
+        onPromptChange={vi.fn()}
+        onSaved={vi.fn()}
+        onFork={vi.fn()}
+      />,
+    );
+
+    await waitFor(() => expect(screen.getAllByText("质量检测").length).toBeGreaterThan(0));
+    fireEvent.click(screen.getAllByText("质量检测")[0]!);
+
+    await waitFor(() => {
+      expect(mockStoreState.setWorkflowState).toHaveBeenCalledWith(expect.objectContaining({
+        workflow_mode: "governance_mode",
+        phase: "governance_execution",
+        next_action: "review_cards",
+      }));
+      expect(mockStoreState.syncGovernanceCards).toHaveBeenCalled();
+    });
+
+    expect(mockStoreState.syncGovernanceCards).toHaveBeenCalledWith(
+      "preflight:1",
+      [
+        expect.objectContaining({
+          source: "preflight:1",
+          type: "staged_edit",
+          title: "补齐权限声明",
+          status: "pending",
+          actions: [
+            expect.objectContaining({ type: "view_diff" }),
+            expect.objectContaining({ type: "adopt" }),
+          ],
+          content: expect.objectContaining({
+            target_ref: "SKILL.md",
+            acceptance_rule: "声明内容与治理包一致",
+          }),
+        }),
+      ],
+    );
   });
 });

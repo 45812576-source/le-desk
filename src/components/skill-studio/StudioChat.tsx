@@ -26,6 +26,7 @@ import { resolveStudioMetaReply, resolveWorkflowNextActionMessage, type StudioMe
 import { isFrontendRunProtocolEnabled, isPatchProtocolEnabled } from "./feature-flags";
 import { normalizeAuditSummaryPayload, normalizeDeepPatchEnvelope, normalizeWorkflowCardPayload, normalizeWorkflowStagedEditPayload, parseStudioPatchEnvelope, parseWorkflowStatePayload } from "./workflow-adapter";
 import type { StudioPatchEnvelope, WorkflowActionResult, WorkflowStateData } from "./workflow-protocol";
+import type { WorkbenchValidationSource } from "./workbench-types";
 import type {
   ChatMessage,
   StudioDraft,
@@ -96,6 +97,15 @@ export function StudioChat({
   onRefreshSkill,
   onOpenTestFlowPanel,
   onSelectSkillForTestFlow,
+  activeCardTitle,
+  activeCardSummary,
+  activeCardMode,
+  activeCardTarget,
+  activeCardId,
+  activeCardSourceCardId,
+  activeCardStagedEditId,
+  activeCardValidationSource,
+  onActiveCardActionsChange,
 }: {
   convId: number;
   skillId: number | null;
@@ -139,6 +149,20 @@ export function StudioChat({
     primaryAction?: string | null;
   }) => void;
   onSelectSkillForTestFlow?: (skillId: number) => void;
+  activeCardTitle?: string | null;
+  activeCardSummary?: string | null;
+  activeCardMode?: "analysis" | "file" | "report" | "governance" | null;
+  activeCardTarget?: string | null;
+  activeCardId?: string | null;
+  activeCardSourceCardId?: string | null;
+  activeCardStagedEditId?: string | null;
+  activeCardValidationSource?: WorkbenchValidationSource | null;
+  onActiveCardActionsChange?: (actions: Array<{
+    id: string;
+    label: string;
+    tone?: "primary" | "secondary" | "danger";
+    onClick: () => void;
+  }>) => void;
 }) {
   const _storageKey = `studio_msgs_${convId}`;
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -311,6 +335,43 @@ export function StudioChat({
       }]);
     }
   }
+
+  const executeGovernanceAction = (card: GovernanceCardData, action: GovernanceAction) => {
+    const stagedEditId = typeof card.content.staged_edit_id === "string" ? card.content.staged_edit_id : null;
+    const willCompleteGovernance = storeGovernanceCards.filter((c) => c.status === "pending").length === 1
+      && card.status === "pending"
+      && pendingGovernanceActions.length === 0
+      && !auditResult;
+    if (action.type === "adopt") {
+      if (stagedEditId) {
+        updateCardStatus(card.id, "adopted");
+        void handleAdoptStagedEdit(stagedEditId);
+      } else {
+        void handlePreflightCardAction(card, action).then((handled) => {
+          if (handled) updateCardStatus(card.id, "adopted");
+        });
+      }
+    } else if (action.type === "reject") {
+      updateCardStatus(card.id, "rejected");
+      if (stagedEditId) void handleRejectStagedEdit(stagedEditId);
+    } else if (action.type === "view_diff") {
+      handleOpenGovernanceTarget(card);
+      onExpandEditor?.();
+    } else if (action.type === "refine") {
+      setInput(String(card.content.summary || card.title));
+      setTimeout(() => inputRef.current?.focus(), 50);
+    }
+    if (willCompleteGovernance && (action.type === "reject" || (action.type === "adopt" && Boolean(stagedEditId)))) {
+      setMessages((prev) => [
+        ...prev,
+        {
+          role: "assistant",
+          text: "本轮整改项已处理完成。请点击「继续下一步」继续验收或生成后续结果。",
+          loading: false,
+        },
+      ]);
+    }
+  };
 
   function resolveTargetedRetestPayload(recommendation?: Record<string, unknown> | null) {
     const issueIds = Array.isArray(recommendation?.issue_ids)
@@ -673,6 +734,103 @@ export function StudioChat({
       console.error("Reject staged edit failed:", err);
     }
   }
+
+  const executeGovernanceActionRef = useRef(executeGovernanceAction);
+  const handleOpenGovernanceTargetRef = useRef(handleOpenGovernanceTarget);
+  const handleAdoptStagedEditRef = useRef(handleAdoptStagedEdit);
+  const handleRejectStagedEditRef = useRef(handleRejectStagedEdit);
+
+  useEffect(() => {
+    executeGovernanceActionRef.current = executeGovernanceAction;
+    handleOpenGovernanceTargetRef.current = handleOpenGovernanceTarget;
+    handleAdoptStagedEditRef.current = handleAdoptStagedEdit;
+    handleRejectStagedEditRef.current = handleRejectStagedEdit;
+  });
+
+  useEffect(() => {
+    if (!onActiveCardActionsChange) return;
+
+    const sourceCard = activeCardSourceCardId
+      ? storeGovernanceCards.find((card) => card.id === activeCardSourceCardId) || null
+      : null;
+    const stagedEdit = activeCardStagedEditId
+      ? storeStagedEdits.find((edit) => edit.id === activeCardStagedEditId) || null
+      : null;
+
+    if (sourceCard) {
+      const actions = (sourceCard.actions || []).map((action) => ({
+        id: `${sourceCard.id}:${action.type}`,
+        label: action.label,
+        tone: action.type === "adopt"
+          ? "primary" as const
+          : action.type === "reject"
+            ? "danger" as const
+            : "secondary" as const,
+        onClick: () => executeGovernanceActionRef.current(sourceCard, action),
+      }));
+      if (sourceCard.content?.target_ref || sourceCard.content?.target_file || sourceCard.content?.target_files) {
+        actions.unshift({
+          id: `${sourceCard.id}:open-target`,
+          label: "查看目标",
+          tone: "secondary" as const,
+          onClick: () => handleOpenGovernanceTargetRef.current(sourceCard),
+        });
+      }
+      onActiveCardActionsChange(actions);
+      return;
+    }
+
+    if (stagedEdit) {
+      const targetFile = stagedEdit.filename;
+      const actions: Array<{
+        id: string;
+        label: string;
+        tone?: "primary" | "secondary" | "danger";
+        onClick: () => void;
+      }> = [
+        {
+          id: `${stagedEdit.id}:view`,
+          label: "查看修改",
+          tone: "secondary" as const,
+          onClick: () => {
+            onEditorTarget(
+              targetFile === "SKILL.md" ? "prompt" : "asset",
+              targetFile,
+            );
+            onExpandEditor?.();
+          },
+        },
+      ];
+      if (stagedEdit.status === "pending") {
+        actions.push(
+          {
+            id: `${stagedEdit.id}:adopt`,
+            label: "采纳修改",
+            tone: "primary" as const,
+            onClick: () => { void handleAdoptStagedEditRef.current(stagedEdit.id); },
+          },
+          {
+            id: `${stagedEdit.id}:reject`,
+            label: "拒绝修改",
+            tone: "danger" as const,
+            onClick: () => { void handleRejectStagedEditRef.current(stagedEdit.id); },
+          },
+        );
+      }
+      onActiveCardActionsChange(actions);
+      return;
+    }
+
+    onActiveCardActionsChange([]);
+  }, [
+    activeCardSourceCardId,
+    activeCardStagedEditId,
+    onActiveCardActionsChange,
+    onEditorTarget,
+    onExpandEditor,
+    storeGovernanceCards,
+    storeStagedEdits,
+  ]);
 
   // ── Memo action handlers ──
   async function handleMemoStartTask(taskId: string) {
@@ -1350,7 +1508,7 @@ export function StudioChat({
       }),
     });
     return response.data;
-  }, [allSkills, convId, skillId]);
+  }, [allSkills, convId]);
 
   useEffect(() => {
     if (!pendingTestFlowSelection) return;
@@ -1399,8 +1557,8 @@ export function StudioChat({
     if (effectiveUserText.length > CONTENT_MAX) {
       if (!skillId) {
         setMessages((prev) => [...prev,
-          { role: "user", text: effectiveUserText.slice(0, 200) + "…" },
-          { role: "assistant", text: `文本较长（${effectiveUserText.length.toLocaleString()} 字符）。请先选中一个 Skill，系统会自动分析并存储为子文件。`, loading: false },
+          { role: "user", text: effectiveUserText.slice(0, 200) + "…", cardId: activeCardId },
+          { role: "assistant", text: `文本较长（${effectiveUserText.length.toLocaleString()} 字符）。请先选中一个 Skill，系统会自动分析并存储为子文件。`, loading: false, cardId: activeCardId },
         ]);
         setInput("");
         return;
@@ -1422,11 +1580,12 @@ export function StudioChat({
           setInput("");
           setMessages((prev) => [
             ...prev,
-            { role: "user", text: effectiveUserText },
+            { role: "user", text: effectiveUserText, cardId: activeCardId },
             {
               role: "assistant",
               text: "我先生成了可确认的绑定动作。确认后再真正修改 Skill 绑定。",
               loading: false,
+              cardId: activeCardId,
             },
           ]);
           for (const action of resolved.actions) {
@@ -1471,11 +1630,12 @@ export function StudioChat({
         setInput("");
         setMessages((prev) => [
           ...prev,
-          { role: "user", text: effectiveUserText },
+          { role: "user", text: effectiveUserText, cardId: activeCardId },
           {
             role: "assistant",
             text: "检测到多个待测 Skill。先选 1 个目标，我就继续当前这条消息里的测试流程。",
             loading: false,
+            cardId: activeCardId,
           },
         ]);
         setOverrideQuickActions(
@@ -1491,7 +1651,7 @@ export function StudioChat({
         setInput("");
         setMessages((prev) => [
           ...prev,
-          { role: "user", text: effectiveUserText },
+          { role: "user", text: effectiveUserText, cardId: activeCardId },
           {
             role: "assistant",
             text:
@@ -1501,6 +1661,7 @@ export function StudioChat({
                   ? "检测到已有测试用例，我先切到测试流程面板，供你选择复用、修改或重新生成。"
                   : "测试意图已明确，我先直接切到测试流程面板并生成测试用例草案。",
             loading: false,
+            cardId: activeCardId,
           },
         ]);
         setOverrideQuickActions(null);
@@ -1531,8 +1692,8 @@ export function StudioChat({
     setMessages((prev) => {
       msgIdx = prev.length + 1;
       return [...prev,
-        { role: "user", text: effectiveUserText },
-        { role: "assistant", text: "", loading: true },
+        { role: "user", text: effectiveUserText, cardId: activeCardId },
+        { role: "assistant", text: "", loading: true, cardId: activeCardId },
       ];
     });
     setStreaming(true);
@@ -1572,6 +1733,13 @@ export function StudioChat({
           editor_prompt: currentPrompt || undefined,
           editor_is_dirty: editorIsDirty,
           selected_source_filename: selectedSourceFile || undefined,
+          active_card_id: activeCardId ?? undefined,
+          active_card_title: activeCardTitle ?? undefined,
+          active_card_mode: activeCardMode ?? undefined,
+          active_card_target: activeCardTarget ?? undefined,
+          active_card_source_card_id: activeCardSourceCardId ?? undefined,
+          active_card_staged_edit_id: activeCardStagedEditId ?? undefined,
+          active_card_validation_source: activeCardValidationSource ?? undefined,
         }),
         signal: ctrl.signal,
       });
@@ -1592,14 +1760,14 @@ export function StudioChat({
           } catch { errText = "请求参数错误 (422)"; }
         }
         setMessages((prev) => prev.map((m, i) =>
-          i === msgIdx ? { ...m, text: errText, loading: false } : m
+          i === msgIdx ? { ...m, text: errText, loading: false, cardId: activeCardId } : m
         ));
         return;
       }
       const reader = resp.body?.getReader();
       if (!reader) {
         setMessages((prev) => prev.map((m, i) =>
-          i === msgIdx ? { ...m, text: "无法读取响应", loading: false } : m
+          i === msgIdx ? { ...m, text: "无法读取响应", loading: false, cardId: activeCardId } : m
         ));
         return;
       }
@@ -1790,52 +1958,54 @@ export function StudioChat({
               } else if (curEvt === "replace" && data.text !== undefined) {
                 accText = data.text;
                 setMessages((prev) => prev.map((m, i) =>
-                  i === msgIdx ? { ...m, text: syncStructuredMessage(accText) } : m
+                  i === msgIdx ? { ...m, text: syncStructuredMessage(accText), cardId: activeCardId } : m
                 ));
               } else if (curEvt === "error") {
                 const errMsg = data.message || "服务端错误";
                 setMessages((prev) => prev.map((m, i) =>
-                  i === msgIdx ? { ...m, text: errMsg, loading: false } : m
+                  i === msgIdx ? { ...m, text: errMsg, loading: false, cardId: activeCardId } : m
                 ));
                 setStreamStage(null);
                 setActiveRunId(null);
               } else if (curEvt === "done") {
                 setMessages((prev) => prev.map((m, i) =>
-                  i === msgIdx ? { ...m, text: syncStructuredMessage(accText), loading: false } : m
+                  i === msgIdx ? { ...m, text: syncStructuredMessage(accText), loading: false, cardId: activeCardId } : m
                 ));
                 setStreamStage(null);
                 setActiveRunId(null);
               } else if ((curEvt === "delta" || curEvt === "content_block_delta") && data.text) {
                 accText += data.text;
                 setStreamStage("generating");
-                setMessages((prev) => prev.map((m, i) => i === msgIdx ? { ...m, text: syncStructuredMessage(accText) } : m));
+                setMessages((prev) => prev.map((m, i) =>
+                  i === msgIdx ? { ...m, text: syncStructuredMessage(accText), cardId: activeCardId } : m
+                ));
               }
             } catch { /* skip */ }
             curEvt = "delta";
           }
         }
       }
-      setMessages((prev) => prev.map((m, i) => i === msgIdx ? { ...m, text: syncStructuredMessage(accText), loading: false } : m));
+      setMessages((prev) => prev.map((m, i) => i === msgIdx ? { ...m, text: syncStructuredMessage(accText), loading: false, cardId: activeCardId } : m));
     } catch (err) {
       if ((err as Error).name !== "AbortError") {
         if (accText) {
           const cleanText = syncStructuredMessage(accText);
           setMessages((prev) => prev.map((m, i) =>
-            i === msgIdx ? { ...m, text: cleanText + "\n\n[连接中断，以上为已接收内容]", loading: false } : m
+            i === msgIdx ? { ...m, text: cleanText + "\n\n[连接中断，以上为已接收内容]", loading: false, cardId: activeCardId } : m
           ));
         } else {
           setMessages((prev) => prev.map((m, i) =>
-            i === msgIdx ? { ...m, text: "连接中断，请重试", loading: false } : m
+            i === msgIdx ? { ...m, text: "连接中断，请重试", loading: false, cardId: activeCardId } : m
           ));
         }
       } else if (accText) {
         const cleanText = syncStructuredMessage(accText);
         setMessages((prev) => prev.map((m, i) =>
-          i === msgIdx ? { ...m, text: cleanText, loading: false } : m
+          i === msgIdx ? { ...m, text: cleanText, loading: false, cardId: activeCardId } : m
         ));
       } else {
         setMessages((prev) => prev.map((m, i) =>
-          i === msgIdx ? { ...m, text: "请求超时或已取消", loading: false } : m
+          i === msgIdx ? { ...m, text: "请求超时或已取消", loading: false, cardId: activeCardId } : m
         ));
       }
     } finally {
@@ -2038,6 +2208,32 @@ export function StudioChat({
         />
         <AssistSkillsBar skills={storeAssistSkills} />
 
+        {(activeCardTitle || activeCardSummary) && (
+          <div className="px-3 py-2 border-b border-[#CFEAF1] bg-[#F4FBFF] flex-shrink-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-[7px] font-bold uppercase tracking-[0.2em] text-[#00A3C4]">当前卡片</span>
+              {activeCardMode && (
+                <span className="text-[7px] font-bold uppercase tracking-widest text-gray-400">
+                  {activeCardMode}
+                </span>
+              )}
+              {activeCardTarget && (
+                <span className="ml-auto text-[7px] font-mono text-[#00A3C4] truncate max-w-[160px]">
+                  {activeCardTarget}
+                </span>
+              )}
+            </div>
+            {activeCardTitle && (
+              <div className="mt-1 text-[10px] font-bold text-[#1A202C]">{activeCardTitle}</div>
+            )}
+            {activeCardSummary && (
+              <div className="mt-1 text-[9px] leading-relaxed text-gray-500">
+                {activeCardSummary}
+              </div>
+            )}
+          </div>
+        )}
+
         {/* 本轮已采纳标签 */}
         {reconciledFacts.length > 0 && (
           <div className="px-3 py-1 bg-[#F0FFF9] border-b border-[#CCFFF0] flex gap-2 flex-wrap flex-shrink-0">
@@ -2163,41 +2359,7 @@ export function StudioChat({
               // Trigger draft generation
               send("生成 Skill 草稿");
             }}
-            onGovernanceAction={(card, action) => {
-              const stagedEditId = typeof card.content.staged_edit_id === "string" ? card.content.staged_edit_id : null;
-              const willCompleteGovernance = storeGovernanceCards.filter((c) => c.status === "pending").length === 1
-                && card.status === "pending"
-                && pendingGovernanceActions.length === 0
-                && !auditResult;
-              if (action.type === "adopt") {
-                if (stagedEditId) {
-                  updateCardStatus(card.id, "adopted");
-                  handleAdoptStagedEdit(stagedEditId);
-                } else {
-                  void handlePreflightCardAction(card, action).then((handled) => {
-                    if (handled) updateCardStatus(card.id, "adopted");
-                  });
-                }
-              } else if (action.type === "reject") {
-                updateCardStatus(card.id, "rejected");
-                if (stagedEditId) handleRejectStagedEdit(stagedEditId);
-              } else if (action.type === "view_diff") {
-                onExpandEditor?.();
-              } else if (action.type === "refine") {
-                setInput(String(card.content.summary || card.title));
-                setTimeout(() => inputRef.current?.focus(), 50);
-              }
-              if (willCompleteGovernance && (action.type === "reject" || (action.type === "adopt" && Boolean(stagedEditId)))) {
-                setMessages((prev) => [
-                  ...prev,
-                  {
-                    role: "assistant",
-                    text: "本轮整改项已处理完成。请点击「继续下一步」继续验收或生成后续结果。",
-                    loading: false,
-                  },
-                ]);
-              }
-            }}
+            onGovernanceAction={executeGovernanceAction}
             onOpenGovernanceTarget={handleOpenGovernanceTarget}
             onDismissGovernance={(card) => updateCardStatus(card.id, "dismissed")}
             onDismissAudit={() => setAuditResult(null)}
@@ -2234,6 +2396,7 @@ export function StudioChat({
             onGovernanceComplete={() => {
               send("我已处理完本轮整改，请基于当前最新内容继续下一步。");
             }}
+            compact
           />
         </div>
 

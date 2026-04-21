@@ -330,6 +330,7 @@ export function GovernanceTimeline({
   onOodaContinue,
   onGenerateDraft,
   onGovernanceComplete,
+  compact = false,
 }: {
   messages: ChatMessage[];
   streaming: boolean;
@@ -362,17 +363,18 @@ export function GovernanceTimeline({
   onOodaContinue?: () => void;
   onGenerateDraft?: () => void;
   onGovernanceComplete?: () => void;
+  compact?: boolean;
 }) {
   const pendingCards = governanceCards.filter((c) => c.status === "pending");
   const resolvedCards = governanceCards.filter((c) => c.status !== "pending");
   const hasPhase3Progress = phaseProgress.some((pp) => pp.completed_phase === "phase3");
-  const showGovernanceSection = phaseProgress.length > 0 && (
+  const showGovernanceSection = !compact && phaseProgress.length > 0 && (
     pendingCards.length > 0 ||
     resolvedCards.length > 0 ||
     !!auditResult ||
     pendingGovernanceActions.length > 0
   );
-  const governanceCompleted = hasPhase3Progress &&
+  const governanceCompleted = !compact && hasPhase3Progress &&
     governanceCards.length > 0 &&
     pendingCards.length === 0 &&
     pendingGovernanceActions.length === 0 &&
@@ -384,7 +386,7 @@ export function GovernanceTimeline({
     { label: "只改这段", msg: "不要重写全文，只修改我刚才指出的那一段，保持其他部分不变" },
     { label: "收敛成版", msg: "请按当前结论整理成可直接采纳的最终版本，不再继续追问" },
   ];
-  const showDeepSection = deepPatches.length > 0;
+  const showDeepSection = !compact && deepPatches.length > 0;
 
   return (
     <>
@@ -457,7 +459,7 @@ export function GovernanceTimeline({
       )}
 
       {/* Phase progress cards */}
-      {phaseProgress.map((pp) => (
+      {!compact && phaseProgress.map((pp) => (
         <PhaseProgressCard key={pp.completed_phase} progress={pp} />
       ))}
 
@@ -481,7 +483,7 @@ export function GovernanceTimeline({
         />
       ))}
 
-      {resolvedCards.length > 0 && (
+      {!compact && resolvedCards.length > 0 && (
         <div className="space-y-1">
           <div className="mx-3 mt-2 flex items-center gap-2 text-[8px] font-mono text-gray-400 dark:text-muted-foreground">
             <div className="flex-1 h-px bg-gray-200 dark:bg-zinc-800" />
@@ -500,7 +502,7 @@ export function GovernanceTimeline({
       )}
 
       {/* Audit report */}
-      {auditResult && (
+      {!compact && auditResult && (
         <AuditReportCard audit={auditResult} onDismiss={onDismissAudit} />
       )}
 
@@ -521,7 +523,7 @@ export function GovernanceTimeline({
         </div>
       )}
 
-      {deepPatches.map((patch) => (
+      {!compact && deepPatches.map((patch) => (
         <DeepPatchCard key={`${patch.run_id}:${patch.patch_seq}`} patch={patch} />
       ))}
 

@@ -1752,6 +1752,7 @@ export interface OrgMemoryProposalSubmitResult {
 export interface OrgMemorySourceIngestResult {
   source_id: number;
   status: string;
+  snapshot_id: number | null;
 }
 
 export interface OrgMemorySnapshotCreateResult {

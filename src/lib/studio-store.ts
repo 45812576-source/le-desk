@@ -11,6 +11,7 @@ import type {
   StagedEdit,
 } from "@/components/skill-studio/types";
 import type { StudioDeepPatch, WorkflowStateData } from "@/components/skill-studio/workflow-protocol";
+import type { StudioWorkspaceState, WorkbenchCard, WorkbenchMode } from "@/components/skill-studio/workbench-types";
 import type { SkillMemo } from "@/lib/types";
 import { reconcileStudioArtifacts } from "@/lib/studio-reconcile";
 
@@ -48,6 +49,20 @@ export interface StudioSessionState {
   rememberPatchSeq: (patchSeq: number) => void;
   addDeepPatch: (patch: StudioDeepPatch) => void;
   resetRunTracking: () => void;
+
+  activeWorkbenchCardId: string | null;
+  setActiveWorkbenchCardId: (id: string | null) => void;
+  activeCardId: string | null;
+  setActiveCardId: (id: string | null) => void;
+  workbenchMode: WorkbenchMode;
+  setWorkbenchMode: (mode: WorkbenchMode) => void;
+  workspace: StudioWorkspaceState;
+  setWorkspace: (workspace: StudioWorkspaceState) => void;
+  cardsById: Record<string, WorkbenchCard>;
+  cardOrder: string[];
+  replaceWorkbenchCards: (cards: WorkbenchCard[], preferredActiveId?: string | null) => void;
+  upsertWorkbenchCard: (card: WorkbenchCard, options?: { makeActive?: boolean }) => void;
+  updateWorkbenchCardStatus: (id: string, status: WorkbenchCard["status"]) => void;
 
   governanceCards: GovernanceCardData[];
   governanceCardSources: Record<string, GovernanceCardData[]>;
@@ -95,6 +110,17 @@ const initialState = {
   archivedRuns: [] as ArchivedStudioRun[],
   appliedPatchSeqs: [] as number[],
   deepPatches: [] as StudioDeepPatch[],
+  activeWorkbenchCardId: null as string | null,
+  activeCardId: null as string | null,
+  workbenchMode: "analysis" as WorkbenchMode,
+  workspace: {
+    mode: "analysis" as WorkbenchMode,
+    currentTarget: { type: null, key: null },
+    currentCardId: null as string | null,
+    validationSource: null,
+  } as StudioWorkspaceState,
+  cardsById: {} as Record<string, WorkbenchCard>,
+  cardOrder: [] as string[],
   governanceCards: [] as GovernanceCardData[],
   governanceCardSources: {} as Record<string, GovernanceCardData[]>,
   governanceCardLedger: {} as Record<string, { status: GovernanceCardData["status"]; updatedAt: number }>,
@@ -120,6 +146,62 @@ function buildResolvedStudioArtifacts(state: Pick<
     governanceCardLedger: state.governanceCardLedger,
     stagedEditLedger: state.stagedEditLedger,
   });
+}
+
+function deriveWorkspaceFromCard(card: WorkbenchCard | null): StudioWorkspaceState {
+  if (!card) {
+    return {
+      mode: "analysis",
+      currentTarget: { type: null, key: null },
+      currentCardId: null,
+      validationSource: null,
+    };
+  }
+  return {
+    mode: card.mode,
+    currentTarget: card.target,
+    currentCardId: card.id,
+    validationSource: card.validationSource ?? null,
+  };
+}
+
+function orderWorkbenchCards(cardsById: Record<string, WorkbenchCard>, currentOrder: string[]) {
+  const known = new Set(currentOrder);
+  const ordered = currentOrder.filter((id) => cardsById[id]);
+  const missing = Object.values(cardsById)
+    .filter((card) => !known.has(card.id))
+    .sort((left, right) => right.priority - left.priority)
+    .map((card) => card.id);
+  const sorted = [...ordered, ...missing].sort((leftId, rightId) => {
+    const left = cardsById[leftId];
+    const right = cardsById[rightId];
+    if (!left || !right) return 0;
+    if (left.status !== right.status) {
+      const rank: Record<WorkbenchCard["status"], number> = {
+        pending: 5,
+        active: 4,
+        reviewing: 3,
+        adopted: 2,
+        rejected: 1,
+        dismissed: 0,
+      };
+      return rank[right.status] - rank[left.status];
+    }
+    return right.priority - left.priority;
+  });
+  return Array.from(new Set(sorted));
+}
+
+function deriveActiveCardId(cardsById: Record<string, WorkbenchCard>, cardOrder: string[], preferredActiveId?: string | null) {
+  if (preferredActiveId && cardsById[preferredActiveId]) return preferredActiveId;
+  const validation = cardOrder
+    .map((id) => cardsById[id])
+    .find((card) => card && card.kind === "validation" && (card.status === "pending" || card.status === "active"));
+  if (validation) return validation.id;
+  const pending = cardOrder
+    .map((id) => cardsById[id])
+    .find((card) => card && (card.status === "pending" || card.status === "active"));
+  return pending?.id ?? cardOrder[0] ?? null;
 }
 
 export const useStudioStore = create<StudioSessionState>((set) => ({
@@ -162,6 +244,77 @@ export const useStudioStore = create<StudioSessionState>((set) => ({
     appliedPatchSeqs: [],
     deepPatches: [],
   }),
+  setActiveWorkbenchCardId: (id) => set((s) => {
+    const card = id ? s.cardsById[id] ?? null : null;
+    return {
+      activeWorkbenchCardId: id,
+      activeCardId: id,
+      workbenchMode: card?.mode ?? s.workbenchMode,
+      workspace: card ? deriveWorkspaceFromCard(card) : { ...s.workspace, currentCardId: id },
+    };
+  }),
+  setActiveCardId: (id) => set((s) => {
+    const card = id ? s.cardsById[id] ?? null : null;
+    return {
+      activeCardId: id,
+      activeWorkbenchCardId: id,
+      workbenchMode: card?.mode ?? s.workbenchMode,
+      workspace: card ? deriveWorkspaceFromCard(card) : { ...s.workspace, currentCardId: id },
+    };
+  }),
+  setWorkbenchMode: (mode) => set((s) => ({ workbenchMode: mode, workspace: { ...s.workspace, mode } })),
+  setWorkspace: (workspace) => set({ workspace, workbenchMode: workspace.mode, activeCardId: workspace.currentCardId, activeWorkbenchCardId: workspace.currentCardId }),
+  replaceWorkbenchCards: (cards, preferredActiveId) =>
+    set((s) => {
+      const cardsById = Object.fromEntries(cards.map((card) => [card.id, card]));
+      const cardOrder = orderWorkbenchCards(cardsById, cards.map((card) => card.id));
+      const activeCardId = deriveActiveCardId(
+        cardsById,
+        cardOrder,
+        preferredActiveId ?? s.activeCardId ?? s.activeWorkbenchCardId,
+      );
+      const activeCard = activeCardId ? cardsById[activeCardId] ?? null : null;
+      return {
+        cardsById,
+        cardOrder,
+        activeCardId,
+        activeWorkbenchCardId: activeCardId,
+        workbenchMode: activeCard?.mode ?? "analysis",
+        workspace: deriveWorkspaceFromCard(activeCard),
+      };
+    }),
+  upsertWorkbenchCard: (card, options) =>
+    set((s) => {
+      const cardsById = { ...s.cardsById, [card.id]: card };
+      const cardOrder = orderWorkbenchCards(cardsById, s.cardOrder.includes(card.id) ? s.cardOrder : [card.id, ...s.cardOrder]);
+      const activeCardId = options?.makeActive ? card.id : deriveActiveCardId(cardsById, cardOrder, s.activeCardId);
+      const activeCard = activeCardId ? cardsById[activeCardId] ?? null : null;
+      return {
+        cardsById,
+        cardOrder,
+        activeCardId,
+        activeWorkbenchCardId: activeCardId,
+        workbenchMode: activeCard?.mode ?? "analysis",
+        workspace: deriveWorkspaceFromCard(activeCard),
+      };
+    }),
+  updateWorkbenchCardStatus: (id, status) =>
+    set((s) => {
+      const current = s.cardsById[id];
+      if (!current) return s;
+      const cardsById = { ...s.cardsById, [id]: { ...current, status } };
+      const cardOrder = orderWorkbenchCards(cardsById, s.cardOrder);
+      const activeCardId = deriveActiveCardId(cardsById, cardOrder, id);
+      const activeCard = cardsById[activeCardId ?? ""];
+      return {
+        cardsById,
+        cardOrder,
+        activeCardId,
+        activeWorkbenchCardId: activeCardId,
+        workbenchMode: activeCard?.mode ?? s.workbenchMode,
+        workspace: deriveWorkspaceFromCard(activeCard ?? null),
+      };
+    }),
 
   addGovernanceCard: (card) =>
     set((s) => {
@@ -205,8 +358,24 @@ export const useStudioStore = create<StudioSessionState>((set) => ({
         ...s.governanceCardLedger,
         [id]: { status, updatedAt: Date.now() },
       };
+      const linkedWorkbenchCardId = Object.values(s.cardsById).find((card) => card.sourceCardId === id)?.id;
+      const nextCardsById = linkedWorkbenchCardId && s.cardsById[linkedWorkbenchCardId]
+        ? {
+            ...s.cardsById,
+            [linkedWorkbenchCardId]: { ...s.cardsById[linkedWorkbenchCardId], status },
+          }
+        : s.cardsById;
+      const nextCardOrder = linkedWorkbenchCardId ? orderWorkbenchCards(nextCardsById, s.cardOrder) : s.cardOrder;
+      const activeCardId = linkedWorkbenchCardId
+        ? deriveActiveCardId(nextCardsById, nextCardOrder, linkedWorkbenchCardId)
+        : s.activeCardId;
       return {
         governanceCardLedger,
+        cardsById: nextCardsById,
+        cardOrder: nextCardOrder,
+        activeCardId,
+        activeWorkbenchCardId: activeCardId,
+        workspace: linkedWorkbenchCardId ? deriveWorkspaceFromCard(nextCardsById[activeCardId ?? ""] ?? null) : s.workspace,
         ...buildResolvedStudioArtifacts({
           governanceCardSources: s.governanceCardSources,
           stagedEditSources: s.stagedEditSources,
@@ -258,8 +427,24 @@ export const useStudioStore = create<StudioSessionState>((set) => ({
         ...s.stagedEditLedger,
         [id]: { status: "adopted" as const, updatedAt: Date.now() },
       };
+      const linkedWorkbenchCardId = Object.values(s.cardsById).find((card) => card.stagedEditId === id)?.id;
+      const nextCardsById = linkedWorkbenchCardId && s.cardsById[linkedWorkbenchCardId]
+        ? {
+            ...s.cardsById,
+            [linkedWorkbenchCardId]: { ...s.cardsById[linkedWorkbenchCardId], status: "adopted" as const },
+          }
+        : s.cardsById;
+      const nextCardOrder = linkedWorkbenchCardId ? orderWorkbenchCards(nextCardsById, s.cardOrder) : s.cardOrder;
+      const activeCardId = linkedWorkbenchCardId
+        ? deriveActiveCardId(nextCardsById, nextCardOrder, linkedWorkbenchCardId)
+        : s.activeCardId;
       return {
         stagedEditLedger,
+        cardsById: nextCardsById,
+        cardOrder: nextCardOrder,
+        activeCardId,
+        activeWorkbenchCardId: activeCardId,
+        workspace: linkedWorkbenchCardId ? deriveWorkspaceFromCard(nextCardsById[activeCardId ?? ""] ?? null) : s.workspace,
         ...buildResolvedStudioArtifacts({
           governanceCardSources: s.governanceCardSources,
           stagedEditSources: s.stagedEditSources,
@@ -274,8 +459,24 @@ export const useStudioStore = create<StudioSessionState>((set) => ({
         ...s.stagedEditLedger,
         [id]: { status: "rejected" as const, updatedAt: Date.now() },
       };
+      const linkedWorkbenchCardId = Object.values(s.cardsById).find((card) => card.stagedEditId === id)?.id;
+      const nextCardsById = linkedWorkbenchCardId && s.cardsById[linkedWorkbenchCardId]
+        ? {
+            ...s.cardsById,
+            [linkedWorkbenchCardId]: { ...s.cardsById[linkedWorkbenchCardId], status: "rejected" as const },
+          }
+        : s.cardsById;
+      const nextCardOrder = linkedWorkbenchCardId ? orderWorkbenchCards(nextCardsById, s.cardOrder) : s.cardOrder;
+      const activeCardId = linkedWorkbenchCardId
+        ? deriveActiveCardId(nextCardsById, nextCardOrder, linkedWorkbenchCardId)
+        : s.activeCardId;
       return {
         stagedEditLedger,
+        cardsById: nextCardsById,
+        cardOrder: nextCardOrder,
+        activeCardId,
+        activeWorkbenchCardId: activeCardId,
+        workspace: linkedWorkbenchCardId ? deriveWorkspaceFromCard(nextCardsById[activeCardId ?? ""] ?? null) : s.workspace,
         ...buildResolvedStudioArtifacts({
           governanceCardSources: s.governanceCardSources,
           stagedEditSources: s.stagedEditSources,
@@ -303,6 +504,17 @@ export const useStudioStore = create<StudioSessionState>((set) => ({
     archivedRuns: [],
     appliedPatchSeqs: [],
     deepPatches: [],
+    activeWorkbenchCardId: null,
+    activeCardId: null,
+    workbenchMode: "analysis",
+    workspace: {
+      mode: "analysis",
+      currentTarget: { type: null, key: null },
+      currentCardId: null,
+      validationSource: null,
+    },
+    cardsById: {},
+    cardOrder: [],
     governanceCards: [],
     governanceCardSources: {},
     governanceCardLedger: {},
