@@ -515,6 +515,17 @@ export function ingestOrgMemorySource(payload: {
   });
 }
 
+export function uploadOrgMemorySource(file: File, title?: string, ownerName?: string) {
+  const form = new FormData();
+  form.append("file", file);
+  if (title) form.append("title", title);
+  if (ownerName) form.append("owner_name", ownerName);
+  return apiFetch<OrgMemorySourceIngestResult>("/org-memory/sources/upload", {
+    method: "POST",
+    body: form,
+  });
+}
+
 export function deleteOrgMemorySource(sourceId: number) {
   return apiFetch<{ ok: boolean }>(`/org-memory/sources/${sourceId}`, {
     method: "DELETE",

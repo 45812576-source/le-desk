@@ -11,6 +11,7 @@ import {
   ORG_MEMORY_PARSE_STATUS_LABELS,
   ORG_MEMORY_PARSE_STATUS_STYLES,
   ORG_MEMORY_SOURCE_TYPE_LABELS,
+  uploadOrgMemorySource,
 } from "@/lib/org-memory";
 import { formatCellValue } from "@/app/(app)/data/components/shared/CellFormatters";
 
@@ -46,6 +47,15 @@ export default function OrgMemorySourcesTab({
   const [snapshotting, setSnapshotting] = useState(false);
   const [deletingId, setDeletingId] = useState<number | null>(null);
   const [message, setMessage] = useState("粘贴飞书多维表格链接，自动解析数据后添加为资料。");
+
+  // 添加方式切换
+  const [addMode, setAddMode] = useState<"feishu" | "upload">("feishu");
+
+  // 文件上传状态
+  const [uploadFile, setUploadFile] = useState<File | null>(null);
+  const [uploadTitle, setUploadTitle] = useState("");
+  const [uploadOwner, setUploadOwner] = useState("组织运营组");
+  const [uploading, setUploading] = useState(false);
 
   // 飞书链接解析状态
   const [urlInput, setUrlInput] = useState("");
@@ -306,6 +316,25 @@ export default function OrgMemorySourcesTab({
     setSnapshotting(false);
   }
 
+  async function handleUpload() {
+    if (!uploadFile) {
+      setMessage("请先选择文件。");
+      return;
+    }
+    setUploading(true);
+    setMessage("正在上传并解析文件...");
+    try {
+      const result = await uploadOrgMemorySource(uploadFile, uploadTitle || undefined, uploadOwner || undefined);
+      await refreshSources(result.source_id);
+      setMessage(`资料 #${result.source_id} 已添加。可继续添加更多资料，或点击下方「生成快照」。`);
+      setUploadFile(null);
+      setUploadTitle("");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "上传失败");
+    }
+    setUploading(false);
+  }
+
   return (
     <div className="space-y-4">
       {/* 添加资料区 */}
@@ -313,9 +342,21 @@ export default function OrgMemorySourcesTab({
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <div className="text-sm font-semibold text-foreground">添加资料</div>
-            <p className="mt-2 text-sm leading-6 text-muted-foreground">
-              粘贴飞书多维表格链接，自动解析字段和数据后添加为资料。
-            </p>
+            <div className="mt-2 flex gap-1">
+              {(["feishu", "upload"] as const).map((mode) => (
+                <button
+                  key={mode}
+                  onClick={() => setAddMode(mode)}
+                  className={`rounded px-3 py-1 text-xs font-medium transition-colors ${
+                    addMode === mode
+                      ? "bg-[#00A3C4] text-white"
+                      : "bg-muted/40 text-muted-foreground hover:bg-muted/60"
+                  }`}
+                >
+                  {mode === "feishu" ? "飞书链接" : "本地上传"}
+                </button>
+              ))}
+            </div>
           </div>
           {fallbackMode && (
             <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-medium text-amber-700">
@@ -329,8 +370,56 @@ export default function OrgMemorySourcesTab({
           </div>
         )}
 
+        {/* 本地上传 */}
+        {addMode === "upload" && (
+          <div className="mt-4 space-y-3">
+            <label className="space-y-1">
+              <span className="text-xs text-muted-foreground">选择文件（PDF / Word / Excel / CSV / TXT）</span>
+              <input
+                type="file"
+                accept=".pdf,.doc,.docx,.xls,.xlsx,.csv,.txt,.md,.pptx,.htm,.html"
+                onChange={(e) => {
+                  const f = e.target.files?.[0] ?? null;
+                  setUploadFile(f);
+                  if (f && !uploadTitle) setUploadTitle(f.name.replace(/\.[^.]+$/, ""));
+                }}
+                className="block w-full rounded border border-border bg-background px-3 py-2 text-sm text-foreground file:mr-3 file:rounded file:border-0 file:bg-[#00A3C4] file:px-3 file:py-1 file:text-xs file:font-medium file:text-white"
+              />
+            </label>
+            <div className="grid gap-3 md:grid-cols-2">
+              <label className="space-y-1">
+                <span className="text-xs text-muted-foreground">资料标题</span>
+                <input
+                  value={uploadTitle}
+                  onChange={(e) => setUploadTitle(e.target.value)}
+                  placeholder="默认使用文件名"
+                  className="w-full rounded border border-border bg-background px-3 py-2 text-sm text-foreground outline-none ring-0"
+                />
+              </label>
+              <label className="space-y-1">
+                <span className="text-xs text-muted-foreground">归属团队</span>
+                <input
+                  value={uploadOwner}
+                  onChange={(e) => setUploadOwner(e.target.value)}
+                  className="w-full rounded border border-border bg-background px-3 py-2 text-sm text-foreground outline-none ring-0"
+                />
+              </label>
+            </div>
+            <div className="flex flex-wrap items-center gap-3">
+              <button
+                onClick={handleUpload}
+                disabled={uploading || !uploadFile}
+                className="rounded bg-[#00A3C4] px-4 py-2 text-sm font-medium text-white hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {uploading ? "上传中..." : "上传并添加"}
+              </button>
+              <span className="text-sm text-muted-foreground">{uploadFile ? uploadFile.name : "支持 PDF、Word、Excel、CSV、TXT 等格式"}</span>
+            </div>
+          </div>
+        )}
+
         {/* 链接输入 */}
-        <div className="mt-4 space-y-3">
+        {addMode === "feishu" && <div className="mt-4 space-y-3">
           <label className="space-y-1">
             <span className="text-xs text-muted-foreground">飞书多维表格链接</span>
             <div className="flex gap-2">
@@ -476,18 +565,20 @@ export default function OrgMemorySourcesTab({
               </label>
             </div>
           )}
-        </div>
+        </div>}
 
-        <div className="mt-4 flex flex-wrap items-center gap-3">
-          <button
-            onClick={handleAdd}
-            disabled={creating || !probeResult}
-            className="rounded bg-[#00A3C4] px-4 py-2 text-sm font-medium text-white hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            {creating ? "添加中..." : "添加资料"}
-          </button>
-          <span className="text-sm text-muted-foreground">{message}</span>
-        </div>
+        {addMode === "feishu" && (
+          <div className="mt-4 flex flex-wrap items-center gap-3">
+            <button
+              onClick={handleAdd}
+              disabled={creating || !probeResult}
+              className="rounded bg-[#00A3C4] px-4 py-2 text-sm font-medium text-white hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {creating ? "添加中..." : "添加资料"}
+            </button>
+            <span className="text-sm text-muted-foreground">{message}</span>
+          </div>
+        )}
       </div>
 
       {/* 资料列表 + 详情 */}
