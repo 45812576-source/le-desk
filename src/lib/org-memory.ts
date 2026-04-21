@@ -504,10 +504,29 @@ export function ingestOrgMemorySource(payload: {
   source_uri: string;
   title: string;
   owner_name?: string;
+  bitable_app_token?: string;
+  bitable_table_id?: string;
+  raw_fields?: { name: string; type: number; nullable: boolean; comment: string }[];
+  raw_records?: Record<string, unknown>[];
 }) {
   return apiFetch<OrgMemorySourceIngestResult>("/org-memory/sources/ingest", {
     method: "POST",
     body: JSON.stringify(payload),
+  });
+}
+
+export function deleteOrgMemorySource(sourceId: number) {
+  return apiFetch<{ ok: boolean }>(`/org-memory/sources/${sourceId}`, {
+    method: "DELETE",
+  });
+}
+
+export function batchCreateSnapshots(sourceIds: number[]) {
+  return apiFetch<{
+    snapshots: { snapshot_id: number; source_id: number; status: string }[];
+  }>("/org-memory/sources/batch-snapshot", {
+    method: "POST",
+    body: JSON.stringify({ source_ids: sourceIds }),
   });
 }
 
