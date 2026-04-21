@@ -232,7 +232,11 @@ export function SkillStudio({
     [activeWorkbenchCardId, computedWorkbenchCards, storeWorkflowState],
   );
 
+  const lastReplaceKeyRef = useRef<string | null>(null);
   useEffect(() => {
+    const key = JSON.stringify([computedWorkbenchCards.map((c) => `${c.id}:${c.status}`), preferredWorkbenchCardId]);
+    if (key === lastReplaceKeyRef.current) return;
+    lastReplaceKeyRef.current = key;
     replaceWorkbenchCards(computedWorkbenchCards, preferredWorkbenchCardId);
   }, [computedWorkbenchCards, preferredWorkbenchCardId, replaceWorkbenchCards]);
 
