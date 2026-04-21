@@ -4,14 +4,12 @@ import { useEffect } from "react";
 import { useAuth } from "@/lib/auth";
 import { useRouter, useSearchParams } from "next/navigation";
 import OrgMemoryOverview from "@/components/org-memory/OrgMemoryOverview";
-import OrgMemorySourcesTab from "@/components/org-memory/OrgMemorySourcesTab";
-import OrgMemorySnapshotsTab from "@/components/org-memory/OrgMemorySnapshotsTab";
+import OrgMemoryFactsWorkspace from "@/components/org-memory/OrgMemoryFactsWorkspace";
 import OrgMemoryProposalsTab from "@/components/org-memory/OrgMemoryProposalsTab";
 
 type TabKey =
   | "overview"
   | "sources"
-  | "snapshots"
   | "proposals";
 
 interface TabDef {
@@ -21,9 +19,8 @@ interface TabDef {
 }
 
 const TABS: TabDef[] = [
-  { key: "overview", label: "概览", roles: ["super_admin", "dept_admin"] },
+  { key: "overview", label: "总览", roles: ["super_admin", "dept_admin"] },
   { key: "sources", label: "源文档", roles: ["super_admin", "dept_admin"] },
-  { key: "snapshots", label: "结构化快照", roles: ["super_admin", "dept_admin"] },
   { key: "proposals", label: "统一草案", roles: ["super_admin", "dept_admin"] },
 ];
 
@@ -45,9 +42,14 @@ export default function OrgManagementPage() {
     t.roles.includes(role as "super_admin" | "dept_admin")
   );
   const requestedTab = searchParams.get("tab");
-  const effectiveTab = visibleTabs.find((t) => t.key === requestedTab)
-    ? requestedTab as TabKey
+  const requestedView = searchParams.get("view");
+  const normalizedTab = requestedTab === "snapshots" ? "sources" : requestedTab;
+  const effectiveTab = visibleTabs.find((t) => t.key === normalizedTab)
+    ? normalizedTab as TabKey
     : visibleTabs[0]?.key ?? "overview";
+  const effectiveView = requestedTab === "snapshots"
+    ? "snapshots"
+    : (requestedView === "snapshots" ? "snapshots" : "sources");
 
   if (loading || !user) {
     return (
@@ -62,9 +64,9 @@ export default function OrgManagementPage() {
   return (
     <div className="h-full flex flex-col">
       <div className="border-b px-6 h-12 flex items-center gap-4 flex-shrink-0 bg-background">
-        <h1 className="text-sm font-semibold text-foreground mr-4">组织 Memory</h1>
+        <h1 className="text-sm font-semibold text-foreground mr-4">组织事实</h1>
         <div className="text-xs text-muted-foreground">
-          {isSuperAdmin ? "文档驱动的组织治理入口 — Source / Snapshot / Proposal" : "查看组织文档、快照与草案"}
+          {isSuperAdmin ? "组织事实工作台：源文档录入、快照核验与统一草案审批" : "查看组织源文档与统一草案"}
         </div>
       </div>
 
@@ -75,6 +77,11 @@ export default function OrgManagementPage() {
             onClick={() => {
               const params = new URLSearchParams(searchParams.toString());
               params.set("tab", tab.key);
+              if (tab.key === "sources") {
+                params.set("view", "sources");
+              } else {
+                params.delete("view");
+              }
               if (tab.key !== "proposals") {
                 params.delete("proposal_id");
               }
@@ -92,9 +99,15 @@ export default function OrgManagementPage() {
       </div>
 
       <div className="flex-1 min-h-0 overflow-auto">
+        {requestedTab === "snapshots" && (
+          <div className="mx-6 mt-4 rounded-lg border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-800">
+            原“结构化快照”一级入口已下沉到“源文档”内。当前已为你打开对应二级视图。
+          </div>
+        )}
         {effectiveTab === "overview" && <OrgMemoryOverview />}
-        {effectiveTab === "sources" && <OrgMemorySourcesTab />}
-        {effectiveTab === "snapshots" && <OrgMemorySnapshotsTab />}
+        {effectiveTab === "sources" && (
+          <OrgMemoryFactsWorkspace initialView={effectiveView} />
+        )}
         {effectiveTab === "proposals" && <OrgMemoryProposalsTab />}
       </div>
     </div>

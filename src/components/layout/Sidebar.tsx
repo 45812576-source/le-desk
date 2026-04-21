@@ -34,8 +34,9 @@ const LUCIDE_ICONS: Record<string, React.ElementType> = {
   "/app-market":              AppWindow,
   "/admin/intel":             Globe2,
   "/approvals":               FileCheck2,
-  "/admin/governance":            BookOpen,
-  "/admin/org-management":        Users,
+  "/admin/governance":        BookOpen,
+  "/admin/advanced-governance": Settings,
+  "/admin/org-management":    Users,
   "/admin/contributions":     BarChart2,
   "/admin/token-dashboard":   Coins,
   "/admin/audit":             ScrollText,
@@ -277,10 +278,13 @@ export function Sidebar({ user, taskPending = 0, onLogout }: SidebarProps) {
               <NavItem href="/admin/user-permissions" label="用户权限" icon={ICONS.users} {...navItemProps} />
             )}
             {isSuperAdmin && (
-              <NavItem href="/admin/org-management" label="组织管理" icon={ICONS.users} {...navItemProps} />
+              <NavItem href="/admin/org-management" label="组织事实" icon={ICONS.users} {...navItemProps} />
             )}
             {(isSuperAdmin || user.role === "dept_admin") && (
-              <NavItem href="/admin/governance" label="治理引擎" icon={ICONS.review} {...navItemProps} />
+              <NavItem href="/admin/governance" label="知识治理" icon={ICONS.review} {...navItemProps} />
+            )}
+            {isSuperAdmin && (
+              <NavItem href="/admin/advanced-governance" label="高级治理" icon={ICONS.settings} {...navItemProps} />
             )}
           </NavGroup>
 

@@ -1,38 +1,18 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo } from "react";
 import { useAuth } from "@/lib/auth";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { ThemedPageIcon } from "@/components/layout/PageShell";
 import { ICONS } from "@/components/pixel";
 import GovernanceOverview from "@/components/governance/GovernanceOverview";
-import StrategyStatsTab from "@/components/governance/StrategyStatsTab";
-import GovernanceReviewWorkbench from "@/components/governance/GovernanceReviewWorkbench";
-import CollaborationBaseline from "@/components/governance/CollaborationBaseline";
-import BaselineVersionPanel from "@/components/governance/BaselineVersionPanel";
-import GapManagementPanel from "@/components/governance/GapManagementPanel";
-import MigrationWizard from "@/components/governance/MigrationWizard";
-import ThresholdExperiment from "@/components/governance/ThresholdExperiment";
-import DeptAdminReviewPanel from "@/components/governance/DeptAdminReviewPanel";
-import TagGovernanceTab from "@/components/governance/TagGovernanceTab";
-import MaskTab from "@/app/(app)/admin/assets/tabs/MaskTab";
-import SchemaTab from "@/app/(app)/admin/assets/tabs/SchemaTab";
-import GovernanceObjectsTab from "@/components/governance/GovernanceObjectsTab";
+import GovernanceInbox from "@/components/governance/GovernanceInbox";
+import GovernanceModelWorkspace from "@/components/governance/GovernanceModelWorkspace";
 
 type TabKey =
   | "overview"
-  | "review"
-  | "strategy_stats"
-  | "baseline"
-  | "baseline_version"
-  | "gap"
-  | "migration"
-  | "experiment"
-  | "dept_review"
-  | "objects"
-  | "tags"
-  | "mask"
-  | "schema";
+  | "inbox"
+  | "model";
 
 interface TabDef {
   key: TabKey;
@@ -42,23 +22,14 @@ interface TabDef {
 
 const TABS: TabDef[] = [
   { key: "overview", label: "总览", roles: ["super_admin", "dept_admin"] },
-  { key: "review", label: "治理审查", roles: ["super_admin"] },
-  { key: "strategy_stats", label: "策略统计", roles: ["super_admin"] },
-  { key: "baseline", label: "协同基线", roles: ["super_admin"] },
-  { key: "baseline_version", label: "基线版本", roles: ["super_admin"] },
-  { key: "gap", label: "领域缺口", roles: ["super_admin"] },
-  { key: "migration", label: "跨公司迁移", roles: ["super_admin"] },
-  { key: "experiment", label: "阈值实验", roles: ["super_admin"] },
-  { key: "dept_review", label: "分类纠偏", roles: ["super_admin", "dept_admin"] },
-  { key: "objects", label: "治理对象", roles: ["super_admin"] },
-  { key: "tags", label: "标签治理", roles: ["super_admin"] },
-  { key: "mask", label: "脱敏规则", roles: ["super_admin"] },
-  { key: "schema", label: "Schema", roles: ["super_admin"] },
+  { key: "inbox", label: "待审治理", roles: ["super_admin", "dept_admin"] },
+  { key: "model", label: "治理模型", roles: ["super_admin"] },
 ];
 
 export default function AdminGovernancePage() {
   const { user, loading } = useAuth();
   const router = useRouter();
+  const searchParams = useSearchParams();
 
   // employee → redirect 到 /knowledge
   useEffect(() => {
@@ -74,11 +45,42 @@ export default function AdminGovernancePage() {
     t.roles.includes(role as "super_admin" | "dept_admin")
   );
 
-  const [activeTab, setActiveTab] = useState<TabKey>("overview");
-  // 派生实际展示的 tab：如果用户选择的 tab 不在可见列表中，回退到第一个
-  const effectiveTab = visibleTabs.find((t) => t.key === activeTab)
-    ? activeTab
-    : visibleTabs[0]?.key ?? "overview";
+  const requestedTab = searchParams.get("tab");
+  const requestedView = searchParams.get("view");
+
+  useEffect(() => {
+    if (!requestedTab) return;
+    const advancedTabs = new Set(["strategy_stats", "baseline_version", "gap", "migration", "experiment", "mask", "schema"]);
+    if (advancedTabs.has(requestedTab)) {
+      router.replace(`/admin/advanced-governance?tab=${encodeURIComponent(requestedTab)}&legacy_tab=${encodeURIComponent(requestedTab)}`);
+    }
+  }, [requestedTab, router]);
+
+  const effectiveTab = useMemo<TabKey>(() => {
+    if (requestedTab === "review" || requestedTab === "dept_review") return "inbox";
+    if (requestedTab === "baseline" || requestedTab === "objects" || requestedTab === "tags") return "model";
+    if (requestedTab && visibleTabs.find((t) => t.key === requestedTab)) return requestedTab as TabKey;
+    return visibleTabs[0]?.key ?? "overview";
+  }, [requestedTab, visibleTabs]);
+
+  const initialInboxView = requestedTab === "dept_review"
+    ? "dept_review"
+    : (requestedView === "dept_review" ? "dept_review" : "review");
+  const initialModelView = requestedTab === "objects" || requestedTab === "tags"
+    ? requestedTab
+    : (requestedView === "objects" || requestedView === "tags" ? requestedView : "baseline");
+
+  const legacyMessage = requestedTab === "review"
+    ? "原“治理审查”已归并到“待审治理 > 统一审查”。"
+    : requestedTab === "dept_review"
+      ? "原“分类纠偏”已归并到“待审治理 > 分类纠偏”。"
+      : requestedTab === "baseline"
+        ? "原“协同基线”已归并到“治理模型 > 协同基线”。"
+        : requestedTab === "objects"
+          ? "原“治理对象”已归并到“治理模型 > 治理对象”。"
+          : requestedTab === "tags"
+            ? "原“标签治理”已归并到“治理模型 > 标签规则”。"
+            : "";
 
   if (loading || !user) {
     return (
@@ -99,13 +101,13 @@ export default function AdminGovernancePage() {
         <div className="flex items-center gap-2 mr-4">
           <ThemedPageIcon icon={ICONS.review} size={16} />
           <h1 className="text-xs font-bold uppercase tracking-widest text-[#1A202C]">
-            治理引擎
+            知识治理
           </h1>
         </div>
         <div className="text-[10px] text-gray-500">
           {isSuperAdmin
-            ? "统一治理总控：审查、基线、缺口、迁移、实验、标签、脱敏、Schema"
-            : "审核 AI 低置信度分类，你的每次判断都在帮 AI 变好"}
+            ? "高频治理工作台：待审治理、治理模型与知识质量总览"
+            : "处理低置信度治理建议，帮助 AI 学习你的口径"}
         </div>
       </div>
 
@@ -114,7 +116,18 @@ export default function AdminGovernancePage() {
         {visibleTabs.map((tab) => (
           <button
             key={tab.key}
-            onClick={() => setActiveTab(tab.key)}
+            onClick={() => {
+              const params = new URLSearchParams(searchParams.toString());
+              params.set("tab", tab.key);
+              if (tab.key === "overview") {
+                params.delete("view");
+              } else if (tab.key === "inbox") {
+                params.set("view", isSuperAdmin ? "review" : "dept_review");
+              } else if (tab.key === "model") {
+                params.set("view", "baseline");
+              }
+              router.replace(`/admin/governance?${params.toString()}`);
+            }}
             className={`px-3 py-2 text-xs font-medium transition-colors border-b-2 -mb-px ${
               effectiveTab === tab.key
                 ? "border-primary text-foreground"
@@ -128,19 +141,23 @@ export default function AdminGovernancePage() {
 
       {/* Tab content */}
       <div className="flex-1 min-h-0 overflow-auto">
+        {legacyMessage && (
+          <div className="mx-6 mt-4 rounded-lg border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-800">
+            {legacyMessage}
+          </div>
+        )}
         {effectiveTab === "overview" && <GovernanceOverview />}
-        {effectiveTab === "review" && <GovernanceReviewWorkbench mode="page" />}
-        {effectiveTab === "strategy_stats" && <StrategyStatsTab />}
-        {effectiveTab === "baseline" && <CollaborationBaseline />}
-        {effectiveTab === "baseline_version" && <BaselineVersionPanel />}
-        {effectiveTab === "gap" && <GapManagementPanel />}
-        {effectiveTab === "migration" && <MigrationWizard />}
-        {effectiveTab === "experiment" && <ThresholdExperiment />}
-        {effectiveTab === "dept_review" && <DeptAdminReviewPanel />}
-        {effectiveTab === "objects" && <GovernanceObjectsTab />}
-        {effectiveTab === "tags" && <TagGovernanceTab />}
-        {effectiveTab === "mask" && <MaskTab />}
-        {effectiveTab === "schema" && <SchemaTab />}
+        {effectiveTab === "inbox" && (
+          <GovernanceInbox
+            role={role as "super_admin" | "dept_admin"}
+            initialView={initialInboxView}
+          />
+        )}
+        {effectiveTab === "model" && isSuperAdmin && (
+          <GovernanceModelWorkspace
+            initialView={initialModelView as "baseline" | "objects" | "tags"}
+          />
+        )}
       </div>
     </div>
   );
