@@ -32,9 +32,9 @@ function coerceBoolean(value: unknown): boolean | null {
   return null;
 }
 
-function normalizeMode(value: unknown, nodeEnv: string | undefined): OrgMemoryProxyMode {
+function normalizeMode(value: unknown, _nodeEnv: string | undefined): OrgMemoryProxyMode {
   if (value === "local" || value === "hybrid" || value === "remote") return value;
-  return nodeEnv === "development" ? "hybrid" : "remote";
+  return "remote";
 }
 
 function normalizeRolloutPercentage(value: unknown, fallback: number) {
@@ -56,7 +56,7 @@ export function readOrgMemoryProxyConfig(
   const localFallbackEnabled = mode === "local"
     ? true
     : mode === "hybrid"
-      ? (fallbackFlag ?? nodeEnv === "development")
+      ? (fallbackFlag ?? false)
       : false;
   const rolloutPercentage = mode === "local"
     ? 0
@@ -84,7 +84,7 @@ export function readOrgMemoryClientConfig(
   const localFallbackEnabled = mode === "local"
     ? true
     : mode === "hybrid"
-      ? (fallbackFlag ?? nodeEnv === "development")
+      ? (fallbackFlag ?? false)
       : false;
   const rolloutPercentage = mode === "local"
     ? 0
@@ -128,7 +128,7 @@ export function shouldUseLocalFallbackForStatus(status: number): boolean {
 }
 
 export function allowDirectOrgMemoryLocalRoute(config: OrgMemoryProxyConfig): boolean {
-  return config.mode === "local" || (config.nodeEnv === "development" && canUseLocalOrgMemoryFallback(config));
+  return config.mode === "local";
 }
 
 export function shouldEnableOrgMemoryClientFallback(
@@ -177,7 +177,7 @@ export function shouldRouteOrgMemoryToBackend(
 }
 
 export function canUseLocalWriteFallback(config: OrgMemoryProxyConfig): boolean {
-  return config.mode === "local" || config.nodeEnv === "development";
+  return config.mode === "local";
 }
 
 export function buildOrgMemoryRolloutKey(config: OrgMemoryProxyConfig): string {

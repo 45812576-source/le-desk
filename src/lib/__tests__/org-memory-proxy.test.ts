@@ -27,17 +27,17 @@ import {
 } from "@/lib/org-memory-proxy";
 
 describe("org-memory-proxy", () => {
-  it("defaults to remote-first hybrid mode with local fallback in development", () => {
+  it("defaults to remote mode without local fallback in development", () => {
     const config = readOrgMemoryProxyConfig({ NODE_ENV: "development" });
 
     expect(config).toEqual({
-      mode: "hybrid",
-      localFallbackEnabled: true,
+      mode: "remote",
+      localFallbackEnabled: false,
       rolloutPercentage: 100,
       nodeEnv: "development",
     });
-    expect(canUseLocalOrgMemoryFallback(config)).toBe(true);
-    expect(allowDirectOrgMemoryLocalRoute(config)).toBe(true);
+    expect(canUseLocalOrgMemoryFallback(config)).toBe(false);
+    expect(allowDirectOrgMemoryLocalRoute(config)).toBe(false);
     expect(shouldRouteOrgMemoryToBackend(config, "dev-user", "GET")).toBe(true);
   });
 
@@ -99,16 +99,16 @@ describe("org-memory-proxy", () => {
     expect(shouldEnableOrgMemoryClientFallback({ NODE_ENV: "production" })).toBe(false);
   });
 
-  it("defaults client config to remote-first hybrid mode with fallback in development", () => {
+  it("defaults client config to remote mode without fallback in development", () => {
     const config = readOrgMemoryClientConfig({ NODE_ENV: "development" });
 
     expect(config).toEqual({
-      mode: "hybrid",
-      localFallbackEnabled: true,
+      mode: "remote",
+      localFallbackEnabled: false,
       rolloutPercentage: 100,
       nodeEnv: "development",
     });
-    expect(shouldEnableOrgMemoryClientFallback({ NODE_ENV: "development" })).toBe(true);
+    expect(shouldEnableOrgMemoryClientFallback({ NODE_ENV: "development" })).toBe(false);
   });
 
   it("allows enabling client fallback with public env", () => {
@@ -188,7 +188,7 @@ describe("org-memory-proxy", () => {
     expect(shouldRouteOrgMemoryToBackend(config, subject, "GET")).toBe(bucket < 50);
   });
 
-  it("only allows local write fallback in development or explicit local mode", () => {
+  it("only allows local write fallback in explicit local mode", () => {
     const prodHybrid = readOrgMemoryProxyConfig({
       NODE_ENV: "production",
       ORG_MEMORY_PROXY_MODE: "hybrid",
@@ -204,7 +204,7 @@ describe("org-memory-proxy", () => {
     });
 
     expect(canUseLocalWriteFallback(prodHybrid)).toBe(false);
-    expect(canUseLocalWriteFallback(devHybrid)).toBe(true);
+    expect(canUseLocalWriteFallback(devHybrid)).toBe(false);
     expect(canUseLocalWriteFallback(localProd)).toBe(true);
   });
 
