@@ -106,6 +106,7 @@ interface StudioChatProps {
   memo: SkillMemo | null;
   onApplyDraft: (draft: StudioDraft) => void;
   onNewSession: () => void;
+  onResetSessionArtifacts?: () => void;
   onToolBound: () => void;
   onFileSplitDone: () => void;
   onMemoRefresh: () => void;
@@ -172,6 +173,7 @@ export const StudioChat = forwardRef<StudioChatHandle, StudioChatProps>(function
   memo,
   onApplyDraft,
   onNewSession,
+  onResetSessionArtifacts,
   onToolBound,
   onFileSplitDone,
   onMemoRefresh,
@@ -1119,12 +1121,13 @@ export const StudioChat = forwardRef<StudioChatHandle, StudioChatProps>(function
         resetRunTracking();
         syncGovernanceCards(studioChatSource, []);
         syncStagedEdits(studioChatSource, []);
+        onResetSessionArtifacts?.();
         try { localStorage.removeItem(_storageKey); } catch { /* ignore */ }
         apiFetch(`/conversations/${convId}/messages`, { method: "DELETE" }).catch(() => {});
       };
     }
     return () => { if (clearRef) clearRef.current = null; };
-  }, [clearRef, _storageKey, convId, onPendingDraftChange, onPendingFileSplitChange, onPendingSummaryChange, onPendingToolSuggestionChange, resetRunTracking, studioChatSource, syncGovernanceCards, syncStagedEdits]);
+  }, [clearRef, _storageKey, convId, onPendingDraftChange, onPendingFileSplitChange, onPendingSummaryChange, onPendingToolSuggestionChange, onResetSessionArtifacts, resetRunTracking, studioChatSource, syncGovernanceCards, syncStagedEdits]);
 
   useEffect(() => {
     if (setInputRef) {
@@ -1892,6 +1895,7 @@ export const StudioChat = forwardRef<StudioChatHandle, StudioChatProps>(function
                 const target = data as { file_type?: string; filename?: string };
                 if (target.filename) {
                   onEditorTarget(target.file_type || "asset", target.filename);
+                  onExpandEditor?.();
                 }
               } else if (curEvt === "studio_context_rollup") {
                 const rollup = data as { task_id?: string; summary?: string };
@@ -2146,6 +2150,7 @@ export const StudioChat = forwardRef<StudioChatHandle, StudioChatProps>(function
                 setPhaseProgress([]);
                 syncGovernanceCards(studioChatSource, []);
                 syncStagedEdits(studioChatSource, []);
+                onResetSessionArtifacts?.();
               }}
               className="text-[8px] font-bold uppercase text-gray-400 hover:text-red-400 transition-colors"
             >
@@ -2408,6 +2413,12 @@ export const StudioChat = forwardRef<StudioChatHandle, StudioChatProps>(function
                 });
                 onSelectSkillForTestFlow?.(action.payload.skillId);
                 return;
+              }
+              if (action.payload?.kind === "open_prompt_editor") {
+                const fileType = typeof action.payload.fileType === "string" ? action.payload.fileType : "prompt";
+                const filename = typeof action.payload.filename === "string" ? action.payload.filename : "SKILL.md";
+                onEditorTarget(fileType, filename);
+                onExpandEditor?.();
               }
               if (action.focusInput) {
                 setInput(action.msg);

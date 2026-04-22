@@ -800,6 +800,13 @@ export function SkillStudio({
     clearChatRef.current?.();
   }
 
+  const handleResetSessionArtifacts = useCallback(() => {
+    resetWorkflowArtifacts();
+    setShowGovernancePanel(false);
+    setChatTestFlowIntent(null);
+    setActiveCardActions([]);
+  }, [resetWorkflowArtifacts]);
+
   function handleAdoptSuggestion(skillName: string, suggestion: Suggestion) {
     const text = `${skillName}-修改意见: ${suggestion.problem_desc}\n期望: ${suggestion.expected_direction}`;
     setInputRef.current?.(text);
@@ -1138,6 +1145,7 @@ export function SkillStudio({
             memo={memo}
             onApplyDraft={handleApplyDraft}
             onNewSession={handleNewSession}
+            onResetSessionArtifacts={handleResetSessionArtifacts}
             onToolBound={() => { if (selectedSkill) { refreshSkill(selectedSkill.id); handleMemoRefresh(); } }}
             onFileSplitDone={() => { if (selectedSkill) refreshSkill(selectedSkill.id); }}
             onMemoRefresh={handleMemoRefresh}
@@ -1173,6 +1181,16 @@ export function SkillStudio({
             onPendingToolSuggestionChange={handlePendingToolSuggestionChange}
             onPendingFileSplitChange={handlePendingFileSplitChange}
           />
+
+          {!editorVisible && selectedSkill && (
+            <button
+              type="button"
+              onClick={handleManualExpandEditor}
+              className="absolute right-0 top-1/2 -translate-y-1/2 z-20 border-2 border-r-0 border-[#1A202C] bg-[#ECFBFF] px-2 py-3 text-[8px] font-bold uppercase tracking-widest text-[#00A3C4] hover:bg-white"
+            >
+              展开编辑区
+            </button>
+          )}
 
           {/* File Workspace - 覆盖在 StudioChat 之上 */}
         <div className={`absolute top-0 right-0 bottom-0 border-l-2 border-[#1A202C] bg-white transition-all duration-300 ease-in-out overflow-hidden z-20 ${

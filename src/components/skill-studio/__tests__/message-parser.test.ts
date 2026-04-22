@@ -94,4 +94,39 @@ describe("parseStructuredStudioMessage", () => {
       "修改其他部分",
     ]);
   });
+
+  it("uses interaction placeholder when only STUDIO_META quick replies remain", () => {
+    const text = [
+      "<!--STUDIO_META:{\"phase\":\"draft\",\"turn\":6,\"quick_replies\":[\"补齐描述\",\"输出草稿\"]}-->",
+    ].join("\n");
+
+    const parsed = parseStructuredStudioMessage(text);
+
+    expect(parsed.cleanText).toBe("已生成下一步互动项，请在下方继续操作。");
+    expect(parsed.studioMeta?.quickReplies).toEqual(["补齐描述", "输出草稿"]);
+  });
+
+  it("uses editor placeholder for studio_diff-only messages", () => {
+    const text = [
+      "```studio_diff",
+      JSON.stringify({ ops: [{ type: "append", content: "\n## 描述\n补齐说明" }], change_note: "补齐描述" }),
+      "```",
+    ].join("\n");
+
+    const parsed = parseStructuredStudioMessage(text);
+
+    expect(parsed.cleanText).toBe("已生成修改建议，请展开右侧编辑区查看。");
+  });
+
+  it("suppresses passive structured-only messages", () => {
+    const text = [
+      "```studio_persistent_notices",
+      JSON.stringify({ notices: ["已刷新 memo"] }),
+      "```",
+    ].join("\n");
+
+    const parsed = parseStructuredStudioMessage(text);
+
+    expect(parsed.cleanText).toBe("");
+  });
 });

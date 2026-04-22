@@ -12,6 +12,7 @@ import type {
   GovernanceActionCard,
   PhaseProgress,
   StudioDraft,
+  StudioDiff,
   StudioFileSplit,
   StudioSummary,
   StudioToolSuggestion,
@@ -382,7 +383,19 @@ function uniqueArtifacts(artifacts: ArchitectArtifact[]) {
   return Array.from(map.values());
 }
 
-function buildPlaceholder(parsed: Omit<ParsedStructuredStudioMessage, "cleanText">): string {
+function buildPlaceholder(
+  parsed: Omit<ParsedStructuredStudioMessage, "cleanText">,
+  options?: { hasStudioDiff?: boolean; hasEditorTarget?: boolean },
+): string {
+  if (parsed.studioMeta?.quickReplies.length) {
+    return "已生成下一步互动项，请在下方继续操作。";
+  }
+  if (options?.hasStudioDiff) {
+    return "已生成修改建议，请展开右侧编辑区查看。";
+  }
+  if (options?.hasEditorTarget) {
+    return "已定位到待编辑文件，请展开右侧编辑区查看。";
+  }
   if (parsed.draft) {
     return "草稿已生成，请在右侧草稿卡中查看并决定是否应用。";
   }
@@ -414,7 +427,7 @@ function buildPlaceholder(parsed: Omit<ParsedStructuredStudioMessage, "cleanText
   ) {
     return "架构分析结果已更新，请在下方卡片中继续。";
   }
-  return "结构化结果已生成，请查看下方内容。";
+  return "";
 }
 
 export function parseStructuredStudioMessage(text: string): ParsedStructuredStudioMessage {
@@ -425,6 +438,8 @@ export function parseStructuredStudioMessage(text: string): ParsedStructuredStud
   let auditResult: AuditResult | null = null;
   let pendingPhaseSummary: ArchitectPhaseSummary | null = null;
   let architectReady: ArchitectReadyForDraft | null = null;
+  let hasStudioDiff = false;
+  let hasEditorTarget = false;
 
   const pendingGovernanceActions: GovernanceActionCard[] = [];
   const phaseProgress: PhaseProgress[] = [];
@@ -454,12 +469,23 @@ export function parseStructuredStudioMessage(text: string): ParsedStructuredStud
         system_prompt: payload.system_prompt,
         change_note: typeof payload.change_note === "string" ? payload.change_note : undefined,
       };
+    } else if (evtName === "studio_diff") {
+      hasStudioDiff = true;
+      const diff = payload as StudioDiff;
+      if (typeof diff.system_prompt?.new === "string") {
+        draft = {
+          system_prompt: diff.system_prompt.new,
+          change_note: typeof diff.change_note === "string" ? diff.change_note : "AI 局部修改",
+        };
+      }
     } else if (evtName === "studio_summary") {
       summary = payload as unknown as StudioSummary;
     } else if (evtName === "studio_tool_suggestion") {
       toolSuggestion = payload as unknown as StudioToolSuggestion;
     } else if (evtName === "studio_file_split") {
       fileSplit = payload as unknown as StudioFileSplit;
+    } else if (evtName === "studio_editor_target") {
+      hasEditorTarget = true;
     } else if (evtName === "studio_audit") {
       auditResult = normalizeAuditResult(payload);
     } else if (evtName === "studio_governance_action") {
@@ -526,7 +552,7 @@ export function parseStructuredStudioMessage(text: string): ParsedStructuredStud
   };
 
   if (!cleanText) {
-    cleanText = buildPlaceholder(parsedWithoutText);
+    cleanText = buildPlaceholder(parsedWithoutText, { hasStudioDiff, hasEditorTarget });
   }
 
   return {

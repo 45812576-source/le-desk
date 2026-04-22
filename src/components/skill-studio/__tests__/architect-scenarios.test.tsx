@@ -355,6 +355,8 @@ describe("快捷 chat：Skill 创作工作台", () => {
     expect(onQuickAction).toHaveBeenCalledWith({
       label: "补齐描述",
       msg: "请直接补一版用于检索、展示和审核的 Skill 描述，要求短、准、可读",
+      focusInput: true,
+      payload: { kind: "open_prompt_editor", fileType: "prompt", filename: "SKILL.md" },
     });
   });
 });

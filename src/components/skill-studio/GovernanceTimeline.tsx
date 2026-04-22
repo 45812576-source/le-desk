@@ -257,30 +257,33 @@ const MessageBubble = memo(function MessageBubble({
   onQuickAction?: (action: TimelineQuickAction) => void;
 }) {
   const isLongAssistant = message.role === "assistant" && !message.loading && message.text && message.text.length > 200;
+  const showBubble = Boolean(message.text) || Boolean(message.loading);
 
   return (
     <div className={`flex flex-col ${message.role === "user" ? "items-end" : "items-start"}`}>
-      <div className={`max-w-[95%] px-3 py-2.5 text-[9px] font-mono leading-relaxed whitespace-pre-wrap border ${
-        message.role === "user"
-          ? "bg-[#1A202C] text-white border-[#1A202C] rounded-2xl rounded-br-sm"
-          : "bg-[#F0F4F8] text-[#1A202C] border-gray-200 rounded-2xl rounded-bl-sm"
-      } ${isLongAssistant ? "studio-collapsible" : ""}`}>
-        {message.loading && !message.text ? (
-          <StageIndicator stage={streaming ? streamStage : null} />
-        ) : isLongAssistant ? (
-          <details>
-            <summary className="cursor-pointer select-none text-[8px] text-gray-400 hover:text-[#00A3C4] font-bold uppercase tracking-widest mb-1">
-              {message.text!.slice(0, 80)}… <span className="text-[7px] normal-case font-normal">[展开全文]</span>
-            </summary>
-            <div className="mt-1 pt-1 border-t border-gray-200">{message.text}</div>
-          </details>
-        ) : (
-          <>
-            {message.text}
-            {message.loading && <span className="animate-pulse text-[#00A3C4]"> ▋</span>}
-          </>
-        )}
-      </div>
+      {showBubble && (
+        <div className={`max-w-[95%] px-3 py-2.5 text-[9px] font-mono leading-relaxed whitespace-pre-wrap border ${
+          message.role === "user"
+            ? "bg-[#1A202C] text-white border-[#1A202C] rounded-2xl rounded-br-sm"
+            : "bg-[#F0F4F8] text-[#1A202C] border-gray-200 rounded-2xl rounded-bl-sm"
+        } ${isLongAssistant ? "studio-collapsible" : ""}`}>
+          {message.loading && !message.text ? (
+            <StageIndicator stage={streaming ? streamStage : null} />
+          ) : isLongAssistant ? (
+            <details>
+              <summary className="cursor-pointer select-none text-[8px] text-gray-400 hover:text-[#00A3C4] font-bold uppercase tracking-widest mb-1">
+                {message.text!.slice(0, 80)}… <span className="text-[7px] normal-case font-normal">[展开全文]</span>
+              </summary>
+              <div className="mt-1 pt-1 border-t border-gray-200">{message.text}</div>
+            </details>
+          ) : (
+            <>
+              {message.text}
+              {message.loading && <span className="animate-pulse text-[#00A3C4]"> ▋</span>}
+            </>
+          )}
+        </div>
+      )}
       {message.role === "assistant" && !message.loading && isLast && !streaming && quickActions && (
         <div className="flex gap-1 mt-1.5 flex-wrap max-w-[95%]">
           {quickActions.map((action) => (
@@ -489,11 +492,36 @@ export function GovernanceTimeline({
     pendingGovernanceActions.length === 0 &&
     !auditResult;
   const quickActions = overrideQuickActions ?? [
-    { label: "补齐描述", msg: "请直接补一版用于检索、展示和审核的 Skill 描述，要求短、准、可读" },
-    { label: "重写定位", msg: "请基于现有上下文，重写这个 Skill 的定位、适用对象、核心任务和边界" },
-    { label: "输出草稿", msg: "信息足够了，请直接输出完整可用的 SKILL.md 草稿" },
-    { label: "只改这段", msg: "不要重写全文，只修改我刚才指出的那一段，保持其他部分不变" },
-    { label: "收敛成版", msg: "请按当前结论整理成可直接采纳的最终版本，不再继续追问" },
+    {
+      label: "补齐描述",
+      msg: "请直接补一版用于检索、展示和审核的 Skill 描述，要求短、准、可读",
+      focusInput: true,
+      payload: { kind: "open_prompt_editor", fileType: "prompt", filename: "SKILL.md" },
+    },
+    {
+      label: "重写定位",
+      msg: "请基于现有上下文，重写这个 Skill 的定位、适用对象、核心任务和边界",
+      focusInput: true,
+      payload: { kind: "open_prompt_editor", fileType: "prompt", filename: "SKILL.md" },
+    },
+    {
+      label: "输出草稿",
+      msg: "信息足够了，请直接输出完整可用的 SKILL.md 草稿",
+      focusInput: true,
+      payload: { kind: "open_prompt_editor", fileType: "prompt", filename: "SKILL.md" },
+    },
+    {
+      label: "只改这段",
+      msg: "不要重写全文，只修改我刚才指出的那一段，保持其他部分不变",
+      focusInput: true,
+      payload: { kind: "open_prompt_editor", fileType: "prompt", filename: "SKILL.md" },
+    },
+    {
+      label: "收敛成版",
+      msg: "请按当前结论整理成可直接采纳的最终版本，不再继续追问",
+      focusInput: true,
+      payload: { kind: "open_prompt_editor", fileType: "prompt", filename: "SKILL.md" },
+    },
   ];
   const showDeepSection = !compact && deepPatches.length > 0;
 
