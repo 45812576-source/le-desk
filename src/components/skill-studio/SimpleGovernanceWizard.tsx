@@ -37,6 +37,8 @@ export function SimpleGovernanceWizard({
   onGenerateDeclaration,
   onMountDeclaration,
   onSaveGranularRule,
+  canAutoSetup = true,
+  autoSetupBlockedReason,
   autoStart = false,
   autoStartReason,
 }: {
@@ -59,6 +61,8 @@ export function SimpleGovernanceWizard({
     ruleId: number,
     payload: { suggested_policy?: string; mask_style?: string | null; confirmed?: boolean },
   ) => Promise<void>;
+  canAutoSetup?: boolean;
+  autoSetupBlockedReason?: string | null;
   autoStart?: boolean;
   autoStartReason?: string | null;
 }) {
@@ -98,6 +102,9 @@ export function SimpleGovernanceWizard({
           user,
         });
         const newRoles = recommended.items.map(recommendationToServiceRole) as ServiceRoleItem[];
+        if (newRoles.length === 0) {
+          throw new Error("未能自动推荐可用岗位，请先到详细设置补充服务岗位。");
+        }
         await onSaveRoles(newRoles);
       }
 
@@ -207,6 +214,11 @@ export function SimpleGovernanceWizard({
             {autoStartReason}
           </div>
         )}
+        {autoSetupBlockedReason && (
+          <div className="px-3 py-2 bg-amber-50 border border-amber-200 text-[9px] text-amber-700 font-bold">
+            {autoSetupBlockedReason}
+          </div>
+        )}
         {error && (
           <div className="px-3 py-2 bg-red-50 border border-red-200 text-[9px] text-red-600 font-bold">
             {error}
@@ -216,7 +228,7 @@ export function SimpleGovernanceWizard({
           ref={autoStartButtonRef}
           type="button"
           onClick={runAutoSetup}
-          disabled={loading}
+          disabled={loading || !canAutoSetup}
           className="w-full py-4 border-2 border-[#00A3C4] bg-[#F0FAFF] hover:bg-[#E0F4FF] text-[#00A3C4] font-bold text-[11px] uppercase tracking-widest transition-colors disabled:opacity-50"
         >
           {loading ? "加载中..." : "帮我自动设置这个技能的使用权限"}

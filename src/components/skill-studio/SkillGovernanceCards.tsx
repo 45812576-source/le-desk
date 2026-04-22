@@ -1691,7 +1691,7 @@ export function PermissionDeclarationCard({
       }
     >
       <div className="space-y-2">
-        {!canGenerate && <p className="text-[9px] text-amber-600">需先配置服务岗位并绑定至少一个源域资产。</p>}
+        {!canGenerate && <p className="text-[9px] text-amber-600">需先准备服务岗位、源域资产和岗位 × 资产策略。</p>}
         {declaration && (
           <div className="flex items-center gap-1">
             {tinyBadge(declaration.status === "stale" ? "border-amber-300 bg-amber-50 text-amber-700" : "border-emerald-300 bg-emerald-50 text-emerald-700", statusLabel(declaration.status))}

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ChevronRight, RefreshCcw, ShieldCheck, X } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
@@ -84,6 +84,32 @@ function delay(ms: number) {
   return new Promise((resolve) => window.setTimeout(resolve, ms));
 }
 
+function getPolicyGenerationIssue(input: {
+  roleCount: number;
+  assetCount: number;
+}) {
+  if (input.roleCount <= 0) {
+    return "需先配置至少一个服务岗位。";
+  }
+  if (input.assetCount <= 0) {
+    return "需先绑定至少一个源域资产。";
+  }
+  return null;
+}
+
+function getDeclarationGenerationIssue(input: {
+  roleCount: number;
+  assetCount: number;
+  hasPolicyBundle: boolean;
+}) {
+  const policyIssue = getPolicyGenerationIssue(input);
+  if (policyIssue) return policyIssue;
+  if (!input.hasPolicyBundle) {
+    return "需先生成岗位 × 资产策略，再生成权限声明。";
+  }
+  return null;
+}
+
 export function SkillGovernancePanel({
   skill,
   onClose,
@@ -142,17 +168,29 @@ export function SkillGovernancePanel({
   const [positions, setPositions] = useState<PositionLite[]>([]);
   const [orgMemorySnapshots, setOrgMemorySnapshots] = useState<OrgMemorySnapshot[]>([]);
   const [orgMemoryFallback, setOrgMemoryFallback] = useState(false);
+  const rolesRef = useRef<ServiceRoleItem[]>([]);
+  const assetsRef = useRef<BoundAssetItem[]>([]);
+  const mountContextRef = useRef<MountContext | null>(null);
+  const bundleRef = useRef<RolePolicyBundle | null>(null);
+  const policiesRef = useRef<RoleAssetPolicyItem[]>([]);
   const [wizardMode, setWizardMode] = useState<"simple" | "advanced">(
     testFlowIntent?.mode === "mount_blocked" ? "simple" : "advanced",
   );
 
+  const roleCount = Math.max(mountContext?.roles?.length || 0, roles.length);
+  const assetCount = Math.max(mountContext?.assets?.length || 0, assets.length);
+  const hasPolicyBundle = Boolean(bundle?.id || policies.length);
   const declarationStaleReasons = useMemo(
     () => buildDeclarationStaleReasons(declaration),
     [declaration],
   );
+  const simpleWizardBlockedReason = useMemo(
+    () => (assetCount <= 0 ? "需先绑定至少一个源域资产，简单模式才能自动生成权限设置。" : null),
+    [assetCount],
+  );
   const canGenerateDeclaration = useMemo(
-    () => Boolean((mountContext?.roles?.length || roles.length) && (mountContext?.assets?.length || assets.length)),
-    [assets.length, mountContext?.assets?.length, mountContext?.roles?.length, roles.length],
+    () => !getDeclarationGenerationIssue({ roleCount, assetCount, hasPolicyBundle }),
+    [assetCount, hasPolicyBundle, roleCount],
   );
   const testFlowIntentKey = useMemo(
     () =>
@@ -167,6 +205,26 @@ export function SkillGovernancePanel({
       setWizardMode("simple");
     }
   }, [testFlowIntent?.mode]);
+
+  useEffect(() => {
+    rolesRef.current = roles;
+  }, [roles]);
+
+  useEffect(() => {
+    assetsRef.current = assets;
+  }, [assets]);
+
+  useEffect(() => {
+    mountContextRef.current = mountContext;
+  }, [mountContext]);
+
+  useEffect(() => {
+    bundleRef.current = bundle;
+  }, [bundle]);
+
+  useEffect(() => {
+    policiesRef.current = policies;
+  }, [policies]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -207,14 +265,11 @@ export function SkillGovernancePanel({
         apiFetch<PositionLite[]>("/admin/permissions/positions").catch(() => []),
         loadOrgMemorySnapshots().catch(() => ({ data: [], fallback: false })),
       ]);
-      setSummary(summaryResp);
-      setRoles(rolesResp.roles || []);
-      setAssets(assetsResp.assets || []);
-      setMountContext(mountContextResp || null);
-      setMountedPermissions(mountedPermissionsResp || null);
+      const nextRoles = rolesResp.roles || [];
+      const nextAssets = assetsResp.assets || [];
+      const nextMountContext = mountContextResp || null;
       const hasLegacyBundle = Boolean(policiesResp.bundle_id);
-      setLegacyPolicyReadOnly(Boolean(policiesResp.read_only || policiesResp.deprecated || hasLegacyBundle));
-      setBundle(
+      const nextBundle =
         summaryResp.bundle
         || (policiesResp.bundle_id
           ? {
@@ -222,14 +277,26 @@ export function SkillGovernancePanel({
               bundle_version: policiesResp.bundle_version,
               governance_version: policiesResp.governance_version || policiesResp.bundle_version,
               status: policiesResp.review_status,
-              service_role_count: rolesResp.roles?.length || 0,
-              bound_asset_count: assetsResp.assets?.length || 0,
+              service_role_count: nextRoles.length || 0,
+              bound_asset_count: nextAssets.length || 0,
               deprecated: policiesResp.deprecated,
               read_only: policiesResp.read_only,
             }
-          : null),
-      );
-      setPolicies(policiesResp.items || []);
+          : null);
+      const nextPolicies = policiesResp.items || [];
+      rolesRef.current = nextRoles;
+      assetsRef.current = nextAssets;
+      mountContextRef.current = nextMountContext;
+      bundleRef.current = nextBundle;
+      policiesRef.current = nextPolicies;
+      setSummary(summaryResp);
+      setRoles(nextRoles);
+      setAssets(nextAssets);
+      setMountContext(nextMountContext);
+      setMountedPermissions(mountedPermissionsResp || null);
+      setLegacyPolicyReadOnly(Boolean(policiesResp.read_only || policiesResp.deprecated || hasLegacyBundle));
+      setBundle(nextBundle);
+      setPolicies(nextPolicies);
       setDeclaration(declarationResp?.id ? declarationResp : null);
       setReadiness(casePlanResp.readiness || readinessResp.readiness || null);
       setCasePlan(casePlanResp.plan ? { ...casePlanResp.plan, cases: casePlanResp.cases || casePlanResp.plan.cases || [] } : null);
@@ -331,9 +398,17 @@ export function SkillGovernancePanel({
   }
 
   async function generatePolicies() {
+    const label = policies.length ? "重新生成岗位 × 资产策略" : "生成岗位 × 资产策略";
+    const currentRoleCount = Math.max(mountContextRef.current?.roles?.length || 0, rolesRef.current.length);
+    const currentAssetCount = Math.max(mountContextRef.current?.assets?.length || 0, assetsRef.current.length);
+    const issue = getPolicyGenerationIssue({ roleCount: currentRoleCount, assetCount: currentAssetCount });
+    if (issue) {
+      setError(issue);
+      setActiveJob({ label, status: "failed", detail: issue });
+      throw new Error(issue);
+    }
     setRunningPolicyJob(true);
     setError(null);
-    const label = policies.length ? "重新生成岗位 × 资产策略" : "生成岗位 × 资产策略";
     setActiveJob({ label, status: "running", detail: "提交策略建议任务" });
     try {
       const resp = await apiFetch<ApiEnvelope<{ job_id: string | number; bundle_id?: number }>>(`/skill-governance/${skill.id}/suggest-role-asset-policies`, {
@@ -374,9 +449,22 @@ export function SkillGovernancePanel({
   }
 
   async function generateDeclaration() {
+    const label = declaration ? "重新生成权限声明" : "生成权限声明";
+    const currentRoleCount = Math.max(mountContextRef.current?.roles?.length || 0, rolesRef.current.length);
+    const currentAssetCount = Math.max(mountContextRef.current?.assets?.length || 0, assetsRef.current.length);
+    const currentHasPolicyBundle = Boolean(bundleRef.current?.id || policiesRef.current.length);
+    const issue = getDeclarationGenerationIssue({
+      roleCount: currentRoleCount,
+      assetCount: currentAssetCount,
+      hasPolicyBundle: currentHasPolicyBundle,
+    });
+    if (issue) {
+      setError(issue);
+      setActiveJob({ label, status: "failed", detail: issue });
+      throw new Error(issue);
+    }
     setRunningDeclarationJob(true);
     setError(null);
-    const label = declaration ? "重新生成权限声明" : "生成权限声明";
     setActiveJob({ label, status: "running", detail: "提交声明生成任务" });
     try {
       const resp = await apiFetch<ApiEnvelope<{ job_id: string | number; status: string; declaration_id?: number }>>(`/skill-governance/${skill.id}/declarations/generate`, {
@@ -760,6 +848,8 @@ export function SkillGovernancePanel({
               onGenerateDeclaration={generateDeclaration}
               onMountDeclaration={mountDeclaration}
               onSaveGranularRule={saveGranularRule}
+              canAutoSetup={!simpleWizardBlockedReason}
+              autoSetupBlockedReason={simpleWizardBlockedReason}
               autoStart={testFlowIntent?.mode === "mount_blocked"}
               autoStartReason={
                 testFlowIntent?.mode === "mount_blocked"

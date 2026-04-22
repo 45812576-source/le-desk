@@ -967,6 +967,59 @@ describe("SkillGovernancePanel", () => {
     expect(screen.getByRole("button", { name: "采纳并挂载" })).toBeDisabled();
   });
 
+  it("blocks simple wizard auto setup when no bound asset exists", async () => {
+    const state = buildState({
+      assets: [],
+      mountedPermissions: {
+        ...buildState().mountedPermissions,
+        table_permissions: [],
+        knowledge_permissions: [],
+      },
+      mountContext: {
+        ...buildState().mountContext,
+        assets: [],
+        permission_summary: {
+          table_count: 0,
+          knowledge_count: 0,
+          tool_count: 0,
+          high_risk_count: 0,
+          blocking_issues: [],
+        },
+      },
+    });
+    state.summary = {
+      ...state.summary,
+      bundle: {
+        ...state.bundle,
+        bound_asset_count: 0,
+      },
+      summary: {
+        ...state.summary.summary,
+        bound_asset_count: 0,
+      },
+    };
+    installApiMock(state);
+
+    render(
+      <SkillGovernancePanel
+        skill={skill}
+        onClose={vi.fn()}
+        testFlowIntent={{
+          mode: "mount_blocked",
+          entrySource: "chat_skill_test_gate",
+          triggerMessage: "请帮我测这个 skill",
+        }}
+      />,
+    );
+
+    expect(await screen.findByText("需先绑定至少一个源域资产，简单模式才能自动生成权限设置。")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "帮我自动设置这个技能的使用权限" })).toBeDisabled();
+    expect(mockApiFetch).not.toHaveBeenCalledWith(
+      "/skill-governance/7/declarations/generate",
+      expect.anything(),
+    );
+  });
+
   it("shows AI recommendation list before package confirmation", async () => {
     const state = buildState();
     installApiMock(state);
