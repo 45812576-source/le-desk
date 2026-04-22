@@ -195,8 +195,11 @@ function CardActions({
       case "file_role.start_validation":
         onOpenSandbox();
         return;
-      default:
+      default: {
+        const _exhaustive: never = actionId;
+        console.warn(`[CardActions] unhandled actionId: ${_exhaustive}`);
         onOpenPrompt();
+      }
     }
   };
 
@@ -505,6 +508,11 @@ export function StudioCardRail({
   const dismissResumeHint = useStudioStore((s) => s.dismissResumeHint);
   const studioError = useStudioStore((s) => s.studioError);
   const setStudioError = useStudioStore((s) => s.setStudioError);
+  const transitionBlock = useStudioStore((s) => s.transitionBlock);
+  const setTransitionBlock = useStudioStore((s) => s.setTransitionBlock);
+  const reconcileConflict = useStudioStore((s) => s.reconcileConflict);
+  const setReconcileConflict = useStudioStore((s) => s.setReconcileConflict);
+  const timelineEntries = useStudioStore((s) => s.timelineEntries);
   const pendingCount = cards.filter((card) => card.status === "pending" || card.status === "active").length;
   const activeCard = cards.find((c) => c.id === activeCardId) ?? null;
   const pendingCards = useMemo(
@@ -706,6 +714,40 @@ export function StudioCardRail({
           </div>
         )}
 
+        {/* transition_blocked_patch 显式阻塞横幅 */}
+        {transitionBlock && (
+          <div className="border border-amber-400 bg-amber-50 px-3 py-2 text-[9px] space-y-1.5">
+            <div className="font-bold text-amber-700">{transitionBlock.reason}</div>
+            {transitionBlock.blockedCardId && (
+              <div className="text-amber-600 font-mono">阻塞卡片：{transitionBlock.blockedCardId}</div>
+            )}
+            {transitionBlock.prerequisiteCardIds.length > 0 && (
+              <div className="space-y-1">
+                <div className="text-amber-600">先完成这些前置项：</div>
+                <div className="flex flex-wrap gap-1">
+                  {transitionBlock.prerequisiteCardIds.map((id) => (
+                    <button
+                      key={id}
+                      type="button"
+                      onClick={() => onSelect(id)}
+                      className="text-[8px] font-bold uppercase tracking-widest text-amber-700 border border-amber-300 bg-white px-2 py-0.5 hover:bg-amber-100 transition-colors"
+                    >
+                      前往 {id}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+            <button
+              type="button"
+              onClick={() => setTransitionBlock(null)}
+              className="text-[8px] font-bold uppercase tracking-widest text-amber-700 border border-amber-300 px-2 py-0.5 hover:bg-amber-100 transition-colors"
+            >
+              关闭
+            </button>
+          </div>
+        )}
+
         {/* studioError 显式报错横幅 */}
         {studioError && (
           <div className="border-2 border-red-400 bg-red-50 px-3 py-2 text-[9px] space-y-1">
@@ -729,6 +771,41 @@ export function StudioCardRail({
             >
               关闭
             </button>
+          </div>
+        )}
+
+        {/* reconcile_patch 冲突横幅 */}
+        {reconcileConflict && (
+          <div className="border border-purple-300 bg-purple-50 px-3 py-2 text-[9px] space-y-1.5">
+            <div className="font-bold text-purple-700">{reconcileConflict.message}</div>
+            {Object.keys(reconcileConflict.conflictDetails).length > 0 && (
+              <div className="text-purple-600 font-mono break-all">
+                冲突详情：{JSON.stringify(reconcileConflict.conflictDetails, null, 0)}
+              </div>
+            )}
+            <div className="text-purple-600">检测到冲突，当前不会静默合并。</div>
+            <button
+              type="button"
+              onClick={() => setReconcileConflict(null)}
+              className="text-[8px] font-bold uppercase tracking-widest text-purple-700 border border-purple-300 px-2 py-0.5 hover:bg-purple-100 transition-colors"
+            >
+              关闭
+            </button>
+          </div>
+        )}
+
+        {/* timeline_patch 最近事件 */}
+        {timelineEntries.length > 0 && (
+          <div className="border border-[#1A202C]/10 bg-white px-3 py-2 space-y-1.5">
+            <div className="text-[8px] font-bold uppercase tracking-[0.2em] text-gray-500">Timeline</div>
+            {timelineEntries.slice(-3).reverse().map((entry) => (
+              <div key={entry.id} className="text-[8px] text-gray-600 font-mono">
+                <span className="text-gray-400">{entry.timestamp}</span>
+                {" · "}
+                <span>{entry.message}</span>
+                {entry.cardId ? ` · ${entry.cardId}` : ""}
+              </div>
+            ))}
           </div>
         )}
 

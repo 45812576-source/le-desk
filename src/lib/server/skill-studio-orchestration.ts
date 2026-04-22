@@ -52,7 +52,8 @@ const STUDIO_CHAT_SYSTEM_PROMPT = [
   "每轮只能围绕当前卡推进一个最小可确认动作。",
 ].join("\n");
 
-const ARCHITECT_CARD_ID_TO_CONTRACT_ID: Record<string, string> = {
+const CARD_ID_TO_CONTRACT_ID: Record<string, string> = {
+  // ── Architect (create) ──
   "create:architect:5whys": "architect.why.5whys",
   "create:architect:first-principles": "architect.why.first_principles",
   "create:architect:jtbd": "architect.why.jtbd",
@@ -67,6 +68,21 @@ const ARCHITECT_CARD_ID_TO_CONTRACT_ID: Record<string, string> = {
   "create:architect:sensitivity": "architect.how.sensitivity",
   "create:architect:zero-based": "architect.how.zero_based",
   "create:architect:ooda": "architect.how.ooda",
+  // ── Optimize ──
+  "optimize:governance:audit-review": "optimize.governance.audit_review",
+  "optimize:governance:constraint-check": "optimize.governance.constraint_check",
+  "optimize:refine:prompt-edit": "optimize.refine.prompt_edit",
+  "optimize:refine:example-edit": "optimize.refine.example_edit",
+  "optimize:refine:tool-binding": "optimize.refine.tool_binding",
+  "optimize:validation:preflight": "optimize.validation.preflight",
+  "optimize:validation:sandbox-run": "optimize.validation.sandbox_run",
+  // ── Audit ──
+  "audit:scan:quality": "audit.scan.quality",
+  "audit:scan:security": "audit.scan.security",
+  "audit:fixing:critical": "audit.fixing.critical",
+  "audit:fixing:moderate": "audit.fixing.moderate",
+  "audit:release:preflight-recheck": "audit.release.preflight_recheck",
+  "audit:release:publish-gate": "audit.release.publish_gate",
 };
 
 const CARD_PROMPTS: Record<string, SkillStudioCardPrompt> = {
@@ -287,6 +303,151 @@ const GENERIC_CARD_PROMPTS: Record<string, SkillStudioCardPrompt> = {
     nextCards: ["fixing.targeted_retest"],
     artifactKeys: ["fix_task_result"],
   },
+  // ── Optimize 模式 ──
+  "optimize.governance.audit_review": {
+    contractId: "optimize.governance.audit_review",
+    title: "审计结果确认卡",
+    objective: "确认 Skill 审计结果，了解当前状态。",
+    rules: ["先展示审计结论再让用户决策。"],
+    allowedTools: ["studio_chat.ask_one_question"],
+    forbiddenActions: ["不要跳过审计直接修改。"],
+    exitCriteria: ["审计结果已确认"],
+    nextCards: ["optimize.governance.constraint_check"],
+    artifactKeys: ["audit_review"],
+  },
+  "optimize.governance.constraint_check": {
+    contractId: "optimize.governance.constraint_check",
+    title: "约束检查卡",
+    objective: "检查 Skill 是否满足优化前置约束条件。",
+    rules: ["约束不满足时必须说明原因。"],
+    allowedTools: ["studio_chat.ask_one_question"],
+    forbiddenActions: ["不要在约束未满足时继续优化。"],
+    exitCriteria: ["约束条件已检查"],
+    nextCards: ["optimize.refine.prompt_edit"],
+    artifactKeys: ["constraint_check"],
+  },
+  "optimize.refine.prompt_edit": {
+    contractId: "optimize.refine.prompt_edit",
+    title: "Prompt 优化卡",
+    objective: "根据审计和约束结果，优化 Prompt 内容。",
+    rules: ["任何文件改动必须 staged edit。"],
+    allowedTools: ["skill_file.stage_edit", "staged_edit.adopt", "staged_edit.reject"],
+    forbiddenActions: ["不要未经确认直接覆盖。"],
+    exitCriteria: ["修改被采纳或拒绝"],
+    nextCards: ["optimize.refine.example_edit"],
+    artifactKeys: ["prompt_edit_review"],
+  },
+  "optimize.refine.example_edit": {
+    contractId: "optimize.refine.example_edit",
+    title: "示例优化卡",
+    objective: "优化或补充 Skill 示例。",
+    rules: ["任何文件改动必须 staged edit。"],
+    allowedTools: ["skill_file.stage_edit", "staged_edit.adopt", "staged_edit.reject"],
+    forbiddenActions: ["不要未经确认直接覆盖。"],
+    exitCriteria: ["修改被采纳或拒绝"],
+    nextCards: ["optimize.refine.tool_binding"],
+    artifactKeys: ["example_edit_review"],
+  },
+  "optimize.refine.tool_binding": {
+    contractId: "optimize.refine.tool_binding",
+    title: "工具绑定优化卡",
+    objective: "优化 Skill 的工具绑定配置。",
+    rules: ["等待用户确认绑定方案。"],
+    allowedTools: ["studio_chat.ask_one_question", "studio_artifact.update"],
+    forbiddenActions: ["不要跳过确认直接绑定。"],
+    exitCriteria: ["绑定方案已确认"],
+    nextCards: ["optimize.validation.preflight"],
+    artifactKeys: ["tool_binding_review"],
+  },
+  "optimize.validation.preflight": {
+    contractId: "optimize.validation.preflight",
+    title: "优化预检卡",
+    objective: "在优化后执行预检验证。",
+    rules: ["必须展示预检结果。"],
+    allowedTools: ["sandbox.run"],
+    forbiddenActions: [],
+    exitCriteria: ["预检完成"],
+    nextCards: ["optimize.validation.sandbox_run"],
+    artifactKeys: ["preflight_result"],
+  },
+  "optimize.validation.sandbox_run": {
+    contractId: "optimize.validation.sandbox_run",
+    title: "优化验证卡",
+    objective: "运行 Sandbox 验证优化后的 Skill。",
+    rules: ["展示验证结论。"],
+    allowedTools: ["sandbox.run"],
+    forbiddenActions: [],
+    exitCriteria: ["验证完成"],
+    nextCards: [],
+    artifactKeys: ["sandbox_result"],
+  },
+  // ── Audit 模式 ──
+  "audit.scan.quality": {
+    contractId: "audit.scan.quality",
+    title: "质量扫描卡",
+    objective: "对导入的 Skill 执行质量扫描，发现潜在问题。",
+    rules: ["扫描结果必须分维度展示。"],
+    allowedTools: ["studio_chat.ask_one_question"],
+    forbiddenActions: [],
+    exitCriteria: ["质量扫描完成"],
+    nextCards: ["audit.scan.security"],
+    artifactKeys: ["quality_scan"],
+  },
+  "audit.scan.security": {
+    contractId: "audit.scan.security",
+    title: "安全扫描卡",
+    objective: "对导入的 Skill 执行安全扫描。",
+    rules: ["必须检查 prompt injection 风险。"],
+    allowedTools: ["studio_chat.ask_one_question"],
+    forbiddenActions: [],
+    exitCriteria: ["安全扫描完成"],
+    nextCards: ["audit.fixing.critical"],
+    artifactKeys: ["security_scan"],
+  },
+  "audit.fixing.critical": {
+    contractId: "audit.fixing.critical",
+    title: "严重问题整改卡",
+    objective: "修复扫描发现的严重问题。",
+    rules: ["一次只修一个问题。", "修复产生文件改动时必须 staged edit。"],
+    allowedTools: ["skill_file.open", "skill_file.stage_edit", "studio_chat.ask_one_question"],
+    forbiddenActions: ["不要跳过严重问题。"],
+    exitCriteria: ["严重问题已修复"],
+    nextCards: ["audit.fixing.moderate"],
+    artifactKeys: ["critical_fix_result"],
+  },
+  "audit.fixing.moderate": {
+    contractId: "audit.fixing.moderate",
+    title: "中等问题整改卡",
+    objective: "修复扫描发现的中等问题。",
+    rules: ["修复产生文件改动时必须 staged edit。"],
+    allowedTools: ["skill_file.open", "skill_file.stage_edit", "studio_chat.ask_one_question"],
+    forbiddenActions: [],
+    exitCriteria: ["中等问题已修复"],
+    nextCards: ["audit.release.preflight_recheck"],
+    artifactKeys: ["moderate_fix_result"],
+  },
+  "audit.release.preflight_recheck": {
+    contractId: "audit.release.preflight_recheck",
+    title: "整改后复检卡",
+    objective: "整改完成后重新执行预检。",
+    rules: ["必须展示复检结论。"],
+    allowedTools: ["sandbox.run"],
+    forbiddenActions: [],
+    exitCriteria: ["复检完成"],
+    nextCards: ["audit.release.publish_gate"],
+    artifactKeys: ["recheck_result"],
+  },
+  "audit.release.publish_gate": {
+    contractId: "audit.release.publish_gate",
+    title: "发布门禁卡",
+    objective: "确认所有问题已修复，可以发布。",
+    rules: ["有未修复的严重问题时不可发布。"],
+    allowedTools: ["studio_chat.ask_one_question"],
+    forbiddenActions: ["不要跳过未修复的严重问题。"],
+    exitCriteria: ["发布决策已确认"],
+    nextCards: [],
+    artifactKeys: ["publish_gate_decision"],
+  },
 };
 
 function isObject(value: unknown): value is Record<string, unknown> {
@@ -307,8 +468,8 @@ function resolveContractId(payload: Record<string, unknown>): string | null {
   if (explicit && explicit !== "architect.phase.execute") {
     return explicit;
   }
-  if (cardId && ARCHITECT_CARD_ID_TO_CONTRACT_ID[cardId]) {
-    return ARCHITECT_CARD_ID_TO_CONTRACT_ID[cardId];
+  if (cardId && CARD_ID_TO_CONTRACT_ID[cardId]) {
+    return CARD_ID_TO_CONTRACT_ID[cardId];
   }
   return explicit;
 }
@@ -331,6 +492,17 @@ function buildActiveCardContext(payload: Record<string, unknown>, contractId: st
   };
 }
 
+function resolveCardKindFromContractId(contractId: string): string | undefined {
+  if (contractId.startsWith("architect.") || contractId.startsWith("create.")) return "create";
+  if (contractId.startsWith("refine.") || contractId.startsWith("optimize.refine.")) return "refine";
+  if (contractId.startsWith("confirm.")) return "refine";
+  if (contractId.startsWith("governance.") || contractId.startsWith("optimize.governance.") || contractId.startsWith("audit.scan.")) return "governance";
+  if (contractId.startsWith("validation.") || contractId.startsWith("optimize.validation.")) return "validation";
+  if (contractId.startsWith("fixing.") || contractId.startsWith("audit.fixing.")) return "fixing";
+  if (contractId.startsWith("release.") || contractId.startsWith("audit.release.")) return "release";
+  return undefined;
+}
+
 function buildCardPatch(activeCard: SkillStudioActiveCardContext, cardPrompt: SkillStudioCardPrompt): Record<string, unknown> {
   return {
     id: activeCard.id || `runtime:${cardPrompt.contractId}`,
@@ -338,7 +510,7 @@ function buildCardPatch(activeCard: SkillStudioActiveCardContext, cardPrompt: Sk
     title: activeCard.title || cardPrompt.title,
     summary: cardPrompt.objective,
     status: "active",
-    kind: cardPrompt.contractId.startsWith("architect.") ? "create" : undefined,
+    kind: resolveCardKindFromContractId(cardPrompt.contractId),
     mode: activeCard.mode || "analysis",
     phase: cardPrompt.contractId.split(".").slice(0, 2).join("_"),
     priority: 120,

@@ -54,6 +54,55 @@ describe("studio-store run tracking", () => {
   });
 });
 
+describe("studio-store idempotency key tracking", () => {
+  beforeEach(() => {
+    resetStore();
+  });
+
+  it("remembers and deduplicates idempotency keys", () => {
+    const store = useStudioStore.getState();
+    store.rememberIdempotencyKey("key-1");
+    store.rememberIdempotencyKey("key-1"); // duplicate
+    store.rememberIdempotencyKey("key-2");
+
+    const state = useStudioStore.getState();
+    expect(state.appliedIdempotencyKeys.has("key-1")).toBe(true);
+    expect(state.appliedIdempotencyKeys.has("key-2")).toBe(true);
+    expect(state.appliedIdempotencyKeys.size).toBe(2);
+  });
+
+  it("caps idempotency keys at 200 entries", () => {
+    const store = useStudioStore.getState();
+    for (let i = 0; i < 210; i++) {
+      store.rememberIdempotencyKey(`key-${i}`);
+    }
+
+    const state = useStudioStore.getState();
+    expect(state.appliedIdempotencyKeys.size).toBe(200);
+    // Oldest keys should be evicted
+    expect(state.appliedIdempotencyKeys.has("key-0")).toBe(false);
+    expect(state.appliedIdempotencyKeys.has("key-209")).toBe(true);
+  });
+
+  it("resets idempotency keys with resetRunTracking", () => {
+    const store = useStudioStore.getState();
+    store.rememberIdempotencyKey("key-abc");
+    expect(useStudioStore.getState().appliedIdempotencyKeys.size).toBe(1);
+
+    store.resetRunTracking();
+    expect(useStudioStore.getState().appliedIdempotencyKeys.size).toBe(0);
+  });
+
+  it("resets idempotency keys with resetWorkflowArtifacts", () => {
+    const store = useStudioStore.getState();
+    store.rememberIdempotencyKey("key-xyz");
+    expect(useStudioStore.getState().appliedIdempotencyKeys.size).toBe(1);
+
+    store.resetWorkflowArtifacts();
+    expect(useStudioStore.getState().appliedIdempotencyKeys.size).toBe(0);
+  });
+});
+
 describe("studio-store reconciliation", () => {
   beforeEach(() => {
     resetStore();
@@ -177,7 +226,8 @@ describe("studio-store reconciliation", () => {
 
     const state = useStudioStore.getState();
     expect(state.cardsById["edit-1"]?.status).toBe("adopted");
-    expect(state.activeCardId).toBe("edit-1");
+    // After adopt, focus advances to the next actionable card (edit-2 is still pending)
+    expect(state.activeCardId).toBe("edit-2");
   });
 
   it("preserves backend card order during recovery hydration", () => {

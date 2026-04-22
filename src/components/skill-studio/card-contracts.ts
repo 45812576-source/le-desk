@@ -453,42 +453,66 @@ export function getStudioCardContract(contractId: string | null | undefined): St
   return CONTRACTS[contractId] ?? null;
 }
 
-export function resolveStudioCardContract(card: WorkbenchCard | null): StudioCardContract | null {
-  if (!card) return null;
-  let contract: StudioCardContract | null = null;
-  if (card.contractId) {
-    contract = getStudioCardContract(card.contractId);
-    if (contract) {
-      // fallback: contract CTA 为空且卡有 fileRole 时补上 FILE_ROLE_CTAS
-      if (contract.ctas.length === 0 && card.fileRole && FILE_ROLE_CTAS[card.fileRole]) {
-        return { ...contract, ctas: FILE_ROLE_CTAS[card.fileRole] };
-      }
-      return contract;
-    }
-  }
-  if (card.returnTo === "confirm" || card.source === "bind_back" || card.raw?.origin === "bind_back") contract = CONTRACTS["confirm.bind_back"];
-  else if (card.stagedEditId) contract = CONTRACTS["confirm.staged_edit_review"];
-  else if (card.id.startsWith("create:architect:")) contract = CONTRACTS["architect.phase.execute"];
-  else if (card.id.startsWith("fixing:current:")) contract = CONTRACTS["fixing.task"];
-  else if (card.id.startsWith("fixing:task:")) {
-    contract = card.fixTask?.type === "run_targeted_retest"
-      ? CONTRACTS["fixing.targeted_retest"]
-      : CONTRACTS["fixing.task"];
-  }
-  else if (card.id === "fixing:overview") contract = CONTRACTS["fixing.overview"];
-  else if (card.id === "create:onboarding") contract = CONTRACTS["create.onboarding"];
-  else if (card.id === "create:summary-ready") contract = CONTRACTS["create.summary_ready"];
-  else if (card.id === "refine:draft-ready") contract = CONTRACTS["refine.draft_ready"];
-  else if (card.id === "refine:file-split") contract = CONTRACTS["refine.file_split"];
-  else if (card.id === "refine:tool-suggestion") contract = CONTRACTS["refine.tool_suggestion"];
-  else if (card.id === "refine:knowledge-hint") contract = CONTRACTS["refine.knowledge_binding_hint"];
-  else if (card.id === "testing:test-ready") contract = CONTRACTS["validation.test_ready"];
-  else if (card.id === "release:test-passed") contract = CONTRACTS["release.test_passed"];
-  else if (card.id === "release:submit") contract = CONTRACTS["release.submit"];
-  else if (card.mode === "governance") contract = CONTRACTS["governance.panel"];
+/** card.id → contractId 的静态映射（用于 contractId 未显式设置时的 fallback） */
+const CARD_ID_TO_CONTRACT: Record<string, string> = {
+  "fixing:overview": "fixing.overview",
+  "create:onboarding": "create.onboarding",
+  "create:summary-ready": "create.summary_ready",
+  "refine:draft-ready": "refine.draft_ready",
+  "refine:file-split": "refine.file_split",
+  "refine:tool-suggestion": "refine.tool_suggestion",
+  "refine:knowledge-hint": "refine.knowledge_binding_hint",
+  "testing:test-ready": "validation.test_ready",
+  "release:test-passed": "release.test_passed",
+  "release:submit": "release.submit",
+};
 
-  if (contract && contract.ctas.length === 0 && card.fileRole && FILE_ROLE_CTAS[card.fileRole]) {
+/** card.id prefix → contractId 的前缀匹配（按优先级排序） */
+const CARD_ID_PREFIX_TO_CONTRACT: [string, string][] = [
+  ["create:architect:", "architect.phase.execute"],
+  ["fixing:current:", "fixing.task"],
+];
+
+function withFileRoleCtas(contract: StudioCardContract, card: WorkbenchCard): StudioCardContract {
+  if (contract.ctas.length === 0 && card.fileRole && FILE_ROLE_CTAS[card.fileRole]) {
     return { ...contract, ctas: FILE_ROLE_CTAS[card.fileRole] };
   }
   return contract;
+}
+
+function resolveContractByCardShape(card: WorkbenchCard): StudioCardContract | null {
+  // 1. bind_back 回绑卡
+  if (card.returnTo === "confirm" || card.source === "bind_back" || card.raw?.origin === "bind_back") {
+    return CONTRACTS["confirm.bind_back"];
+  }
+  // 2. staged edit 待确认
+  if (card.stagedEditId) return CONTRACTS["confirm.staged_edit_review"];
+  // 3. 精确 id 匹配
+  const exact = CARD_ID_TO_CONTRACT[card.id];
+  if (exact) return CONTRACTS[exact];
+  // 4. 前缀匹配
+  for (const [prefix, contractId] of CARD_ID_PREFIX_TO_CONTRACT) {
+    if (card.id.startsWith(prefix)) return CONTRACTS[contractId];
+  }
+  // 5. fixing:task:* 需要判断子类型
+  if (card.id.startsWith("fixing:task:")) {
+    return card.fixTask?.type === "run_targeted_retest"
+      ? CONTRACTS["fixing.targeted_retest"]
+      : CONTRACTS["fixing.task"];
+  }
+  // 6. governance mode 兜底
+  if (card.mode === "governance") return CONTRACTS["governance.panel"];
+  return null;
+}
+
+export function resolveStudioCardContract(card: WorkbenchCard | null): StudioCardContract | null {
+  if (!card) return null;
+  // 优先用显式 contractId 查找
+  if (card.contractId) {
+    const contract = getStudioCardContract(card.contractId);
+    if (contract) return withFileRoleCtas(contract, card);
+  }
+  // fallback: 根据卡的结构特征推断
+  const contract = resolveContractByCardShape(card);
+  return contract ? withFileRoleCtas(contract, card) : null;
 }

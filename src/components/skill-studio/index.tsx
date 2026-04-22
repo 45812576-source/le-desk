@@ -968,7 +968,7 @@ export function SkillStudio({
       )}
 
       {/* Workbench body: SkillList | Card Queue | Chat | File Workspace (slide-out) | Governance */}
-      <div className="flex-1 flex overflow-hidden">
+      <div className="flex-1 min-h-0 flex overflow-hidden">
         {/* Left: Skill list */}
         <SkillList
           skills={skills}
@@ -1125,8 +1125,8 @@ export function SkillStudio({
           }}
         />
 
-        {/* Studio Chat */}
-        <div className="w-[420px] flex-shrink-0 overflow-hidden bg-white border-r-2 border-[#1A202C]">
+        {/* Studio Chat — fills remaining space; editor/governance overlay on top */}
+        <div className="flex-1 min-w-0 relative overflow-hidden bg-white">
           <StudioChat
             ref={chatActionsRef}
             convId={convId}
@@ -1173,10 +1173,9 @@ export function SkillStudio({
             onPendingToolSuggestionChange={handlePendingToolSuggestionChange}
             onPendingFileSplitChange={handlePendingFileSplitChange}
           />
-        </div>
 
-        {/* File Workspace - 从右侧推出 */}
-        <div className={`flex-shrink-0 border-l-2 border-[#1A202C] bg-white transition-all duration-300 ease-in-out overflow-hidden ${
+          {/* File Workspace - 覆盖在 StudioChat 之上 */}
+        <div className={`absolute top-0 right-0 bottom-0 border-l-2 border-[#1A202C] bg-white transition-all duration-300 ease-in-out overflow-hidden z-20 ${
           editorVisible ? "w-[480px] opacity-100" : "w-0 opacity-0 border-l-0"
         }`}>
           <div className="w-[480px] h-full flex flex-col">
@@ -1247,9 +1246,9 @@ export function SkillStudio({
           </div>
         </div>
 
-        {/* Governance Panel */}
+        {/* Governance Panel — 覆盖在 StudioChat 之上 */}
         {showGovernancePanel && selectedSkill && (
-          <div className="w-[460px] flex-shrink-0 border-l-2 border-[#1A202C] overflow-hidden bg-white">
+          <div className="absolute top-0 right-0 bottom-0 w-[460px] border-l-2 border-[#1A202C] overflow-hidden bg-white z-30">
             <SkillGovernancePanel
               skill={selectedSkill}
               testFlowIntent={chatTestFlowIntent}
@@ -1267,6 +1266,7 @@ export function SkillStudio({
             />
           </div>
         )}
+        </div>
       </div>
 
       {/* Import modal */}

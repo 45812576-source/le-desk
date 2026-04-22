@@ -51,10 +51,12 @@ export interface StudioSessionState {
   activeRunVersion: number | null;
   archivedRuns: ArchivedStudioRun[];
   appliedPatchSeqs: number[];
+  appliedIdempotencyKeys: Set<string>;
   deepPatches: StudioDeepPatch[];
   setActiveRun: (runId: string, runVersion: number) => void;
   archiveRun: (run: ArchivedStudioRun) => void;
   rememberPatchSeq: (patchSeq: number) => void;
+  rememberIdempotencyKey: (key: string) => void;
   addDeepPatch: (patch: StudioDeepPatch) => void;
   resetRunTracking: () => void;
 
@@ -111,6 +113,15 @@ export interface StudioSessionState {
   studioError: StudioOrchestrationErrorPayload | null;
   setStudioError: (error: StudioOrchestrationErrorPayload | null) => void;
 
+  transitionBlock: { reason: string; blockedCardId: string | null; prerequisiteCardIds: string[] } | null;
+  setTransitionBlock: (block: { reason: string; blockedCardId: string | null; prerequisiteCardIds: string[] } | null) => void;
+
+  reconcileConflict: { message: string; conflictDetails: Record<string, unknown> } | null;
+  setReconcileConflict: (conflict: { message: string; conflictDetails: Record<string, unknown> } | null) => void;
+
+  timelineEntries: Array<{ id: string; type: string; timestamp: string; message: string; cardId?: string | null; payload?: Record<string, unknown> }>;
+  appendTimelineEntry: (entry: { id: string; type: string; timestamp: string; message: string; cardId?: string | null; payload?: Record<string, unknown> }) => void;
+
   architectArtifacts: ArchitectArtifact[];
   mergeArchitectArtifacts: (artifacts: ArchitectArtifact[]) => void;
   clearArchitectArtifacts: () => void;
@@ -130,6 +141,7 @@ const initialState = {
   activeRunVersion: null as number | null,
   archivedRuns: [] as ArchivedStudioRun[],
   appliedPatchSeqs: [] as number[],
+  appliedIdempotencyKeys: new Set<string>(),
   deepPatches: [] as StudioDeepPatch[],
   activeWorkbenchCardId: null as string | null,
   activeCardId: null as string | null,
@@ -158,6 +170,9 @@ const initialState = {
   queueWindow: null as CardQueueWindow | null,
   resumeHintDismissed: false,
   studioError: null as StudioOrchestrationErrorPayload | null,
+  transitionBlock: null as { reason: string; blockedCardId: string | null; prerequisiteCardIds: string[] } | null,
+  reconcileConflict: null as { message: string; conflictDetails: Record<string, unknown> } | null,
+  timelineEntries: [] as Array<{ id: string; type: string; timestamp: string; message: string; cardId?: string | null; payload?: Record<string, unknown> }>,
   architectArtifacts: [] as ArchitectArtifact[],
 };
 
@@ -255,6 +270,18 @@ export const useStudioStore = create<StudioSessionState>((set) => ({
         ? s
         : { appliedPatchSeqs: [...s.appliedPatchSeqs, patchSeq].slice(-200) }
     )),
+  rememberIdempotencyKey: (key) =>
+    set((s) => {
+      if (s.appliedIdempotencyKeys.has(key)) return s;
+      const next = new Set(s.appliedIdempotencyKeys);
+      next.add(key);
+      // Cap at 200 entries
+      if (next.size > 200) {
+        const iter = next.values();
+        next.delete(iter.next().value!);
+      }
+      return { appliedIdempotencyKeys: next };
+    }),
   addDeepPatch: (patch) =>
     set((s) => ({
       deepPatches: s.deepPatches.some((existing) =>
@@ -270,6 +297,7 @@ export const useStudioStore = create<StudioSessionState>((set) => ({
     activeRunVersion: null,
     archivedRuns: [],
     appliedPatchSeqs: [],
+    appliedIdempotencyKeys: new Set<string>(),
     deepPatches: [],
   }),
   setActiveWorkbenchCardId: (id) => set((s) => {
@@ -463,8 +491,9 @@ export const useStudioStore = create<StudioSessionState>((set) => ({
           }
         : s.cardsById;
       const nextCardOrder = linkedWorkbenchCardId ? orderWorkbenchCards(nextCardsById, s.cardOrder) : s.cardOrder;
-      // 采纳后焦点保留在刚处理完的卡上，让用户确认结果
-      const activeCardId = linkedWorkbenchCardId ?? s.activeCardId;
+      const activeCardId = linkedWorkbenchCardId
+        ? deriveActiveCardId(nextCardsById, nextCardOrder, linkedWorkbenchCardId)
+        : s.activeCardId;
       return {
         stagedEditLedger,
         cardsById: nextCardsById,
@@ -527,6 +556,15 @@ export const useStudioStore = create<StudioSessionState>((set) => ({
   dismissResumeHint: () => set({ resumeHintDismissed: true }),
   setStudioError: (error) => set({ studioError: error }),
 
+  setTransitionBlock: (block) => set({ transitionBlock: block }),
+  setReconcileConflict: (conflict) => set({ reconcileConflict: conflict }),
+  appendTimelineEntry: (entry) =>
+    set((s) => ({
+      timelineEntries: s.timelineEntries.some((e) => e.id === entry.id)
+        ? s.timelineEntries
+        : [...s.timelineEntries, entry].slice(-100),
+    })),
+
   mergeArchitectArtifacts: (artifacts) =>
     set((s) => {
       const byId = new Map(s.architectArtifacts.map((a) => [a.id, a]));
@@ -545,6 +583,7 @@ export const useStudioStore = create<StudioSessionState>((set) => ({
     activeRunVersion: null,
     archivedRuns: [],
     appliedPatchSeqs: [],
+    appliedIdempotencyKeys: new Set<string>(),
     deepPatches: [],
     activeWorkbenchCardId: null,
     activeCardId: null,
@@ -563,6 +602,9 @@ export const useStudioStore = create<StudioSessionState>((set) => ({
     stagedEdits: [],
     stagedEditSources: {},
     stagedEditLedger: {},
+    transitionBlock: null,
+    reconcileConflict: null,
+    timelineEntries: [],
     architectArtifacts: [],
   }),
 

@@ -200,41 +200,66 @@ export const FILE_ROLE_LABEL: Record<StudioFileRole, string> = {
   unknown_asset: "文件",
 };
 
+/** 焦点排序常量（高→低，值越大优先级越高） */
+export const FOCUS_RANK = {
+  INACTIVE:                    0,
+  FALLBACK:                  100,
+  SELECTION:                  10,
+  ARCHITECT_LEGACY:          720,
+  RELEASE_GENERIC:           740,
+  RELEASE_KEY:               760,
+  REFINE:                    800,
+  ARCHITECT_PENDING:         780,
+  CREATE_GENERIC:            840,
+  ARCHITECT_ACTIVE:          860,
+  CREATE_SUMMARY_READY:      875,
+  GOVERNANCE_KIND:           880,
+  VALIDATION_KIND:           890,
+  TESTING_TEST_READY:        900,
+  GOVERNANCE_MODE:           920,
+  FIXING_GENERIC:            940,
+  FIXING_OVERVIEW:           960,
+  FIXING_CURRENT:            970,
+  PENDING_FILE_CONFIRMATION: 1000,
+  EXTERNAL_WAITING_VALIDATION: 990,
+  EXTERNAL_WAITING_BINDBACK: 1010,
+} as const;
+
 export function getWorkbenchCardFocusRank(card: WorkbenchCard): number {
-  if (!isActionableWorkbenchCard(card)) return 0;
+  if (!isActionableWorkbenchCard(card)) return FOCUS_RANK.INACTIVE;
   // 0. 外部返回的卡优先成为 active card
-  if (card.externalBuildStatus === "returned_waiting_bindback") return 1010;
-  if (card.externalBuildStatus === "returned_waiting_validation") return 990;
+  if (card.externalBuildStatus === "returned_waiting_bindback") return FOCUS_RANK.EXTERNAL_WAITING_BINDBACK;
+  if (card.externalBuildStatus === "returned_waiting_validation") return FOCUS_RANK.EXTERNAL_WAITING_VALIDATION;
   // 1. confirm / staged edit 待确认
-  if (isPendingFileConfirmationCard(card)) return 1000;
+  if (isPendingFileConfirmationCard(card)) return FOCUS_RANK.PENDING_FILE_CONFIRMATION;
   // 2. fixing 当前任务
-  if (card.id.startsWith("fixing:current:")) return 970;
+  if (card.id.startsWith("fixing:current:")) return FOCUS_RANK.FIXING_CURRENT;
   // 3. fixing overview / 其他
-  if (card.id === "fixing:overview") return 960;
-  if (card.kind === "fixing") return 940;
+  if (card.id === "fixing:overview") return FOCUS_RANK.FIXING_OVERVIEW;
+  if (card.kind === "fixing") return FOCUS_RANK.FIXING_GENERIC;
   // 4. governance 门禁阻断（仅 mode=governance 的真正门禁卡）
-  if (card.mode === "governance") return 920;
+  if (card.mode === "governance") return FOCUS_RANK.GOVERNANCE_MODE;
   // 5. validation 测试推进
-  if (card.id === "testing:test-ready") return 900;
-  if (card.kind === "validation") return 890;
+  if (card.id === "testing:test-ready") return FOCUS_RANK.TESTING_TEST_READY;
+  if (card.kind === "validation") return FOCUS_RANK.VALIDATION_KIND;
   // 5.5. governance 普通卡（kind=governance 但 mode 非 governance，如文件卡）
-  if (card.kind === "governance") return 880;
-  // 6. create summary-ready
-  if (card.id === "create:summary-ready") return 880;
+  if (card.kind === "governance") return FOCUS_RANK.GOVERNANCE_KIND;
+  // 6. create summary-ready（低于 governance kind 以避免冲突）
+  if (card.id === "create:summary-ready") return FOCUS_RANK.CREATE_SUMMARY_READY;
   // 7. create architect active
-  if (card.id.startsWith("create:architect:")) return card.status === "active" ? 860 : 780;
+  if (card.id.startsWith("create:architect:")) return card.status === "active" ? FOCUS_RANK.ARCHITECT_ACTIVE : FOCUS_RANK.ARCHITECT_PENDING;
   // 8. create 其他
-  if (card.kind === "create") return 840;
+  if (card.kind === "create") return FOCUS_RANK.CREATE_GENERIC;
   // 9. refine 建议性完善
-  if (card.kind === "refine") return 800;
+  if (card.kind === "refine") return FOCUS_RANK.REFINE;
   // 10. release 发布前动作
-  if (card.id === "release:test-passed" || card.id === "release:submit") return 760;
-  if (card.kind === "release") return 740;
+  if (card.id === "release:test-passed" || card.id === "release:submit") return FOCUS_RANK.RELEASE_KEY;
+  if (card.kind === "release") return FOCUS_RANK.RELEASE_GENERIC;
   // 11. architect phase（旧兼容）
-  if (card.kind === "architect") return 720;
+  if (card.kind === "architect") return FOCUS_RANK.ARCHITECT_LEGACY;
   // 12. selected-file 兜底
-  if (card.source === "selection") return 10;
-  return 100;
+  if (card.source === "selection") return FOCUS_RANK.SELECTION;
+  return FOCUS_RANK.FALLBACK;
 }
 
 export function resolveFocusedWorkbenchCardId(
@@ -249,7 +274,9 @@ export function resolveFocusedWorkbenchCardId(
     .sort((left, right) => {
       const rankDelta = getWorkbenchCardFocusRank(right) - getWorkbenchCardFocusRank(left);
       if (rankDelta !== 0) return rankDelta;
-      return right.priority - left.priority;
+      const priorityDelta = right.priority - left.priority;
+      if (priorityDelta !== 0) return priorityDelta;
+      return left.id < right.id ? -1 : left.id > right.id ? 1 : 0;
     })[0] ?? null;
   if (!bestCard) return preferredCard?.id ?? cards[0]?.id ?? null;
   if (

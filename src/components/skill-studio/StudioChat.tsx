@@ -29,10 +29,8 @@ import {
 import { recoverStudioHistory } from "./history-recovery";
 import { deriveStudioRecoveryDraftImpact, parseStudioRecoveryPayload, parseStudioStatePayload } from "./studio-state-adapter";
 import { resolveStudioMetaReply, resolveWorkflowNextActionMessage, type StudioMetaDirective } from "./studio-meta";
-import { isFrontendRunProtocolEnabled, isPatchProtocolEnabled } from "./feature-flags";
+import { applyStudioPatch, type PatchContext } from "./patch-reducer";
 import {
-  normalizeAuditSummaryPayload,
-  normalizeDeepPatchEnvelope,
   normalizeStudioErrorPayload,
   normalizeWorkflowCardPayload,
   normalizeWorkflowStagedEditPayload,
@@ -40,8 +38,7 @@ import {
   parseWorkflowStatePayload,
 } from "./workflow-adapter";
 import type { StudioPatchEnvelope, WorkflowActionResult, WorkflowStateData } from "./workflow-protocol";
-import type { CardQueueWindow, StudioFileRole, StudioHandoffPolicy, StudioReturnTarget, StudioRouteDestination, StudioRouteKind, WorkbenchCard, WorkbenchValidationSource } from "./workbench-types";
-import { asCardQueueWindow } from "./workbench";
+import type { CardQueueWindow, StudioFileRole, StudioHandoffPolicy, StudioReturnTarget, StudioRouteDestination, StudioRouteKind, WorkbenchValidationSource } from "./workbench-types";
 import type {
   ChatMessage,
   StudioDraft,
@@ -320,7 +317,8 @@ export const StudioChat = forwardRef<StudioChatHandle, StudioChatProps>(function
   const setStudioError = useStudioStore((s) => s.setStudioError);
   const studioChatSource = skillId ? `studio-chat:${skillId}:${convId}` : `studio-chat:${convId}`;
   const [workflowNextActionRunning, setWorkflowNextActionRunning] = useState(false);
-  const frontendRunProtocolEnabled = isFrontendRunProtocolEnabled(storeWorkflowState);
+  // Run protocol is always enabled — feature flag removed
+  const frontendRunProtocolEnabled = true;
 
   const storeMergeArchitectArtifacts = useStudioStore((s) => s.mergeArchitectArtifacts);
   const storeClearArchitectArtifacts = useStudioStore((s) => s.clearArchitectArtifacts);
@@ -960,153 +958,36 @@ export const StudioChat = forwardRef<StudioChatHandle, StudioChatProps>(function
         : 1;
     if (!runId) return;
     setActiveRunId(runId);
-    if (isFrontendRunProtocolEnabled(useStudioStore.getState().workflowState)) {
-      setActiveRunMeta(runId, Number.isFinite(runVersion) && runVersion > 0 ? runVersion : 1);
-    }
+    setActiveRunMeta(runId, Number.isFinite(runVersion) && runVersion > 0 ? runVersion : 1);
+  }
+
+  function buildPatchContext(): PatchContext {
+    return {
+      store: useStudioStore.getState(),
+      source: studioChatSource,
+      setRouteInfo,
+      setStreamStage,
+      setStreaming,
+      setActiveRunId,
+      setStoreSessionMode,
+      onExpandEditor,
+      onMemoRefresh,
+    };
   }
 
   function applyPatchEnvelope(envelope: StudioPatchEnvelope) {
-    const currentState = useStudioStore.getState();
-    if (!isPatchProtocolEnabled(currentState.workflowState)) {
-      return;
-    }
-    if (currentState.activeRunId && currentState.activeRunId !== envelope.run_id) {
-      return;
-    }
-    if (currentState.appliedPatchSeqs.includes(envelope.patch_seq)) {
-      return;
-    }
-    rememberPatchSeq(envelope.patch_seq);
-    activateRunFromPayload({ run_id: envelope.run_id, run_version: envelope.run_version });
-
-    const payload = envelope.payload;
-    if (envelope.patch_type === "workflow_patch") {
-      const workflowState = parseWorkflowStatePayload(payload);
-      if (workflowState) {
-        setStoreWorkflowState(
-          currentState.workflowState
-            ? { ...currentState.workflowState, ...workflowState }
-            : workflowState
-        );
-      }
-      if ("session_mode" in payload) {
-        applyRouteStatus(payload);
-      }
-      if ("stage" in payload && typeof payload.stage === "string") {
-        applyStatusStage(payload.stage);
-      }
-      return;
-    }
-    if (envelope.patch_type === "governance_patch") {
-      addGovernanceCard(normalizeWorkflowCardPayload(payload, studioChatSource));
-      return;
-    }
-    if (envelope.patch_type === "staged_edit_patch") {
-      addStagedEdit(normalizeWorkflowStagedEditPayload(payload, studioChatSource));
-      onExpandEditor?.();
-      return;
-    }
-    if (envelope.patch_type === "card_patch") {
-      addGovernanceCard(normalizeWorkflowCardPayload(payload, studioChatSource));
-      return;
-    }
-    if (envelope.patch_type === "artifact_patch") {
-      const artifact = normalizeArchitectArtifactPayload(payload);
-      if (artifact) mergeArchitectArtifacts([artifact]);
-      return;
-    }
-    if (envelope.patch_type === "card_status_patch") {
-      applyCardStatusPatch(payload);
-      return;
-    }
-    if (envelope.patch_type === "audit_patch") {
-      setAuditResult(normalizeAuditSummaryPayload(payload));
-      return;
-    }
-    if (envelope.patch_type === "deep_summary_patch" || envelope.patch_type === "evidence_patch") {
-      const deepPatch = normalizeDeepPatchEnvelope(envelope);
-      if (deepPatch) {
-        addDeepPatch(deepPatch);
-      }
-      setRouteInfo((prev) => prev ? { ...prev, deep_status: "completed" } : prev);
-      return;
-    }
-    if (envelope.patch_type === "stale_patch") {
-      applyStalePatch(payload);
-      return;
-    }
-    if (envelope.patch_type === "queue_window_patch") {
-      applyQueueWindowPatch(payload);
-      return;
+    const result = applyStudioPatch(envelope, buildPatchContext());
+    if (result.auditResult) {
+      setAuditResult(result.auditResult);
     }
   }
 
-  function applyStalePatch(data: Record<string, unknown>) {
-    const cardIds = Array.isArray(data.card_ids)
-      ? data.card_ids.filter((id): id is string => typeof id === "string")
-      : [];
-    for (const id of cardIds) {
-      updateWorkbenchCardStatus(id, "stale");
-    }
-  }
-
-  function applyQueueWindowPatch(data: Record<string, unknown>) {
-    const parsed = asCardQueueWindow(data);
-    if (parsed) {
-      setStoreQueueWindow(parsed);
-    }
-  }
-
-  function normalizeIncomingWorkbenchStatus(status: unknown): WorkbenchCard["status"] | null {
-    if (
-      status === "pending"
-      || status === "active"
-      || status === "reviewing"
-      || status === "adopted"
-      || status === "rejected"
-      || status === "dismissed"
-      || status === "stale"
-    ) {
-      return status;
-    }
-    if (status === "blocked" || status === "reopened") {
-      return "pending";
-    }
-    if (status === "archived") {
-      return "dismissed";
-    }
-    return null;
-  }
-
-  function applyCardStatusPatch(data: Record<string, unknown>) {
-    const cardId = typeof data.card_id === "string"
-      ? data.card_id
-      : typeof data.id === "string"
-        ? data.id
-        : null;
-    const status = normalizeIncomingWorkbenchStatus(data.status);
-    if (!cardId || !status) return;
-
-    // Store exit_reason on the card before updating status
-    const exitReason = typeof data.exit_reason === "string" ? data.exit_reason : null;
-    if (exitReason) {
-      const existing = useStudioStore.getState().cardsById[cardId];
-      if (existing) {
-        upsertWorkbenchCard({ ...existing, exitReason });
-      }
-    }
-
-    updateWorkbenchCardStatus(cardId, status);
-    if (status === "adopted" || status === "rejected" || status === "dismissed") {
-      updateCardStatus(cardId, status);
-    }
-
-    // Activate next card if specified
-    const nextCardId = typeof data.next_card_id === "string" ? data.next_card_id : null;
-    if (nextCardId && (status === "adopted" || status === "rejected" || status === "dismissed")) {
-      const nextCard = useStudioStore.getState().cardsById[nextCardId];
-      if (nextCard) {
-        setActiveCardId(nextCardId);
+  function cleanupStaleRunArtifacts() {
+    // Mark all pending/active workbench cards as stale when a run is cancelled/superseded
+    const { cardsById } = useStudioStore.getState();
+    for (const card of Object.values(cardsById)) {
+      if (card.status === "pending" || card.status === "active") {
+        updateWorkbenchCardStatus(card.id, "stale");
       }
     }
   }
@@ -1122,7 +1003,7 @@ export const StudioChat = forwardRef<StudioChatHandle, StudioChatProps>(function
     if (eventName === "run_superseded") {
       const runId = typeof data.run_id === "string" ? data.run_id : typeof data.id === "string" ? data.id : null;
       const runVersion = typeof data.run_version === "number" ? data.run_version : 1;
-      if (runId && isFrontendRunProtocolEnabled(useStudioStore.getState().workflowState)) {
+      if (runId) {
         archiveRun({
           runId,
           runVersion,
@@ -1131,6 +1012,7 @@ export const StudioChat = forwardRef<StudioChatHandle, StudioChatProps>(function
           archivedAt: typeof data.superseded_at === "string" ? data.superseded_at : null,
         });
       }
+      cleanupStaleRunArtifacts();
       setRouteInfo((prev) => prev ? { ...prev, deep_status: "superseded" } : prev);
       setStreaming(false);
       setActiveRunId(null);
@@ -1146,62 +1028,22 @@ export const StudioChat = forwardRef<StudioChatHandle, StudioChatProps>(function
       applyStatusStage(data.stage as string);
       return;
     }
-    if (eventName === "workflow_state") {
-      const workflowState = parseWorkflowStatePayload(data);
-      if (workflowState) {
-        setStoreWorkflowState(workflowState);
-      }
-      return;
-    }
-    if (eventName === "audit_summary") {
-      setAuditResult(normalizeAuditSummaryPayload(data));
-      return;
-    }
-    if (eventName === "governance_card") {
-      addGovernanceCard(normalizeWorkflowCardPayload(data, studioChatSource));
-      return;
-    }
-    if (eventName === "staged_edit_notice") {
-      addStagedEdit(normalizeWorkflowStagedEditPayload(data, studioChatSource));
-      onExpandEditor?.();
-      return;
-    }
-    if (eventName === "card_patch") {
-      addGovernanceCard(normalizeWorkflowCardPayload(data, studioChatSource));
-      return;
-    }
-    if (eventName === "artifact_patch") {
-      const artifact = normalizeArchitectArtifactPayload(data);
-      if (artifact) mergeArchitectArtifacts([artifact]);
-      return;
-    }
-    if (eventName === "card_status_patch") {
-      applyCardStatusPatch(data);
-      return;
-    }
-    if (eventName === "stale_patch") {
-      applyStalePatch(data);
-      return;
-    }
-    if (eventName === "queue_window_patch") {
-      applyQueueWindowPatch(data);
-      return;
-    }
-    if (eventName === "route_status") {
-      applyRouteStatus(data);
-      return;
-    }
-    if (eventName === "assist_skills_status") {
-      const rawSkills = (data as { skills?: unknown[] }).skills || [];
-      setActiveAssistSkills(rawSkills.map((s, i) =>
-        typeof s === "string" ? { id: i, name: s, status: "active" } : (s as { id: number; name: string; status: string })
-      ));
-      return;
-    }
-    if (eventName === "workflow_event") {
-      // workflow_event 是后端 _append() 自动生成的 envelope 包装。
-      // 原始事件（governance_card / workflow_state 等）已被上层 case 消费，
-      // 此处仅静默接收，避免 console warning，为未来审计面板预留入口。
+    // 以下结构化事件已全部通过 patch_applied envelope 到达，
+    // 保留 workflow_event 静默消费，避免 console warning。
+    if (
+      eventName === "workflow_state"
+      || eventName === "audit_summary"
+      || eventName === "governance_card"
+      || eventName === "staged_edit_notice"
+      || eventName === "card_patch"
+      || eventName === "artifact_patch"
+      || eventName === "card_status_patch"
+      || eventName === "stale_patch"
+      || eventName === "queue_window_patch"
+      || eventName === "route_status"
+      || eventName === "assist_skills_status"
+      || eventName === "workflow_event"
+    ) {
       return;
     }
     if ((eventName === "delta" || eventName === "content_block_delta") && typeof data.text === "string") {
@@ -1229,7 +1071,7 @@ export const StudioChat = forwardRef<StudioChatHandle, StudioChatProps>(function
     if (eventName === "done") {
       updateLastStreamingMessage(parseStructuredStudioMessage(runAccTextRef.current).cleanText, false);
       const currentRunId = useStudioStore.getState().activeRunId;
-      if (currentRunId && isFrontendRunProtocolEnabled(useStudioStore.getState().workflowState)) {
+      if (currentRunId) {
         archiveRun({
           runId: currentRunId,
           runVersion: useStudioStore.getState().activeRunVersion || 1,
@@ -1305,9 +1147,7 @@ export const StudioChat = forwardRef<StudioChatHandle, StudioChatProps>(function
         );
         if (cancelled || !active.run || !["queued", "running"].includes(active.run.status)) return;
         setActiveRunId(active.run.id);
-        if (isFrontendRunProtocolEnabled(useStudioStore.getState().workflowState)) {
-          setActiveRunMeta(active.run.id, typeof active.run.run_version === "number" ? active.run.run_version : 1);
-        }
+        setActiveRunMeta(active.run.id, typeof active.run.run_version === "number" ? active.run.run_version : 1);
         setStudioError(null);
         setStreaming(true);
         setStreamStage("reconnecting");
@@ -1317,8 +1157,16 @@ export const StudioChat = forwardRef<StudioChatHandle, StudioChatProps>(function
           return hasLoading ? prev : [...prev, { role: "assistant", text: "正在恢复后台运行…", loading: true }];
         });
 
+        // Compute after_sequence from already-applied patches for DB replay
+        const storeSnapshot = useStudioStore.getState();
+        const appliedSeqs = storeSnapshot.appliedPatchSeqs;
+        const afterSequence = appliedSeqs.length > 0 ? Math.max(...appliedSeqs) : 0;
+
         const token = getToken();
-        const resp = await fetch(`/api/proxy/conversations/${convId}/studio-runs/${active.run.id}/events`, {
+        const eventsUrl = afterSequence > 0
+          ? `/api/proxy/conversations/${convId}/studio-runs/${active.run.id}/events?after=${afterSequence}`
+          : `/api/proxy/conversations/${convId}/studio-runs/${active.run.id}/events`;
+        const resp = await fetch(eventsUrl, {
           headers: token ? { Authorization: `Bearer ${token}` } : {},
           signal: ctrl.signal,
         });
@@ -2004,48 +1852,17 @@ export const StudioChat = forwardRef<StudioChatHandle, StudioChatProps>(function
               } else if (curEvt === "studio_route") {
                 // 旧协议，复用 route_status 逻辑
                 applyRouteStatus(data as Record<string, unknown>);
-              } else if (curEvt === "workflow_state") {
-                const workflowState = parseWorkflowStatePayload(data as Record<string, unknown>);
-                if (workflowState) {
-                  setStoreWorkflowState(workflowState);
-                }
               } else if (curEvt === "studio_audit") {
                 setAuditResult(data as AuditResult);
               } else if (curEvt === "studio_governance_action") {
                 setPendingGovernanceActions((prev) => [...prev, data as GovernanceActionCard]);
               } else if (curEvt === "studio_phase_progress") {
                 setPhaseProgress((prev) => [...prev, data as PhaseProgress]);
-              } else if (curEvt === "governance_card") {
-                addGovernanceCard(normalizeWorkflowCardPayload(data as Record<string, unknown>, studioChatSource));
-              } else if (curEvt === "staged_edit_notice") {
-                addStagedEdit(normalizeWorkflowStagedEditPayload(data as Record<string, unknown>, studioChatSource));
-                onExpandEditor?.();
-              } else if (curEvt === "card_patch") {
-                addGovernanceCard(normalizeWorkflowCardPayload(data as Record<string, unknown>, studioChatSource));
-              } else if (curEvt === "artifact_patch") {
-                const artifact = normalizeArchitectArtifactPayload(data as Record<string, unknown>);
-                if (artifact) mergeArchitectArtifacts([artifact]);
-              } else if (curEvt === "card_status_patch") {
-                applyCardStatusPatch(data as Record<string, unknown>);
-              } else if (curEvt === "stale_patch") {
-                applyStalePatch(data as Record<string, unknown>);
-              } else if (curEvt === "queue_window_patch") {
-                applyQueueWindowPatch(data as Record<string, unknown>);
               } else if (curEvt === "patch_applied") {
                 const envelope = parseStudioPatchEnvelope(data as Record<string, unknown>);
                 if (envelope) {
                   applyPatchEnvelope(envelope);
                 }
-              } else if (curEvt === "assist_skills_status") {
-                // 后端发 string[]（skill name），转为前端需要的 {id, name, status}[]
-                const rawSkills = (data as { skills: unknown[] }).skills || [];
-                const normalized = rawSkills.map((s, i) =>
-                  typeof s === "string" ? { id: i, name: s, status: "active" } : (s as { id: number; name: string; status: string })
-                );
-                setActiveAssistSkills(normalized);
-              } else if (curEvt === "route_status") {
-                // 新协议：与 conversations.py 对齐
-                applyRouteStatus(data as Record<string, unknown>);
               } else if (curEvt === "architect_phase_status") {
                 setArchitectPhase(data as ArchitectPhaseStatus);
               } else if (curEvt === "architect_question") {
@@ -2068,11 +1885,9 @@ export const StudioChat = forwardRef<StudioChatHandle, StudioChatProps>(function
                 const ready = normalizeArchitectReadyForDraft(data as Record<string, unknown>);
                 setArchitectReady(ready);
                 mergeArchitectArtifacts([buildArchitectArtifactFromReadyForDraft(ready)]);
-              } else if (curEvt === "artifact_patch" || curEvt === "architect_artifact") {
+              } else if (curEvt === "architect_artifact") {
                 const artifact = normalizeArchitectArtifactPayload(data as Record<string, unknown>);
                 if (artifact) mergeArchitectArtifacts([artifact]);
-              } else if (curEvt === "audit_summary") {
-                setAuditResult(normalizeAuditSummaryPayload(data as Record<string, unknown>));
               } else if (curEvt === "studio_editor_target") {
                 const target = data as { file_type?: string; filename?: string };
                 if (target.filename) {
@@ -2158,6 +1973,13 @@ export const StudioChat = forwardRef<StudioChatHandle, StudioChatProps>(function
     try {
       await apiFetch(`/conversations/${convId}/studio-runs/${activeRunId}/cancel`, { method: "POST" });
       abortRef.current?.abort();
+      archiveRun({
+        runId: activeRunId,
+        runVersion: useStudioStore.getState().activeRunVersion || 1,
+        status: "cancelled",
+        archivedAt: new Date().toISOString(),
+      });
+      cleanupStaleRunArtifacts();
       setActiveRunId(null);
       setStreaming(false);
       setStreamStage(null);
@@ -2272,9 +2094,9 @@ export const StudioChat = forwardRef<StudioChatHandle, StudioChatProps>(function
   });
 
   return (
-    <div className="flex flex-1 min-w-0 border-l-2 border-[#1A202C] bg-white">
+    <div className="flex h-full min-w-0 border-l-2 border-[#1A202C] bg-white">
       {/* ═══ 左侧：聊天主区 ═══ */}
-      <div className="flex-1 flex flex-col min-w-0">
+      <div className="flex-1 flex flex-col min-w-0 min-h-0">
         {/* Header */}
         <div className="px-3 py-2.5 border-b-2 border-[#1A202C] flex items-center gap-2 flex-shrink-0 bg-[#EBF4F7]">
           <span className="text-[9px] font-bold uppercase tracking-widest text-[#00A3C4]">Studio Chat</span>

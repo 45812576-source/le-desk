@@ -54,8 +54,17 @@ export interface StudioPatchEnvelope {
     | "deep_summary_patch"
     | "evidence_patch"
     | "stale_patch"
-    | "queue_window_patch";
+    | "queue_window_patch"
+    | "run_status_patch"
+    | "card_queue_patch"
+    | "workspace_patch"
+    | "timeline_patch"
+    | "transition_blocked_patch"
+    | "tool_error_patch"
+    | "error_patch"
+    | "reconcile_patch";
   payload: Record<string, unknown>;
+  idempotency_key?: string;
   created_at?: string;
 }
 
