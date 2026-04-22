@@ -1,32 +1,47 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ChevronDown, X } from "lucide-react";
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import { PixelButton } from "@/components/pixel/PixelButton";
 import { apiFetch, getToken, dispatchAuthExpired } from "@/lib/api";
 import { consumeSandboxSessionStream } from "@/lib/sandbox-stream";
 import type { SkillDetail, SkillMemo, SandboxSession } from "@/lib/types";
 import { findMentionedSkillIds } from "@/lib/test-flow-client";
 import type { TestFlowResolveResponse, TestFlowSkillCandidate, TestFlowBlockedStage, TestFlowBlockedBefore, TestFlowGateReason, TestFlowGuidedStep } from "@/lib/test-flow-types";
-import { SkillMemoPanel } from "@/components/skill/SkillMemoPanel";
+// SkillMemoPanel removed — fix task rendering moved to StudioCardRail
 import { useStudioStore } from "@/lib/studio-store";
-import { SummaryCard } from "./cards/SummaryCard";
-import { DraftCard } from "./cards/DraftCard";
-import { ToolSuggestionCard } from "./cards/ToolSuggestionCard";
-import { FileSplitCard } from "./cards/FileSplitCard";
+// Card rendering moved to StudioCardRail — drawer removed
 import { GovernanceTimeline, type TimelineQuickAction } from "./GovernanceTimeline";
 import { RouteStatusBar } from "./RouteStatusBar";
 import { AssistSkillsBar } from "./AssistSkillsBar";
 import { resolveWorkflowActionEditorTarget, selectedFileFromEditorTarget } from "./editor-target";
 import { applyOps, estimateMessagesTokens, getMetadataFieldPreview, TOKEN_COMPRESS_THRESHOLD } from "./utils";
-import { parseStructuredStudioMessage } from "./message-parser";
+import {
+  buildArchitectArtifactsFromPhaseSummary,
+  buildArchitectArtifactFromReadyForDraft,
+  normalizeArchitectArtifactPayload,
+  normalizeArchitectOodaDecision,
+  normalizeArchitectPhaseSummary,
+  normalizeArchitectPriorityMatrix,
+  normalizeArchitectReadyForDraft,
+  normalizeArchitectStructure,
+  parseStructuredStudioMessage,
+} from "./message-parser";
 import { recoverStudioHistory } from "./history-recovery";
 import { deriveStudioRecoveryDraftImpact, parseStudioRecoveryPayload, parseStudioStatePayload } from "./studio-state-adapter";
 import { resolveStudioMetaReply, resolveWorkflowNextActionMessage, type StudioMetaDirective } from "./studio-meta";
 import { isFrontendRunProtocolEnabled, isPatchProtocolEnabled } from "./feature-flags";
-import { normalizeAuditSummaryPayload, normalizeDeepPatchEnvelope, normalizeWorkflowCardPayload, normalizeWorkflowStagedEditPayload, parseStudioPatchEnvelope, parseWorkflowStatePayload } from "./workflow-adapter";
+import {
+  normalizeAuditSummaryPayload,
+  normalizeDeepPatchEnvelope,
+  normalizeStudioErrorPayload,
+  normalizeWorkflowCardPayload,
+  normalizeWorkflowStagedEditPayload,
+  parseStudioPatchEnvelope,
+  parseWorkflowStatePayload,
+} from "./workflow-adapter";
 import type { StudioPatchEnvelope, WorkflowActionResult, WorkflowStateData } from "./workflow-protocol";
-import type { WorkbenchValidationSource } from "./workbench-types";
+import type { CardQueueWindow, StudioFileRole, StudioHandoffPolicy, StudioReturnTarget, StudioRouteDestination, StudioRouteKind, WorkbenchCard, WorkbenchValidationSource } from "./workbench-types";
+import { asCardQueueWindow } from "./workbench";
 import type {
   ChatMessage,
   StudioDraft,
@@ -51,6 +66,7 @@ import type {
   ArchitectPriorityMatrix,
   ArchitectOodaDecision,
   ArchitectReadyForDraft,
+  ArchitectArtifact,
 } from "./types";
 
 const STREAM_STAGE_LABELS: Record<string, string> = {
@@ -70,47 +86,23 @@ const STREAM_STAGE_LABELS: Record<string, string> = {
 
 // ─── StudioChat ───────────────────────────────────────────────────────────────
 
-export function StudioChat({
-  convId,
-  skillId,
-  currentPrompt,
-  currentDescription,
-  editorIsDirty,
-  allSkills,
-  memo,
-  onApplyDraft,
-  onNewSession,
-  onToolBound,
-  onDevStudio,
-  onFileSplitDone,
-  onMemoRefresh,
-  onOpenSandbox,
-  selectedSourceFile,
-  onEditorTarget,
-  clearRef,
-  setInputRef,
-  onViewReport,
-  sandboxReportId,
-  fromSandbox,
-  onExpandEditor,
-  editorExpanded,
-  onRefreshSkill,
-  onOpenTestFlowPanel,
-  onSelectSkillForTestFlow,
-  activeCardTitle,
-  activeCardSummary,
-  activeCardMode,
-  activeCardTarget,
-  activeCardId,
-  activeCardSourceCardId,
-  activeCardStagedEditId,
-  activeCardValidationSource,
-  onActiveCardActionsChange,
-}: {
+export interface StudioChatHandle {
+  applyDraft: () => void;
+  discardDraft: () => void;
+  confirmSummary: () => void;
+  confirmEditedSummary: (items: Array<{ label: string; value: string }>) => void;
+  discardSummary: () => void;
+  confirmSplit: () => void;
+  discardSplit: () => void;
+  toolBound: () => void;
+  startFixTask: (task: import("@/lib/types").SkillMemoTask) => void;
+  targetedRetest: (taskId: string) => void;
+}
+
+interface StudioChatProps {
   convId: number;
   skillId: number | null;
   currentPrompt: string;
-  currentDescription: string;
   editorIsDirty: boolean;
   selectedSourceFile: string | null;
   allSkills: SkillDetail[];
@@ -118,14 +110,12 @@ export function StudioChat({
   onApplyDraft: (draft: StudioDraft) => void;
   onNewSession: () => void;
   onToolBound: () => void;
-  onDevStudio: (desc: string) => void;
   onFileSplitDone: () => void;
   onMemoRefresh: () => void;
   onOpenSandbox: (skillId: number) => void;
   onEditorTarget: (fileType: string, filename: string, previewEdit?: StagedEdit | null) => void;
   clearRef?: { current: (() => void) | null };
   setInputRef?: { current: ((text: string) => void) | null };
-  onViewReport?: () => void;
   sandboxReportId?: string;
   fromSandbox?: boolean;
   onExpandEditor?: () => void;
@@ -154,16 +144,73 @@ export function StudioChat({
   activeCardMode?: "analysis" | "file" | "report" | "governance" | null;
   activeCardTarget?: string | null;
   activeCardId?: string | null;
+  activeCardContractId?: string | null;
   activeCardSourceCardId?: string | null;
   activeCardStagedEditId?: string | null;
   activeCardValidationSource?: WorkbenchValidationSource | null;
+  activeCardFileRole?: StudioFileRole | null;
+  activeCardHandoffPolicy?: StudioHandoffPolicy | null;
+  activeCardRouteKind?: StudioRouteKind | null;
+  activeCardDestination?: StudioRouteDestination | null;
+  activeCardReturnTo?: StudioReturnTarget | null;
+  activeCardQueueWindow?: CardQueueWindow | null;
   onActiveCardActionsChange?: (actions: Array<{
     id: string;
     label: string;
     tone?: "primary" | "secondary" | "danger";
     onClick: () => void;
   }>) => void;
-}) {
+  onPendingDraftChange?: (draft: StudioDraft | null) => void;
+  onPendingSummaryChange?: (summary: StudioSummary | null) => void;
+  onPendingToolSuggestionChange?: (suggestion: StudioToolSuggestion | null) => void;
+  onPendingFileSplitChange?: (split: StudioFileSplit | null) => void;
+}
+
+export const StudioChat = forwardRef<StudioChatHandle, StudioChatProps>(function StudioChat({
+  convId,
+  skillId,
+  currentPrompt,
+  editorIsDirty,
+  allSkills,
+  memo,
+  onApplyDraft,
+  onNewSession,
+  onToolBound,
+  onFileSplitDone,
+  onMemoRefresh,
+  onOpenSandbox,
+  selectedSourceFile,
+  onEditorTarget,
+  clearRef,
+  setInputRef,
+  sandboxReportId,
+  fromSandbox,
+  onExpandEditor,
+  editorExpanded,
+  onRefreshSkill,
+  onOpenTestFlowPanel,
+  onSelectSkillForTestFlow,
+  activeCardTitle,
+  activeCardSummary,
+  activeCardMode,
+  activeCardTarget,
+  activeCardId,
+  activeCardContractId,
+  activeCardSourceCardId,
+  activeCardStagedEditId,
+  activeCardValidationSource,
+  activeCardFileRole,
+  activeCardHandoffPolicy,
+  activeCardRouteKind,
+  activeCardDestination,
+  activeCardReturnTo,
+  activeCardQueueWindow,
+  onActiveCardActionsChange,
+  onPendingDraftChange,
+  onPendingSummaryChange,
+  onPendingToolSuggestionChange,
+  onPendingFileSplitChange,
+}, ref) {
   const _storageKey = `studio_msgs_${convId}`;
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [backendLoaded, setBackendLoaded] = useState(false);
@@ -174,36 +221,11 @@ export function StudioChat({
   const [activeRunId, setActiveRunId] = useState<string | null>(null);
   const [pendingDraft, setPendingDraft] = useState<StudioDraft | null>(null);
   const [pendingSummary, setPendingSummary] = useState<StudioSummary | null>(null);
-  const [pendingToolSuggestion, setPendingToolSuggestion] = useState<StudioToolSuggestion | null>(null);
+  const [, setPendingToolSuggestion] = useState<StudioToolSuggestion | null>(null);
   const [pendingFileSplit, setPendingFileSplit] = useState<StudioFileSplit | null>(null);
-  const [splitting, setSplitting] = useState(false);
   const [overrideQuickActions, setOverrideQuickActions] = useState<TimelineQuickAction[] | null>(null);
   const [studioMeta, setStudioMeta] = useState<StudioMetaDirective | null>(null);
   const [pendingTestFlowSelection, setPendingTestFlowSelection] = useState<{ skillId: number; content: string } | null>(null);
-
-  // ── 治理抽屉状态 ──
-  const drawerStorageKey = skillId ? `studio_drawer_${skillId}` : null;
-  const [drawerOpen, setDrawerOpen] = useState(() => {
-    if (fromSandbox) return true;
-    if (drawerStorageKey) {
-      try { return localStorage.getItem(drawerStorageKey) !== "closed"; } catch { return false; }
-    }
-    return false;
-  });
-  const [drawerWidth, setDrawerWidth] = useState<"narrow" | "medium" | "wide">("medium");
-
-  useEffect(() => {
-    if (!drawerStorageKey) return;
-    try { localStorage.setItem(drawerStorageKey, drawerOpen ? "open" : "closed"); } catch { /* ignore */ }
-  }, [drawerOpen, drawerStorageKey]);
-
-  const drawerAutoOpened = useRef(false);
-  useEffect(() => {
-    if (memo && !drawerAutoOpened.current && (memo.lifecycle_stage === "fixing" || memo.persistent_notices?.some(n => n.status === "active"))) {
-      drawerAutoOpened.current = true;
-      setDrawerOpen(true);
-    }
-  }, [memo]);
 
   // 聚焦整改模式
   const fixContextSent = useRef(false);
@@ -241,9 +263,6 @@ export function StudioChat({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fromSandbox, memo, skillId]);
 
-  const hasDrawerContent = !!(memo || pendingSummary || pendingDraft || pendingToolSuggestion || pendingFileSplit);
-  const drawerWidthClass = drawerWidth === "narrow" ? "w-[240px]" : drawerWidth === "wide" ? "w-[400px]" : "w-[320px]";
-
   // V2 会话状态
   const [sessionState, setSessionState] = useState<V2SessionState | null>(null);
   const [studioRecovery, setStudioRecovery] = useState<StudioRecoveryInfo | null>(null);
@@ -263,6 +282,7 @@ export function StudioChat({
   const [architectPriorities, setArchitectPriorities] = useState<ArchitectPriorityMatrix | null>(null);
   const [oodaDecisions, setOodaDecisions] = useState<ArchitectOodaDecision[]>([]);
   const [architectReady, setArchitectReady] = useState<ArchitectReadyForDraft | null>(null);
+  const [architectArtifacts, setArchitectArtifacts] = useState<ArchitectArtifact[]>([]);
   const [answeredQuestionIdx, setAnsweredQuestionIdx] = useState(-1);
   const [pendingPhaseSummary, setPendingPhaseSummary] = useState<ArchitectPhaseSummary | null>(null);
   const [confirmedPhases, setConfirmedPhases] = useState<string[]>([]);
@@ -286,6 +306,9 @@ export function StudioChat({
   const archiveRun = useStudioStore((s) => s.archiveRun);
   const rememberPatchSeq = useStudioStore((s) => s.rememberPatchSeq);
   const resetRunTracking = useStudioStore((s) => s.resetRunTracking);
+  const updateWorkbenchCardStatus = useStudioStore((s) => s.updateWorkbenchCardStatus);
+  const upsertWorkbenchCard = useStudioStore((s) => s.upsertWorkbenchCard);
+  const setActiveCardId = useStudioStore((s) => s.setActiveCardId);
   const activeRunVersion = useStudioStore((s) => s.activeRunVersion);
   const archivedRuns = useStudioStore((s) => s.archivedRuns);
   const deepPatches = useStudioStore((s) => s.deepPatches);
@@ -293,9 +316,25 @@ export function StudioChat({
   const setEditorVisibility = useStudioStore((s) => s.setEditorVisibility);
   const setEditorManuallyCollapsed = useStudioStore((s) => s.setEditorManuallyCollapsed);
   const requestPreflightRefresh = useStudioStore((s) => s.requestPreflightRefresh);
+  const setStoreQueueWindow = useStudioStore((s) => s.setQueueWindow);
+  const setStudioError = useStudioStore((s) => s.setStudioError);
   const studioChatSource = skillId ? `studio-chat:${skillId}:${convId}` : `studio-chat:${convId}`;
   const [workflowNextActionRunning, setWorkflowNextActionRunning] = useState(false);
   const frontendRunProtocolEnabled = isFrontendRunProtocolEnabled(storeWorkflowState);
+
+  const storeMergeArchitectArtifacts = useStudioStore((s) => s.mergeArchitectArtifacts);
+  const storeClearArchitectArtifacts = useStudioStore((s) => s.clearArchitectArtifacts);
+  const mergeArchitectArtifacts = useCallback((nextArtifacts: ArchitectArtifact[]) => {
+    if (nextArtifacts.length === 0) return;
+    setArchitectArtifacts((prev) => {
+      const merged = new Map(prev.map((artifact) => [artifact.id, artifact]));
+      for (const artifact of nextArtifacts) {
+        merged.set(artifact.id, artifact);
+      }
+      return Array.from(merged.values());
+    });
+    storeMergeArchitectArtifacts(nextArtifacts);
+  }, [storeMergeArchitectArtifacts]);
 
   function applyRecoveredStudioState(studioState?: Record<string, unknown> | null) {
     const recovered = parseStudioStatePayload(studioState);
@@ -967,6 +1006,19 @@ export function StudioChat({
       onExpandEditor?.();
       return;
     }
+    if (envelope.patch_type === "card_patch") {
+      addGovernanceCard(normalizeWorkflowCardPayload(payload, studioChatSource));
+      return;
+    }
+    if (envelope.patch_type === "artifact_patch") {
+      const artifact = normalizeArchitectArtifactPayload(payload);
+      if (artifact) mergeArchitectArtifacts([artifact]);
+      return;
+    }
+    if (envelope.patch_type === "card_status_patch") {
+      applyCardStatusPatch(payload);
+      return;
+    }
     if (envelope.patch_type === "audit_patch") {
       setAuditResult(normalizeAuditSummaryPayload(payload));
       return;
@@ -978,6 +1030,84 @@ export function StudioChat({
       }
       setRouteInfo((prev) => prev ? { ...prev, deep_status: "completed" } : prev);
       return;
+    }
+    if (envelope.patch_type === "stale_patch") {
+      applyStalePatch(payload);
+      return;
+    }
+    if (envelope.patch_type === "queue_window_patch") {
+      applyQueueWindowPatch(payload);
+      return;
+    }
+  }
+
+  function applyStalePatch(data: Record<string, unknown>) {
+    const cardIds = Array.isArray(data.card_ids)
+      ? data.card_ids.filter((id): id is string => typeof id === "string")
+      : [];
+    for (const id of cardIds) {
+      updateWorkbenchCardStatus(id, "stale");
+    }
+  }
+
+  function applyQueueWindowPatch(data: Record<string, unknown>) {
+    const parsed = asCardQueueWindow(data);
+    if (parsed) {
+      setStoreQueueWindow(parsed);
+    }
+  }
+
+  function normalizeIncomingWorkbenchStatus(status: unknown): WorkbenchCard["status"] | null {
+    if (
+      status === "pending"
+      || status === "active"
+      || status === "reviewing"
+      || status === "adopted"
+      || status === "rejected"
+      || status === "dismissed"
+      || status === "stale"
+    ) {
+      return status;
+    }
+    if (status === "blocked" || status === "reopened") {
+      return "pending";
+    }
+    if (status === "archived") {
+      return "dismissed";
+    }
+    return null;
+  }
+
+  function applyCardStatusPatch(data: Record<string, unknown>) {
+    const cardId = typeof data.card_id === "string"
+      ? data.card_id
+      : typeof data.id === "string"
+        ? data.id
+        : null;
+    const status = normalizeIncomingWorkbenchStatus(data.status);
+    if (!cardId || !status) return;
+
+    // Store exit_reason on the card before updating status
+    const exitReason = typeof data.exit_reason === "string" ? data.exit_reason : null;
+    if (exitReason) {
+      const existing = useStudioStore.getState().cardsById[cardId];
+      if (existing) {
+        upsertWorkbenchCard({ ...existing, exitReason });
+      }
+    }
+
+    updateWorkbenchCardStatus(cardId, status);
+    if (status === "adopted" || status === "rejected" || status === "dismissed") {
+      updateCardStatus(cardId, status);
+    }
+
+    // Activate next card if specified
+    const nextCardId = typeof data.next_card_id === "string" ? data.next_card_id : null;
+    if (nextCardId && (status === "adopted" || status === "rejected" || status === "dismissed")) {
+      const nextCard = useStudioStore.getState().cardsById[nextCardId];
+      if (nextCard) {
+        setActiveCardId(nextCardId);
+      }
     }
   }
 
@@ -1036,6 +1166,27 @@ export function StudioChat({
       onExpandEditor?.();
       return;
     }
+    if (eventName === "card_patch") {
+      addGovernanceCard(normalizeWorkflowCardPayload(data, studioChatSource));
+      return;
+    }
+    if (eventName === "artifact_patch") {
+      const artifact = normalizeArchitectArtifactPayload(data);
+      if (artifact) mergeArchitectArtifacts([artifact]);
+      return;
+    }
+    if (eventName === "card_status_patch") {
+      applyCardStatusPatch(data);
+      return;
+    }
+    if (eventName === "stale_patch") {
+      applyStalePatch(data);
+      return;
+    }
+    if (eventName === "queue_window_patch") {
+      applyQueueWindowPatch(data);
+      return;
+    }
     if (eventName === "route_status") {
       applyRouteStatus(data);
       return;
@@ -1065,6 +1216,10 @@ export function StudioChat({
       return;
     }
     if (eventName === "error") {
+      const normalizedError = normalizeStudioErrorPayload(data);
+      if (normalizedError?.kind === "studio_orchestration_error") {
+        setStudioError(normalizedError);
+      }
       updateLastStreamingMessage(String(data.message || "服务端错误"), false);
       setStreaming(false);
       setActiveRunId(null);
@@ -1103,10 +1258,10 @@ export function StudioChat({
         setRouteInfo(null);
         setAuditResult(null);
         setPendingGovernanceActions([]);
-        setPendingDraft(null);
-        setPendingSummary(null);
-        setPendingToolSuggestion(null);
-        setPendingFileSplit(null);
+        setPendingDraft(null); onPendingDraftChange?.(null);
+        setPendingSummary(null); onPendingSummaryChange?.(null);
+        setPendingToolSuggestion(null); onPendingToolSuggestionChange?.(null);
+        setPendingFileSplit(null); onPendingFileSplitChange?.(null);
         setArchitectPhase(null);
         setArchitectQuestions([]);
         setArchitectStructures([]);
@@ -1114,6 +1269,7 @@ export function StudioChat({
         setOodaDecisions([]);
         setArchitectReady(null);
         setPendingPhaseSummary(null);
+        setArchitectArtifacts([]); storeClearArchitectArtifacts();
         setConfirmedPhases([]);
         setAnsweredQuestionIdx(-1);
         setPhaseProgress([]);
@@ -1126,7 +1282,7 @@ export function StudioChat({
       };
     }
     return () => { if (clearRef) clearRef.current = null; };
-  }, [clearRef, _storageKey, convId, resetRunTracking, studioChatSource, syncGovernanceCards, syncStagedEdits]);
+  }, [clearRef, _storageKey, convId, onPendingDraftChange, onPendingFileSplitChange, onPendingSummaryChange, onPendingToolSuggestionChange, resetRunTracking, studioChatSource, syncGovernanceCards, syncStagedEdits]);
 
   useEffect(() => {
     if (setInputRef) {
@@ -1152,6 +1308,7 @@ export function StudioChat({
         if (isFrontendRunProtocolEnabled(useStudioStore.getState().workflowState)) {
           setActiveRunMeta(active.run.id, typeof active.run.run_version === "number" ? active.run.run_version : 1);
         }
+        setStudioError(null);
         setStreaming(true);
         setStreamStage("reconnecting");
         runAccTextRef.current = "";
@@ -1216,10 +1373,10 @@ export function StudioChat({
     setRouteInfo(null);
     setAuditResult(null);
     setPendingGovernanceActions([]);
-    setPendingDraft(null);
-    setPendingSummary(null);
-    setPendingToolSuggestion(null);
-    setPendingFileSplit(null);
+    setPendingDraft(null); onPendingDraftChange?.(null);
+    setPendingSummary(null); onPendingSummaryChange?.(null);
+    setPendingToolSuggestion(null); onPendingToolSuggestionChange?.(null);
+    setPendingFileSplit(null); onPendingFileSplitChange?.(null);
     setStudioMeta(null);
     setArchitectPhase(null);
     setArchitectQuestions([]);
@@ -1228,6 +1385,7 @@ export function StudioChat({
     setOodaDecisions([]);
     setArchitectReady(null);
     setPendingPhaseSummary(null);
+    setArchitectArtifacts([]); storeClearArchitectArtifacts();
     setConfirmedPhases([]);
     setAnsweredQuestionIdx(-1);
     setPhaseProgress([]);
@@ -1258,14 +1416,13 @@ export function StudioChat({
         applyRecoveredStudioState(studioStateResponse?.studio_state || null);
         setStudioRecovery(parseStudioRecoveryPayload(studioStateResponse?.recovery || null));
         setMessages(recovered.messages);
-        setPendingSummary(recovered.pendingSummary);
+        setPendingSummary(recovered.pendingSummary); onPendingSummaryChange?.(recovered.pendingSummary);
         if (recovered.pendingDraft) {
-          setPendingDraft(recovered.pendingDraft);
-          setDrawerOpen(true);
+          setPendingDraft(recovered.pendingDraft); onPendingDraftChange?.(recovered.pendingDraft);
           onExpandEditor?.();
         }
-        setPendingToolSuggestion(recovered.pendingToolSuggestion);
-        setPendingFileSplit(recovered.pendingFileSplit);
+        setPendingToolSuggestion(recovered.pendingToolSuggestion); onPendingToolSuggestionChange?.(recovered.pendingToolSuggestion);
+        setPendingFileSplit(recovered.pendingFileSplit); onPendingFileSplitChange?.(recovered.pendingFileSplit);
         setStudioMeta(recovered.studioMeta);
         setAuditResult(recovered.auditResult);
         setPendingGovernanceActions(recovered.pendingGovernanceActions);
@@ -1276,6 +1433,8 @@ export function StudioChat({
         setOodaDecisions(recovered.oodaDecisions);
         setPendingPhaseSummary(recovered.pendingPhaseSummary);
         setArchitectReady(recovered.architectReady);
+        setArchitectArtifacts(recovered.architectArtifacts);
+        storeMergeArchitectArtifacts(recovered.architectArtifacts);
         setAnsweredQuestionIdx(recovered.answeredQuestionIdx);
         setConfirmedPhases(recovered.confirmedPhases);
         if (recovered.architectReady) {
@@ -1304,7 +1463,7 @@ export function StudioChat({
         setBackendFailed(true);
         setBackendLoaded(true);
       });
-  }, [convId, _storageKey, onExpandEditor, resetRunTracking, skillId, studioChatSource, syncGovernanceCards, syncStagedEdits]);
+  }, [convId, _storageKey, onExpandEditor, onPendingDraftChange, onPendingFileSplitChange, onPendingSummaryChange, onPendingToolSuggestionChange, resetRunTracking, skillId, studioChatSource, syncGovernanceCards, syncStagedEdits]);
 
   useEffect(() => {
     if (!backendLoaded) return;
@@ -1384,6 +1543,7 @@ export function StudioChat({
     });
     setStreaming(true);
     setStreamStage("ingest_parsing");
+    setStudioError(null);
     setInput("");
 
     try {
@@ -1510,6 +1670,16 @@ export function StudioChat({
     return response.data;
   }, [allSkills, convId]);
 
+  const syncTestFlowWorkflowArtifacts = useCallback((resolved: TestFlowResolveResponse, sourceHint: string) => {
+    const source = `test-flow:${sourceHint}`;
+    for (const card of resolved.workflow_cards || []) {
+      addGovernanceCard(normalizeWorkflowCardPayload(card as unknown as Record<string, unknown>, source));
+    }
+    for (const edit of resolved.staged_edits || []) {
+      addStagedEdit(normalizeWorkflowStagedEditPayload(edit as unknown as Record<string, unknown>, source));
+    }
+  }, [addGovernanceCard, addStagedEdit]);
+
   useEffect(() => {
     if (!pendingTestFlowSelection) return;
     if (skillId !== pendingTestFlowSelection.skillId) return;
@@ -1519,6 +1689,7 @@ export function StudioChat({
       try {
         const resolved = await resolveStudioTestFlow(next.content, next.skillId);
         if (resolved.action === "chat_default" || resolved.action === "pick_skill") return;
+        syncTestFlowWorkflowArtifacts(resolved, `${next.skillId}:${resolved.action}`);
         setMessages((prev) => [
           ...prev,
           { role: "assistant", text: "目标 Skill 已确认，已切到测试流程面板。你可以直接查看、修改或执行测试用例。", loading: false },
@@ -1548,7 +1719,7 @@ export function StudioChat({
         ]);
       }
     })();
-  }, [onOpenTestFlowPanel, pendingTestFlowSelection, resolveStudioTestFlow, skillId]);
+  }, [onOpenTestFlowPanel, pendingTestFlowSelection, resolveStudioTestFlow, skillId, syncTestFlowWorkflowArtifacts]);
 
   async function send(userText: string) {
     const effectiveUserText = resolveStudioMetaReply(userText, studioMeta) ?? userText;
@@ -1648,6 +1819,7 @@ export function StudioChat({
         return;
       }
       if (resolved.action !== "chat_default" && resolved.action !== "pick_skill" && resolved.skill?.id) {
+        syncTestFlowWorkflowArtifacts(resolved, `${resolved.skill.id}:${resolved.action}`);
         setInput("");
         setMessages((prev) => [
           ...prev,
@@ -1696,6 +1868,7 @@ export function StudioChat({
         { role: "assistant", text: "", loading: true, cardId: activeCardId },
       ];
     });
+    setStudioError(null);
     setStreaming(true);
     setInput("");
     setStudioMeta(null);
@@ -1713,9 +1886,9 @@ export function StudioChat({
     const syncStructuredMessage = (rawText: string) => {
       const parsed = parseStructuredStudioMessage(rawText);
       setStudioMeta(parsed.studioMeta);
+      mergeArchitectArtifacts(parsed.architectArtifacts);
       if (parsed.draft) {
-        setPendingDraft(parsed.draft);
-        setDrawerOpen(true);
+        setPendingDraft(parsed.draft); onPendingDraftChange?.(parsed.draft);
         onExpandEditor?.();
       }
       return parsed.cleanText;
@@ -1734,12 +1907,19 @@ export function StudioChat({
           editor_is_dirty: editorIsDirty,
           selected_source_filename: selectedSourceFile || undefined,
           active_card_id: activeCardId ?? undefined,
+          active_card_contract_id: activeCardContractId ?? undefined,
           active_card_title: activeCardTitle ?? undefined,
           active_card_mode: activeCardMode ?? undefined,
           active_card_target: activeCardTarget ?? undefined,
           active_card_source_card_id: activeCardSourceCardId ?? undefined,
           active_card_staged_edit_id: activeCardStagedEditId ?? undefined,
           active_card_validation_source: activeCardValidationSource ?? undefined,
+          active_card_file_role: activeCardFileRole ?? undefined,
+          active_card_handoff_policy: activeCardHandoffPolicy ?? undefined,
+          active_card_route_kind: activeCardRouteKind ?? undefined,
+          active_card_destination: activeCardDestination ?? undefined,
+          active_card_return_to: activeCardReturnTo ?? undefined,
+          active_card_queue_window: activeCardQueueWindow ?? undefined,
         }),
         signal: ctrl.signal,
       });
@@ -1790,23 +1970,25 @@ export function StudioChat({
               } else if (curEvt === "status" && data.stage) {
                 applyStatusStage(data.stage as string);
               } else if (curEvt === "studio_summary") {
-                setPendingSummary(data as StudioSummary);
+                const s = data as StudioSummary; setPendingSummary(s); onPendingSummaryChange?.(s);
               } else if (curEvt === "studio_draft") {
-                setPendingDraft(data as StudioDraft);
+                const d = data as StudioDraft; setPendingDraft(d); onPendingDraftChange?.(d);
                 onExpandEditor?.();
               } else if (curEvt === "studio_diff") {
                 const diff = data as StudioDiff;
                 if (diff.ops && diff.ops.length > 0) {
                   const newPrompt = applyOps(currentPrompt, diff.ops);
-                  setPendingDraft({ system_prompt: newPrompt, change_note: diff.change_note || "AI 局部修改" });
+                  const d = { system_prompt: newPrompt, change_note: diff.change_note || "AI 局部修改" };
+                  setPendingDraft(d); onPendingDraftChange?.(d);
                 } else if (diff.system_prompt?.new) {
-                  setPendingDraft({ system_prompt: diff.system_prompt.new, change_note: "AI 建议修改" });
+                  const d = { system_prompt: diff.system_prompt.new, change_note: "AI 建议修改" };
+                  setPendingDraft(d); onPendingDraftChange?.(d);
                 }
                 onExpandEditor?.();
               } else if (curEvt === "studio_tool_suggestion") {
-                setPendingToolSuggestion(data as StudioToolSuggestion);
+                const t = data as StudioToolSuggestion; setPendingToolSuggestion(t); onPendingToolSuggestionChange?.(t);
               } else if (curEvt === "studio_file_split") {
-                setPendingFileSplit(data as StudioFileSplit);
+                const f = data as StudioFileSplit; setPendingFileSplit(f); onPendingFileSplitChange?.(f);
               } else if (curEvt === "studio_memo_status" || curEvt === "studio_task_focus" || curEvt === "studio_persistent_notices") {
                 onMemoRefresh();
               } else if (curEvt === "studio_state_update") {
@@ -1838,6 +2020,22 @@ export function StudioChat({
               } else if (curEvt === "staged_edit_notice") {
                 addStagedEdit(normalizeWorkflowStagedEditPayload(data as Record<string, unknown>, studioChatSource));
                 onExpandEditor?.();
+              } else if (curEvt === "card_patch") {
+                addGovernanceCard(normalizeWorkflowCardPayload(data as Record<string, unknown>, studioChatSource));
+              } else if (curEvt === "artifact_patch") {
+                const artifact = normalizeArchitectArtifactPayload(data as Record<string, unknown>);
+                if (artifact) mergeArchitectArtifacts([artifact]);
+              } else if (curEvt === "card_status_patch") {
+                applyCardStatusPatch(data as Record<string, unknown>);
+              } else if (curEvt === "stale_patch") {
+                applyStalePatch(data as Record<string, unknown>);
+              } else if (curEvt === "queue_window_patch") {
+                applyQueueWindowPatch(data as Record<string, unknown>);
+              } else if (curEvt === "patch_applied") {
+                const envelope = parseStudioPatchEnvelope(data as Record<string, unknown>);
+                if (envelope) {
+                  applyPatchEnvelope(envelope);
+                }
               } else if (curEvt === "assist_skills_status") {
                 // 后端发 string[]（skill name），转为前端需要的 {id, name, status}[]
                 const rawSkills = (data as { skills: unknown[] }).skills || [];
@@ -1853,88 +2051,26 @@ export function StudioChat({
               } else if (curEvt === "architect_question") {
                 setArchitectQuestions((prev) => [...prev, data as ArchitectQuestion]);
               } else if (curEvt === "architect_phase_summary") {
-                // 阶段总结 → 存为待确认状态，用户确认后再转为 PhaseProgress
-                // 兼容后端格式 {phase, outputs: {summary?, deliverables?, ...}, confirmed}
-                // 和前端格式 {phase, summary, deliverables, confidence, ready_for_next}
-                const raw = data as Record<string, unknown>;
-                const outputs = (raw.outputs as Record<string, unknown>) || {};
-                const summary: ArchitectPhaseSummary = {
-                  phase: (raw.phase as string) || "",
-                  summary: (raw.summary as string) || (outputs.summary as string) || "",
-                  deliverables: (raw.deliverables as string[]) || (outputs.deliverables as string[]) || Object.keys(outputs).filter((k) => k !== "summary"),
-                  confidence: (raw.confidence as number) ?? (outputs.confidence as number) ?? ((raw.confirmed || outputs.confirmed) ? 80 : 50),
-                  ready_for_next: (raw.ready_for_next as boolean) ?? (raw.confirmed as boolean) ?? (outputs.ready_for_next as boolean) ?? false,
-                };
+                const summary = normalizeArchitectPhaseSummary(data as Record<string, unknown>);
                 setPendingPhaseSummary(summary);
+                mergeArchitectArtifacts(buildArchitectArtifactsFromPhaseSummary(summary));
               } else if (curEvt === "architect_structure") {
-                // 兼容后端 {type, title, data} 和前端 {type, root, nodes[]}
-                const raw = data as Record<string, unknown>;
-                let structure: ArchitectStructure;
-                if (raw.nodes) {
-                  // 已经是前端格式
-                  structure = data as ArchitectStructure;
-                } else {
-                  // 后端格式：data 字段包含实际结构数据
-                  const innerData = (raw.data as Record<string, unknown>) || {};
-                  const nodes = (innerData.nodes as ArchitectStructure["nodes"]) || [];
-                  structure = {
-                    type: (raw.type as ArchitectStructure["type"]) || "issue_tree",
-                    root: (raw.title as string) || (innerData.root as string) || "",
-                    nodes: nodes.length > 0 ? nodes : [{ id: "root", label: (raw.title as string) || "", parent: null, children: [] }],
-                  };
-                }
+                const structure = normalizeArchitectStructure(data as Record<string, unknown>);
                 setArchitectStructures((prev) => [...prev, structure]);
               } else if (curEvt === "architect_priority_matrix") {
-                // 兼容后端 {items: [{label, priority, reason}]}
-                // 和前端 {dimensions: [{name, priority, sensitivity, reason}]}
-                const raw = data as Record<string, unknown>;
-                let matrix: ArchitectPriorityMatrix;
-                if (raw.dimensions) {
-                  matrix = data as ArchitectPriorityMatrix;
-                } else {
-                  const items = (raw.items as { label?: string; name?: string; priority?: string; reason?: string; sensitivity?: string }[]) || [];
-                  matrix = {
-                    dimensions: items.map((item) => ({
-                      name: item.label || item.name || "",
-                      priority: (item.priority as "P0" | "P1" | "P2") || "P2",
-                      sensitivity: (item.sensitivity as "high" | "medium" | "low") || (item.priority === "P0" ? "high" : item.priority === "P1" ? "medium" : "low"),
-                      reason: item.reason || "",
-                    })),
-                  };
-                }
+                const matrix = normalizeArchitectPriorityMatrix(data as Record<string, unknown>);
                 setArchitectPriorities(matrix);
               } else if (curEvt === "architect_ooda_decision") {
-                // 兼容后端 {round, action, reason, rollback_to?}
-                // 和前端 {ooda_round, observation, orientation, decision, delta_from_last}
-                const raw = data as Record<string, unknown>;
-                const od: ArchitectOodaDecision = {
-                  ooda_round: (raw.ooda_round as number) ?? (raw.round as number) ?? 1,
-                  observation: (raw.observation as string) || (raw.reason as string) || "",
-                  orientation: (raw.orientation as string) || ((raw.rollback_to ? `回调至 ${raw.rollback_to}` : (raw.action as string)) || ""),
-                  decision: (raw.decision as string) || (raw.action as string) || "",
-                  delta_from_last: (raw.delta_from_last as string) || (raw.rollback_to ? `将回调到 ${raw.rollback_to}` : ""),
-                };
+                const od = normalizeArchitectOodaDecision(data as Record<string, unknown>);
                 setArchitectPhase((prev) => prev ? { ...prev, ooda_round: od.ooda_round, ooda_decision: od.decision } : prev);
                 setOodaDecisions((prev) => [...prev, od]);
               } else if (curEvt === "architect_ready_for_draft") {
-                // 兼容后端 {summary: {...}, exit_to}
-                // 和前端 {key_elements, failure_prevention, draft_approach}
-                const raw = data as Record<string, unknown>;
-                let ready: ArchitectReadyForDraft;
-                if (raw.key_elements) {
-                  ready = data as ArchitectReadyForDraft;
-                } else {
-                  const summary = (raw.summary as Record<string, unknown>) || {};
-                  ready = {
-                    key_elements: (summary.key_elements as ArchitectReadyForDraft["key_elements"])
-                      || Object.entries(summary)
-                        .filter(([k]) => k !== "failure_prevention" && k !== "draft_approach")
-                        .map(([k, v]) => ({ name: k, priority: "P1", source_phase: String(v) })),
-                    failure_prevention: (summary.failure_prevention as string[]) || [],
-                    draft_approach: (summary.draft_approach as string) || (raw.exit_to as string) || "generate_draft",
-                  };
-                }
+                const ready = normalizeArchitectReadyForDraft(data as Record<string, unknown>);
                 setArchitectReady(ready);
+                mergeArchitectArtifacts([buildArchitectArtifactFromReadyForDraft(ready)]);
+              } else if (curEvt === "artifact_patch" || curEvt === "architect_artifact") {
+                const artifact = normalizeArchitectArtifactPayload(data as Record<string, unknown>);
+                if (artifact) mergeArchitectArtifacts([artifact]);
               } else if (curEvt === "audit_summary") {
                 setAuditResult(normalizeAuditSummaryPayload(data as Record<string, unknown>));
               } else if (curEvt === "studio_editor_target") {
@@ -2033,15 +2169,17 @@ export function StudioChat({
     }
   }
 
-  function handleApplyDraft() {
+  const handleApplyDraft = useCallback(() => {
     if (!pendingDraft) return;
     onApplyDraft(pendingDraft);
     setPendingDraft(null);
-  }
+    onPendingDraftChange?.(null);
+  }, [onApplyDraft, onPendingDraftChange, pendingDraft]);
 
   function handleConfirmSummary() {
     if (!pendingSummary) return;
     setPendingSummary(null);
+    onPendingSummaryChange?.(null);
     const action = pendingSummary.next_action ?? "generate_draft";
     const msg =
       action === "generate_outline"
@@ -2054,13 +2192,13 @@ export function StudioChat({
 
   function handleConfirmEditedSummary(editedItems: { label: string; value: string }[]) {
     setPendingSummary(null);
+    onPendingSummaryChange?.(null);
     const edits = editedItems.map((item) => `${item.label}=${item.value}`).join("，");
     send(`按以下修正后的理解生成草稿：${edits}`);
   }
 
-  async function handleConfirmSplit() {
+  const handleConfirmSplit = useCallback(async () => {
     if (!pendingFileSplit || !skillId) return;
-    setSplitting(true);
     try {
       for (const f of pendingFileSplit.files) {
         await apiFetch(`/skills/${skillId}/files/${encodeURIComponent(f.filename)}`, {
@@ -2076,12 +2214,55 @@ export function StudioChat({
     } catch (err) {
       console.error("File split failed", err);
     } finally {
-      setSplitting(false);
       setPendingFileSplit(null);
+      onPendingFileSplitChange?.(null);
     }
-  }
+  }, [onApplyDraft, onFileSplitDone, onPendingFileSplitChange, pendingFileSplit, skillId]);
 
-  const isFixingMode = !!(memo && memo.lifecycle_stage === "fixing" && memo.latest_test?.status === "failed");
+  // ── Expose handlers via ref for CardRail ──
+  useImperativeHandle(ref, () => ({
+    applyDraft: handleApplyDraft,
+    discardDraft: () => { setPendingDraft(null); onPendingDraftChange?.(null); },
+    confirmSummary: handleConfirmSummary,
+    confirmEditedSummary: handleConfirmEditedSummary,
+    discardSummary: () => { setPendingSummary(null); onPendingSummaryChange?.(null); },
+    confirmSplit: handleConfirmSplit,
+    discardSplit: () => { setPendingFileSplit(null); onPendingFileSplitChange?.(null); },
+    toolBound: () => { setPendingToolSuggestion(null); onPendingToolSuggestionChange?.(null); onToolBound(); },
+    startFixTask: (task) => {
+      void handleMemoStartTask(task.id);
+      if (task.target_kind === "skill_prompt" || task.target_ref === "SKILL.md") {
+        onEditorTarget("prompt", "SKILL.md");
+      }
+      const fixMessage = `请帮我修复以下测试问题：\n${task.title}\n${task.description || ""}\n验收标准：${task.acceptance_rule_text || ""}`;
+      send(fixMessage);
+    },
+    targetedRetest: async (taskId) => {
+      const allTasks = ((memo?.memo as Record<string, unknown>)?.tasks as Array<{
+        id: string;
+        problem_refs?: string[];
+        source_report_id?: number;
+      }>) || [];
+      const task = allTasks.find(t => t.id === taskId);
+      if (!task?.problem_refs?.length || !task.source_report_id) {
+        void handleMemoDirectTest();
+        return;
+      }
+      try {
+        await apiFetch(
+          `/sandbox/interactive/by-report/${task.source_report_id}/targeted-rerun`,
+          { method: "POST", body: JSON.stringify({ issue_ids: task.problem_refs }) }
+        );
+        onMemoRefresh();
+      } catch (err) {
+        const errMsg = err instanceof Error ? err.message : "未知错误";
+        const fallback = confirm(`局部重测失败：${errMsg}\n\n是否改为打开完整测试？`);
+        if (fallback) {
+          void handleMemoDirectTest();
+        }
+      }
+    },
+  }));
   const recoveryDraftImpact = deriveStudioRecoveryDraftImpact({
     recoveryInfo: studioRecovery,
     sessionState,
@@ -2123,10 +2304,10 @@ export function StudioChat({
                 setDirectionShift(null);
                 setFileNeedStatus(null);
                 setRepeatBlocked(null);
-                setPendingDraft(null);
-                setPendingSummary(null);
-                setPendingToolSuggestion(null);
-                setPendingFileSplit(null);
+                setPendingDraft(null); onPendingDraftChange?.(null);
+                setPendingSummary(null); onPendingSummaryChange?.(null);
+                setPendingToolSuggestion(null); onPendingToolSuggestionChange?.(null);
+                setPendingFileSplit(null); onPendingFileSplitChange?.(null);
                 setRouteInfo(null);
                 setAuditResult(null);
                 setPendingGovernanceActions([]);
@@ -2137,6 +2318,7 @@ export function StudioChat({
                 setOodaDecisions([]);
                 setArchitectReady(null);
                 setPendingPhaseSummary(null);
+                setArchitectArtifacts([]); storeClearArchitectArtifacts();
                 setConfirmedPhases([]);
                 setAnsweredQuestionIdx(-1);
                 setPhaseProgress([]);
@@ -2160,18 +2342,6 @@ export function StudioChat({
               className="text-[8px] font-bold uppercase text-gray-400 hover:text-[#00A3C4] transition-colors"
             >
               编辑区
-            </button>
-          )}
-          {hasDrawerContent && !drawerOpen && (
-            <button
-              onClick={() => setDrawerOpen(true)}
-              className="relative text-[8px] font-bold uppercase text-amber-600 hover:text-amber-800 transition-colors flex items-center gap-1"
-            >
-              <ChevronDown size={10} />
-              {isFixingMode ? "整改" : "面板"}
-              {isFixingMode && (
-                <span className="absolute -top-1 -right-1 w-2 h-2 bg-red-500 rounded-full" />
-              )}
             </button>
           )}
         </div>
@@ -2207,6 +2377,33 @@ export function StudioChat({
           nextActionRunning={workflowNextActionRunning}
         />
         <AssistSkillsBar skills={storeAssistSkills} />
+
+        {/* M3/M4/M5: 优先级：bindback > failed_validation > pending_staged_edit > active_card_explanation */}
+        {activeCardQueueWindow?.pending_artifacts?.has_external_edit_waiting_bindback ? (
+          <div className="text-[9px] text-amber-600 bg-amber-50 border-b border-amber-200 px-4 py-2 flex-shrink-0">
+            外部实现已返回，建议先确认变更再进入验证
+          </div>
+        ) : activeCardQueueWindow?.pending_artifacts?.has_failed_validation ? (
+          <div className="text-[9px] text-red-600 bg-red-50 border-b border-red-200 px-4 py-2 flex-shrink-0">
+            测试失败待整改，当前优先处理整改任务
+          </div>
+        ) : activeCardQueueWindow?.pending_artifacts?.has_pending_staged_edit ? (
+          <div className="text-[9px] text-blue-600 bg-blue-50 border-b border-blue-200 px-4 py-2 flex-shrink-0">
+            存在待确认修改，当前先处理确认卡
+          </div>
+        ) : activeCardMode === "governance" && !activeCardQueueWindow?.active_card_explanation ? (
+          <div className="text-[9px] text-purple-600 bg-purple-50 border-b border-purple-200 px-4 py-2 flex-shrink-0">
+            当前任务属于治理配置，直接在 Skill Studio 内完成
+          </div>
+        ) : activeCardQueueWindow?.active_card_explanation ? (
+          <div className="text-[9px] text-gray-500 bg-[#F8FCFD] border-b border-gray-200 px-4 py-2 flex-shrink-0">
+            {activeCardReturnTo === "confirm"
+              ? "外部实现已返回，当前先完成回绑"
+              : activeCardRouteKind === "external"
+                ? "这一步需要外部实现，完成后回到 Studio 继续绑定与验证"
+                : activeCardQueueWindow.active_card_explanation}
+          </div>
+        ) : null}
 
         {(activeCardTitle || activeCardSummary) && (
           <div className="mx-3 mt-2 px-3 py-2 border border-[#CFEAF1] bg-[#F4FBFF] rounded-lg flex-shrink-0">
@@ -2287,6 +2484,7 @@ export function StudioChat({
             answeredQuestionIdx={answeredQuestionIdx}
             pendingPhaseSummary={pendingPhaseSummary}
             confirmedPhases={confirmedPhases}
+            architectArtifacts={architectArtifacts}
             architectStructures={architectStructures}
             architectPriorities={architectPriorities ? [architectPriorities] : []}
             overrideQuickActions={overrideQuickActions ?? studioMetaQuickActions}
@@ -2327,6 +2525,7 @@ export function StudioChat({
               setArchitectQuestions([]);
               setArchitectStructures([]);
               setArchitectPriorities(null);
+              setArchitectArtifacts([]); storeClearArchitectArtifacts();
               // Send confirmation message
               send("确认，进入下一阶段");
             }}
@@ -2341,6 +2540,7 @@ export function StudioChat({
               setArchitectStructures([]);
               setArchitectPriorities(null);
               setPendingPhaseSummary(null);
+              setArchitectArtifacts([]); storeClearArchitectArtifacts();
               send("继续推进");
             }}
             onGenerateDraft={() => {
@@ -2352,6 +2552,7 @@ export function StudioChat({
               setArchitectPriorities(null);
               setOodaDecisions([]);
               setPendingPhaseSummary(null);
+              setArchitectArtifacts([]); storeClearArchitectArtifacts();
               setConfirmedPhases([]);
               setAnsweredQuestionIdx(-1);
               // Keep architectReady briefly for the transition message
@@ -2468,146 +2669,6 @@ export function StudioChat({
         </div>
       </div>
 
-      {/* ═══ 右侧：治理抽屉 ═══ */}
-      {drawerOpen && hasDrawerContent && (
-        <div className={`${drawerWidthClass} flex-shrink-0 border-l border-gray-200 bg-[#FAFBFC] flex flex-col overflow-hidden transition-all`}>
-          <div className="px-3 py-2 border-b border-gray-200 flex items-center gap-2 flex-shrink-0 bg-[#F0F4F8]">
-            <span className="text-[8px] font-bold uppercase tracking-widest text-gray-500">
-              {isFixingMode ? "整改任务" : "治理面板"}
-            </span>
-            <span className="flex-1" />
-            <div className="flex gap-0.5">
-              {(["narrow", "medium", "wide"] as const).map((w) => (
-                <button
-                  key={w}
-                  onClick={() => setDrawerWidth(w)}
-                  className={`w-3 h-3 border transition-colors ${drawerWidth === w ? "bg-[#00A3C4] border-[#00A3C4]" : "bg-white border-gray-300 hover:border-gray-400"}`}
-                  title={w === "narrow" ? "窄" : w === "medium" ? "中" : "宽"}
-                />
-              ))}
-            </div>
-            <button
-              onClick={() => setDrawerOpen(false)}
-              className="text-gray-400 hover:text-gray-600 transition-colors"
-              title="收起面板"
-            >
-              <X size={12} />
-            </button>
-          </div>
-
-          <div className="flex-1 overflow-y-auto">
-            {memo && (
-              <SkillMemoPanel
-                memo={memo}
-                onStartTask={handleMemoStartTask}
-                onDirectTest={handleMemoDirectTest}
-                onStartFixTask={(task) => {
-                  if (task.target_kind === "skill_prompt" || task.target_ref === "SKILL.md") {
-                    onEditorTarget("prompt", "SKILL.md");
-                  }
-                  const fixMessage = `请帮我修复以下测试问题：\n${task.title}\n${task.description || ""}\n验收标准：${task.acceptance_rule_text || ""}`;
-                  send(fixMessage);
-                }}
-                onTargetedRetest={async (taskId) => {
-                  const allTasks = ((memo.memo as Record<string, unknown>)?.tasks as Array<{
-                    id: string;
-                    problem_refs?: string[];
-                    source_report_id?: number;
-                  }>) || [];
-                  const task = allTasks.find(t => t.id === taskId);
-                  if (!task?.problem_refs?.length || !task.source_report_id) {
-                    handleMemoDirectTest();
-                    return;
-                  }
-                  try {
-                    await apiFetch(
-                      `/sandbox/interactive/by-report/${task.source_report_id}/targeted-rerun`,
-                      { method: "POST", body: JSON.stringify({ issue_ids: task.problem_refs }) }
-                    );
-                    onMemoRefresh();
-                  } catch (err) {
-                    const errMsg = err instanceof Error ? err.message : "未知错误";
-                    const fallback = confirm(`局部重测失败：${errMsg}\n\n是否改为打开完整测试？`);
-                    if (fallback) {
-                      handleMemoDirectTest();
-                    }
-                  }
-                }}
-                onViewReport={onViewReport}
-                onOpenTarget={onEditorTarget}
-                sandboxReportId={sandboxReportId}
-              />
-            )}
-
-            {isFixingMode && memo?.latest_test && (
-              <div className="mx-3 my-2 px-3 py-2 bg-amber-50 border-2 border-amber-400">
-                <div className="flex items-center gap-2">
-                  <span className="text-[9px] font-bold uppercase tracking-widest text-amber-700">
-                    整改模式
-                  </span>
-                  <span className="text-[8px] text-amber-600 flex-1 truncate">
-                    {memo.latest_test.summary}
-                  </span>
-                </div>
-                {memo.current_task && (
-                  <div className="mt-1 flex items-center gap-2">
-                    <span className="text-[7px] font-bold text-amber-500 border border-amber-400 px-1.5 py-0.5 rounded">
-                      当前: {memo.current_task.title.slice(0, 40)}
-                    </span>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {pendingSummary && (
-              <div className="mx-3 my-2">
-                <SummaryCard
-                  summary={pendingSummary}
-                  onConfirm={handleConfirmSummary}
-                  onConfirmEdited={handleConfirmEditedSummary}
-                  onDiscard={() => setPendingSummary(null)}
-                />
-              </div>
-            )}
-
-            {pendingDraft && (
-              <div className="mx-3 my-2">
-                <DraftCard
-                  draft={pendingDraft}
-                  currentPrompt={currentPrompt}
-                  currentDescription={currentDescription}
-                  onApply={handleApplyDraft}
-                  onDiscard={() => setPendingDraft(null)}
-                />
-              </div>
-            )}
-
-            {pendingToolSuggestion && pendingToolSuggestion.suggestions.length > 0 && (
-              <div className="mx-3 my-2">
-                <ToolSuggestionCard
-                  suggestion={pendingToolSuggestion}
-                  skillId={skillId}
-                  onBound={() => { setPendingToolSuggestion(null); onToolBound(); }}
-                  onDevStudio={(desc) => { setPendingToolSuggestion(null); onDevStudio(desc); }}
-                />
-              </div>
-            )}
-
-            {pendingFileSplit && pendingFileSplit.files.length > 0 && (
-              <div className="mx-3 my-2">
-                <FileSplitCard
-                  split={pendingFileSplit}
-                  currentPrompt={currentPrompt}
-                  skillId={skillId}
-                  splitting={splitting}
-                  onConfirm={handleConfirmSplit}
-                  onDiscard={() => setPendingFileSplit(null)}
-                />
-              </div>
-            )}
-          </div>
-        </div>
-      )}
     </div>
   );
-}
+});

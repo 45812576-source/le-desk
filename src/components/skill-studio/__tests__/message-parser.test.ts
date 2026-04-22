@@ -33,6 +33,27 @@ describe("parseStructuredStudioMessage", () => {
     expect(parsed.cleanText).toBe("阶段总结已生成，请在下方确认卡中查看并决定是否进入下一阶段。");
   });
 
+  it("extracts architect artifacts from phase summary outputs", () => {
+    const text = [
+      "```architect_phase_summary",
+      JSON.stringify({
+        phase: "phase_1_why",
+        outputs: {
+          summary: "已识别真实根因",
+          why_chain: ["表面需求", "流程不稳定", "缺少结构化判断"],
+          root_cause: "缺少稳定的问题拆解方法",
+        },
+        ready_for_next: true,
+      }),
+      "```",
+    ].join("\n");
+
+    const parsed = parseStructuredStudioMessage(text);
+    expect(parsed.architectArtifacts.map((artifact) => artifact.artifactKey)).toContain("why_chain");
+    expect(parsed.architectArtifacts.map((artifact) => artifact.artifactKey)).toContain("root_cause");
+    expect(parsed.pendingPhaseSummary?.artifacts?.root_cause).toBe("缺少稳定的问题拆解方法");
+  });
+
   it("rehydrates governance actions from persisted structured blocks", () => {
     const text = [
       "```studio_governance_action",

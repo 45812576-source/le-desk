@@ -72,6 +72,46 @@ function unique(items: string[]) {
   return Array.from(new Set(items.filter(Boolean)));
 }
 
+function buildRolePackageWorkflowCards(input: {
+  skillId: number;
+  roleKey: string;
+  staleDownstream: string[];
+}) {
+  return [
+    {
+      id: `governance:role-package:${input.skillId}:${input.roleKey}`,
+      contract_id: "governance.panel",
+      title: "角色权限包已更新",
+      summary: `角色 ${input.roleKey} 的权限包已变更，需要刷新声明、挂载和测试方案。`,
+      status: "pending",
+      kind: "governance",
+      mode: "governance",
+      phase: "governance",
+      priority: 114,
+      target: { type: "governance_panel", key: String(input.skillId) },
+      artifact_refs: input.staleDownstream.map((item) => `stale:${item}`),
+    },
+    {
+      id: `validation:case-plan:${input.skillId}:stale-after-role-package`,
+      contract_id: "validation.test_ready",
+      title: "测试方案需重审",
+      summary: "权限包变更后，Sandbox case plan 需要重新确认或生成。",
+      status: "pending",
+      kind: "validation",
+      mode: "governance",
+      phase: "validation",
+      priority: 108,
+      target: { type: "governance_panel", key: String(input.skillId) },
+      validation_source: {
+        skill_id: input.skillId,
+        blocked_stage: "case_generation_gate",
+        blocked_before: "case_generation",
+      },
+      blocked_by: [`governance:role-package:${input.skillId}:${input.roleKey}`],
+    },
+  ];
+}
+
 function asEnvelope(value: unknown): ApiEnvelope<unknown> | null {
   if (typeof value !== "object" || value === null) return null;
   const candidate = value as ApiEnvelope<unknown>;
@@ -535,7 +575,15 @@ export async function rememberSkillGovernanceBackendResponse(input: {
       input.requestPayload as SkillGovernanceRolePackagePayload,
       data,
     );
-    return ok({ ...(data || {}), ...saved });
+    return ok({
+      ...(data || {}),
+      ...saved,
+      workflow_cards: buildRolePackageWorkflowCards({
+        skillId: route.skillId,
+        roleKey: saved.role_key,
+        staleDownstream: saved.stale_downstream,
+      }),
+    });
   }
 
   if (input.method.toUpperCase() !== "GET") return null;
@@ -570,7 +618,14 @@ export async function resolveSkillGovernanceRequest(
     const roleKey = route.roleKey || String(payload.role_key || "");
     if (!roleKey) return fail(400, "role_key_required", "缺少 role_key，无法保存角色 package");
     const saved = await saveRolePackage(route.skillId, roleKey, payload as SkillGovernanceRolePackagePayload);
-    return ok(saved);
+    return ok({
+      ...saved,
+      workflow_cards: buildRolePackageWorkflowCards({
+        skillId: route.skillId,
+        roleKey: saved.role_key,
+        staleDownstream: saved.stale_downstream,
+      }),
+    });
   }
 
   if (normalizedMethod !== "GET") return null;

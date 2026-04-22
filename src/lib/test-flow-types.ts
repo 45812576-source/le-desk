@@ -51,6 +51,38 @@ export interface TestFlowPlanSummary {
   materialized_session_id?: number | null;
 }
 
+export interface TestFlowWorkflowCard {
+  id: string;
+  contract_id?: string | null;
+  title: string;
+  summary?: string | null;
+  status?: string | null;
+  kind?: string | null;
+  mode?: string | null;
+  phase?: string | null;
+  priority?: number | null;
+  target?: { type?: string | null; key?: string | null } | null;
+  source_card_id?: string | null;
+  staged_edit_id?: string | null;
+  validation_source?: Record<string, unknown> | null;
+  artifact_refs?: string[];
+}
+
+export interface TestFlowStagedEditNotice {
+  id: string;
+  source_card_id?: string | null;
+  contract_id?: string | null;
+  filename: string;
+  fileType?: string;
+  target_type?: string;
+  target_key?: string;
+  diff?: Record<string, unknown>[];
+  diff_ops?: Record<string, unknown>[];
+  change_note?: string;
+  next_action?: string | null;
+  status?: "pending" | "adopted" | "rejected";
+}
+
 export interface TestFlowResolveResponse {
   action: TestFlowAction;
   reason?: string | null;
@@ -69,6 +101,8 @@ export interface TestFlowResolveResponse {
   gate_reasons?: TestFlowGateReason[];
   guided_steps?: TestFlowGuidedStep[];
   primary_action?: string | null;
+  workflow_cards?: TestFlowWorkflowCard[];
+  staged_edits?: TestFlowStagedEditNotice[];
 }
 
 export interface TestFlowResolveRequest {

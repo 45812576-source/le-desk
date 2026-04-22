@@ -390,6 +390,16 @@ export function PromptEditor({
             }),
           });
           if (resolved?.data?.action === "mount_blocked" && resolved.data.skill?.id) {
+            const source = `test-flow:${resolved.data.skill.id}:${resolved.data.action}`;
+            if (resolved.data.workflow_cards?.length) {
+              syncGovernanceCards(
+                source,
+                resolved.data.workflow_cards.map((card) => normalizeWorkflowCardPayload(card as unknown as Record<string, unknown>, source)),
+              );
+            }
+            if (resolved.data.staged_edits?.length) {
+              syncStagedEdits(source, resolved.data.staged_edits.map((edit) => normalizeStagedEditPayload(edit as unknown as Record<string, unknown>, source)));
+            }
             onOpenTestFlowPanel?.({
               skillId: resolved.data.skill.id,
               mode: resolved.data.action,

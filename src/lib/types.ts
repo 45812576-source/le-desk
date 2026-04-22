@@ -924,10 +924,71 @@ export interface SkillMemo {
     workflow_state?: Record<string, unknown> | null;
     cards?: Record<string, unknown>[];
     staged_edits?: Record<string, unknown>[];
+    card_order?: string[];
+    queue_window?: Record<string, unknown> | null;
+    card_queue_ledger?: Record<string, unknown> | null;
+    completed_card_ids?: string[];
+    card_artifacts?: Record<string, unknown>;
+    stale_card_ids?: string[];
+    card_exit_log?: Record<string, unknown>[];
+    schema_version?: number | null;
     source?: string | null;
     revision?: number | null;
     updated_at?: string | null;
   } | null;
+}
+
+export interface StudioCardQueueLedgerStats {
+  total?: number;
+  completed?: number;
+  stale?: number;
+  active?: number;
+  pending?: number;
+  done?: number;
+}
+
+export interface StudioCardQueueLedger {
+  completed?: string[];
+  stale?: string[];
+  artifacts_by_contract?: Record<string, string[]>;
+  exit_log?: Record<string, unknown>[];
+  stats?: StudioCardQueueLedgerStats;
+}
+
+export interface StudioSessionPayload {
+  skill_id: number;
+  workflow_state?: Record<string, unknown> | null;
+  active_card_id?: string | null;
+  cards?: Record<string, unknown>[];
+  workflow_cards?: Record<string, unknown>[];
+  staged_edits?: Record<string, unknown>[];
+  card_order?: string[];
+  queue_window?: Record<string, unknown> | null;
+  card_queue_window?: Record<string, unknown> | null;
+  card_queue_ledger?: StudioCardQueueLedger | null;
+  external_route_summary?: {
+    total?: number;
+    state_counts?: Record<string, number>;
+    active_externals?: Array<{
+      card_id: string;
+      title: string;
+      external_state: string;
+      destination: string;
+      return_to?: string;
+    }>;
+    has_pending?: boolean;
+    has_external_in_progress?: boolean;
+    has_returned_waiting_bindback?: boolean;
+    has_returned_waiting_validation?: boolean;
+    current_external_card_title?: string;
+    current_return_to?: string;
+  } | null;
+  completed_card_ids?: string[];
+  card_artifacts?: Record<string, unknown>;
+  stale_card_ids?: string[];
+  recovery_revision?: number;
+  recovery_updated_at?: string | null;
+  memo_version?: number;
 }
 
 export interface StudioMemoStatusEvent {

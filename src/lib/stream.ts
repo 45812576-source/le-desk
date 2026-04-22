@@ -36,6 +36,11 @@ export type StreamEventType =
   | "audit_summary"
   | "governance_card"
   | "staged_edit_notice"
+  | "card_patch"
+  | "artifact_patch"
+  | "card_status_patch"
+  | "stale_patch"
+  | "queue_window_patch"
   | "fallback_text";
 
 export interface StreamEvent {

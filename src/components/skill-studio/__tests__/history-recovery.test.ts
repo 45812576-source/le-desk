@@ -87,6 +87,23 @@ describe("recoverStudioHistory", () => {
     expect(recovered.answeredQuestionIdx).toBe(0);
   });
 
+  it("recovers architect artifacts from persisted phase summaries", () => {
+    const recovered = recoverStudioHistory([
+      assistantBlock("architect_phase_summary", {
+        phase: "phase_1_why",
+        outputs: {
+          summary: "阶段一收敛",
+          why_chain: ["需求模糊", "判断标准不稳"],
+          root_cause: "缺少统一分析框架",
+        },
+        ready_for_next: true,
+      }),
+    ]);
+
+    expect(recovered.architectArtifacts.map((artifact) => artifact.artifactKey)).toContain("why_chain");
+    expect(recovered.architectArtifacts.map((artifact) => artifact.artifactKey)).toContain("root_cause");
+  });
+
   it("clears architect readiness once the draft phase starts", () => {
     const workflowState: WorkflowStateData = {
       session_mode: "create_new_skill",

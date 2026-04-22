@@ -16,6 +16,14 @@ export interface WorkflowStateData extends Record<string, unknown> {
   skill_id?: number | null;
   conversation_id?: number | null;
   metadata?: Record<string, unknown>;
+  queue_window?: {
+    active_card_id: string | null;
+    visible_card_ids: string[];
+    backlog_count: number;
+    phase: string;
+    max_visible: number;
+    reveal_policy: "stage_gated" | "user_expand" | "validation_blocking";
+  } | null;
 }
 
 export interface WorkflowEventEnvelope {
@@ -40,8 +48,13 @@ export interface StudioPatchEnvelope {
     | "audit_patch"
     | "governance_patch"
     | "staged_edit_patch"
+    | "card_patch"
+    | "card_status_patch"
+    | "artifact_patch"
     | "deep_summary_patch"
-    | "evidence_patch";
+    | "evidence_patch"
+    | "stale_patch"
+    | "queue_window_patch";
   payload: Record<string, unknown>;
   created_at?: string;
 }

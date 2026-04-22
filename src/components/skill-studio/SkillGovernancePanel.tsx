@@ -5,6 +5,7 @@ import { ChevronRight, RefreshCcw, ShieldCheck, X } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { loadOrgMemorySnapshots } from "@/lib/org-memory";
+import { useStudioStore } from "@/lib/studio-store";
 import type { Department, OrgMemorySnapshot, SkillDetail } from "@/lib/types";
 import type { TestFlowDecisionMode, TestFlowEntrySource, TestFlowPlanSummary, TestFlowBlockedStage, TestFlowBlockedBefore, TestFlowGateReason, TestFlowGuidedStep } from "@/lib/test-flow-types";
 import { CaseGenerationGateCard } from "./CaseGenerationGateCard";
@@ -42,12 +43,15 @@ import {
   serializeRolePackageWriteback,
   type RolePackageDraft,
 } from "./role-package";
+import { normalizeWorkflowCardPayload } from "./workflow-adapter";
 
 type ApiEnvelope<T> = {
   ok: boolean;
   data: T;
   error?: { code: string; message: string; details?: Record<string, unknown> };
 };
+
+type WorkflowCardPayload = Record<string, unknown>;
 
 type LegacyPoliciesResponse = {
   bundle_id?: number;
@@ -111,6 +115,7 @@ export function SkillGovernancePanel({
   onMaterializedSession?: (sessionId: number) => void;
 }) {
   const { user } = useAuth();
+  const addGovernanceCard = useStudioStore((s) => s.addGovernanceCard);
   const [summary, setSummary] = useState<GovernanceSummary | null>(null);
   const [roles, setRoles] = useState<ServiceRoleItem[]>([]);
   const [assets, setAssets] = useState<BoundAssetItem[]>([]);
@@ -137,7 +142,9 @@ export function SkillGovernancePanel({
   const [positions, setPositions] = useState<PositionLite[]>([]);
   const [orgMemorySnapshots, setOrgMemorySnapshots] = useState<OrgMemorySnapshot[]>([]);
   const [orgMemoryFallback, setOrgMemoryFallback] = useState(false);
-  const [wizardMode, setWizardMode] = useState<"simple" | "advanced">("simple");
+  const [wizardMode, setWizardMode] = useState<"simple" | "advanced">(
+    testFlowIntent?.mode === "mount_blocked" ? "simple" : "advanced",
+  );
 
   const declarationStaleReasons = useMemo(
     () => buildDeclarationStaleReasons(declaration),
@@ -154,6 +161,12 @@ export function SkillGovernancePanel({
         : null,
     [skill.id, testFlowIntent],
   );
+
+  useEffect(() => {
+    if (testFlowIntent?.mode === "mount_blocked") {
+      setWizardMode("simple");
+    }
+  }, [testFlowIntent?.mode]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -297,18 +310,23 @@ export function SkillGovernancePanel({
 
   async function saveRolePackage(draft: RolePackageDraft) {
     setError(null);
-    await apiFetch<ApiEnvelope<{
+    const resp = await apiFetch<ApiEnvelope<{
       role_key: string;
       package_version?: number;
       governance_version?: number;
       stale_downstream?: string[];
+      workflow_cards?: WorkflowCardPayload[];
     }>>(
       `/skill-governance/${skill.id}/role-packages/${encodeURIComponent(draft.role_key)}`,
       {
         method: "PUT",
         body: JSON.stringify(serializeRolePackageWriteback(draft)),
       },
-    ).then(unwrap);
+    );
+    const saved = unwrap(resp);
+    for (const card of saved.workflow_cards || []) {
+      addGovernanceCard(normalizeWorkflowCardPayload(card, `governance:${skill.id}:role-package`));
+    }
     await load();
   }
 
@@ -583,7 +601,12 @@ export function SkillGovernancePanel({
         { method: "POST" },
       ).then(unwrap);
 
-      const resp = await apiFetch<ApiEnvelope<{ materialized_count: number; sandbox_session_id: number; status: string }>>(
+      const resp = await apiFetch<ApiEnvelope<{
+        materialized_count: number;
+        sandbox_session_id: number;
+        status: string;
+        workflow_cards?: WorkflowCardPayload[];
+      }>>(
         `/sandbox-case-plans/${targetPlanId}/materialize`,
         {
           method: "POST",
@@ -595,11 +618,15 @@ export function SkillGovernancePanel({
             trigger_message: testFlowIntent?.triggerMessage ?? null,
           }),
         },
-      ).then(unwrap);
-      setActiveJob({ label, status: "refreshing", jobId: `sandbox-session-${resp.sandbox_session_id}`, detail: "Sandbox 会话已创建，刷新复核状态" });
+      );
+      const materialized = unwrap(resp);
+      for (const card of materialized.workflow_cards || []) {
+        addGovernanceCard(normalizeWorkflowCardPayload(card, `test-flow:${skill.id}:materialize`));
+      }
+      setActiveJob({ label, status: "refreshing", jobId: `sandbox-session-${materialized.sandbox_session_id}`, detail: "Sandbox 会话已创建，刷新复核状态" });
       await load();
-      onMaterializedSession?.(resp.sandbox_session_id);
-      setActiveJob({ label, status: "done", jobId: `sandbox-session-${resp.sandbox_session_id}`, detail: `已落地到 Sandbox Session #${resp.sandbox_session_id}` });
+      onMaterializedSession?.(materialized.sandbox_session_id);
+      setActiveJob({ label, status: "done", jobId: `sandbox-session-${materialized.sandbox_session_id}`, detail: `已落地到 Sandbox Session #${materialized.sandbox_session_id}` });
     } catch (err) {
       setActiveJob({ label, status: "failed", detail: err instanceof Error ? err.message : "Sandbox materialize 失败" });
       setError(err instanceof Error ? err.message : "Sandbox materialize 失败");

@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { GovernanceTimeline } from "../GovernanceTimeline";
 import type {
+  ArchitectArtifact,
   ChatMessage,
   ArchitectPhaseStatus,
   ArchitectQuestion,
@@ -110,6 +111,42 @@ describe("场景 1：新建 Skill → Phase 1 全流程", () => {
     expect(screen.getByText("确认进入下一阶段")).toBeTruthy();
     fireEvent.click(screen.getByText("确认进入下一阶段"));
     expect(onConfirm).toHaveBeenCalled();
+  });
+
+  it("渲染 Why 阶段沉淀的结构化 artifacts", () => {
+    const artifacts: ArchitectArtifact[] = [
+      {
+        id: "artifact:phase_1_why:why_chain:latest",
+        artifactKey: "why_chain",
+        title: "Why Chain",
+        phase: "phase_1_why",
+        cardId: "create:architect:5whys",
+        contractId: "architect.why.5whys",
+        data: ["表面需求", "流程判断不稳定", "缺少统一框架"],
+      },
+      {
+        id: "artifact:phase_1_why:root_cause:latest",
+        artifactKey: "root_cause",
+        title: "真实根因",
+        phase: "phase_1_why",
+        cardId: "create:architect:5whys",
+        contractId: "architect.why.5whys",
+        data: "团队缺少统一的问题拆解方法",
+      },
+    ];
+
+    render(
+      <GovernanceTimeline
+        {...baseProps({
+          architectPhase: phase,
+          architectArtifacts: artifacts,
+        })}
+      />,
+    );
+
+    expect(screen.getByText("Skill Architect 沉淀结果")).toBeTruthy();
+    expect(screen.getByText("流程判断不稳定")).toBeTruthy();
+    expect(screen.getByText("团队缺少统一的问题拆解方法")).toBeTruthy();
   });
 
   it("确认后显示 PhaseProgress", () => {

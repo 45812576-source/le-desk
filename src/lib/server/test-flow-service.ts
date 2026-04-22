@@ -13,6 +13,8 @@ import type {
   TestFlowSkillCandidate,
   TestFlowGateReason,
   TestFlowGuidedStep,
+  TestFlowPlanSummary,
+  TestFlowWorkflowCard,
 } from "@/lib/test-flow-types";
 
 export type TestFlowApiResult = {
@@ -78,6 +80,258 @@ function summarizePlan(plan: PermissionCasePlan | null) {
     focus_mode: plan.focus_mode,
     materialized_session_id: plan.materialization?.sandbox_session_id ?? null,
   };
+}
+
+function buildValidationSource(input: {
+  skillId?: number | null;
+  plan?: TestFlowPlanSummary | null;
+  sessionId?: number | null;
+  reportId?: number | null;
+  entrySource?: string | null;
+  decisionMode?: string | null;
+  blockedStage?: string | null;
+  blockedBefore?: string | null;
+}): Record<string, unknown> {
+  return {
+    skill_id: input.skillId ?? input.plan?.skill_id ?? null,
+    plan_id: input.plan?.id ?? null,
+    plan_version: input.plan?.plan_version ?? null,
+    case_count: input.plan?.case_count ?? null,
+    session_id: input.sessionId ?? input.plan?.materialized_session_id ?? null,
+    report_id: input.reportId ?? null,
+    entry_source: input.entrySource ?? null,
+    decision_mode: input.decisionMode ?? null,
+    blocked_stage: input.blockedStage ?? null,
+    blocked_before: input.blockedBefore ?? null,
+  };
+}
+
+function compactCard(card: TestFlowWorkflowCard): TestFlowWorkflowCard {
+  return Object.fromEntries(
+    Object.entries(card).filter(([, value]) => value !== undefined),
+  ) as TestFlowWorkflowCard;
+}
+
+function buildTestFlowCards(response: TestFlowResolveResponse, entrySource?: string | null): TestFlowWorkflowCard[] {
+  const skillId = response.skill?.id ?? response.latest_plan?.skill_id ?? null;
+  if (!skillId) return [];
+  if (response.action === "mount_blocked") {
+    return [
+      compactCard({
+        id: `governance:test-flow:${skillId}:mount-blocked`,
+        contract_id: "governance.panel",
+        title: "测试流被治理门禁阻断",
+        summary: response.gate_summary || response.verdict_reason || "需要先补齐治理前置条件，才能生成测试用例。",
+        status: "pending",
+        kind: "validation",
+        mode: "governance",
+        phase: "validation",
+        priority: 125,
+        target: { type: "governance_panel", key: String(skillId) },
+        validation_source: buildValidationSource({
+          skillId,
+          plan: response.latest_plan ?? null,
+          entrySource,
+          blockedStage: response.blocked_stage ?? null,
+          blockedBefore: response.blocked_before ?? null,
+        }),
+        artifact_refs: (response.gate_reasons || []).map((reason) => `gate:${reason.code}`),
+      }),
+    ];
+  }
+  if (response.action === "choose_existing_plan" && response.latest_plan) {
+    return [
+      compactCard({
+        id: `validation:case-plan:${response.latest_plan.id}:decision`,
+        contract_id: "validation.test_ready",
+        title: "存在历史测试方案待决策",
+        summary: `Plan v${response.latest_plan.plan_version} · ${response.latest_plan.case_count} 个用例，可复用、修改或重新生成。`,
+        status: "active",
+        kind: "validation",
+        mode: "governance",
+        phase: "validation",
+        priority: 118,
+        target: { type: "governance_panel", key: String(skillId) },
+        validation_source: buildValidationSource({
+          skillId,
+          plan: response.latest_plan,
+          entrySource,
+          decisionMode: "choose_existing_plan",
+        }),
+      }),
+    ];
+  }
+  if (response.action === "generate_cases") {
+    return [
+      compactCard({
+        id: `validation:case-plan:${skillId}:generate`,
+        contract_id: "validation.test_ready",
+        title: "生成测试用例卡",
+        summary: "治理前置已满足，可以生成测试用例并创建 Sandbox Session。",
+        status: "active",
+        kind: "validation",
+        mode: "governance",
+        phase: "validation",
+        priority: 116,
+        target: { type: "governance_panel", key: String(skillId) },
+        validation_source: buildValidationSource({
+          skillId,
+          entrySource,
+          decisionMode: "generate_cases",
+        }),
+      }),
+    ];
+  }
+  return [];
+}
+
+function withWorkflowCards<T extends TestFlowResolveResponse>(
+  response: T,
+  entrySource?: string | null,
+): T {
+  const workflowCards = buildTestFlowCards(response, entrySource);
+  return workflowCards.length > 0
+    ? { ...response, workflow_cards: workflowCards }
+    : response;
+}
+
+function buildMaterializeCards(input: {
+  skillId: number;
+  plan: PermissionCasePlan;
+  sessionId: number;
+  entrySource?: string | null;
+  decisionMode?: string | null;
+}): TestFlowWorkflowCard[] {
+  return [
+    compactCard({
+      id: `validation:sandbox-session:${input.sessionId}:run`,
+      contract_id: "validation.test_ready",
+      title: `Sandbox Session #${input.sessionId}`,
+      summary: `已从 Plan v${input.plan.plan_version} 创建 ${input.plan.case_count} 个测试用例，下一步执行测试。`,
+      status: "active",
+      kind: "validation",
+      mode: "report",
+      phase: "validation",
+      priority: 122,
+      target: { type: "report", key: String(input.sessionId) },
+      validation_source: buildValidationSource({
+        skillId: input.skillId,
+        plan: summarizePlan(input.plan),
+        sessionId: input.sessionId,
+        entrySource: input.entrySource,
+        decisionMode: input.decisionMode,
+      }),
+    }),
+  ];
+}
+
+function decorateEnvelopeDataWithCards(
+  backendBody: unknown,
+  cards: TestFlowWorkflowCard[],
+): unknown {
+  if (cards.length === 0) return backendBody;
+  const envelope = asEnvelope(backendBody);
+  if (!envelope?.ok || typeof envelope.data !== "object" || envelope.data === null) return backendBody;
+  return {
+    ...backendBody as Record<string, unknown>,
+    data: {
+      ...envelope.data as Record<string, unknown>,
+      workflow_cards: cards,
+    },
+  };
+}
+
+function reportPassed(report: Record<string, unknown>): boolean {
+  if (typeof report.approval_eligible === "boolean") return report.approval_eligible;
+  if (typeof report.passed === "boolean") return report.passed;
+  const status = typeof report.status === "string" ? report.status : typeof report.verdict === "string" ? report.verdict : "";
+  return status === "passed" || status === "success" || status === "approved";
+}
+
+function buildReportCards(report: Record<string, unknown>, link?: TestFlowRunLink): TestFlowWorkflowCard[] {
+  const reportId = typeof report.report_id === "number" ? report.report_id : link?.report_id ?? null;
+  const sessionId = typeof report.session_id === "number" ? report.session_id : link?.session_id ?? null;
+  const skillId = typeof report.skill_id === "number" ? report.skill_id : link?.skill_id ?? null;
+  const planSummary = link
+    ? {
+        id: link.plan_id,
+        skill_id: link.skill_id,
+        plan_version: link.plan_version,
+        status: "materialized",
+        case_count: link.case_count,
+        focus_mode: "permission_minimal",
+        materialized_session_id: link.session_id,
+      }
+    : null;
+  if (!skillId && !sessionId && !reportId) return [];
+  if (reportPassed(report)) {
+    return [
+      compactCard({
+        id: `release:test-passed:${reportId ?? sessionId ?? "latest"}`,
+        contract_id: "release.test_passed",
+        title: "测试通过",
+        summary: "Sandbox 报告已通过，可以进入发布前复核或提交审批。",
+        status: "active",
+        kind: "release",
+        mode: "report",
+        phase: "release",
+        priority: 124,
+        target: { type: "report", key: reportId ? String(reportId) : sessionId ? String(sessionId) : null },
+        validation_source: buildValidationSource({
+          skillId,
+          plan: planSummary,
+          sessionId,
+          reportId,
+          entrySource: link?.entry_source,
+          decisionMode: link?.decision_mode ?? null,
+        }),
+      }),
+    ];
+  }
+  const overviewCardId = `fixing:report:${reportId ?? sessionId ?? "latest"}:overview`;
+  return [
+    compactCard({
+      id: overviewCardId,
+      contract_id: "fixing.overview",
+      title: "Sandbox 失败报告解读",
+      summary: typeof report.summary === "string" ? report.summary : "Sandbox 未通过，需要生成整改任务并局部重测。",
+      status: "active",
+      kind: "fixing",
+      mode: "report",
+      phase: "fixing",
+      priority: 126,
+      target: { type: "report", key: reportId ? String(reportId) : sessionId ? String(sessionId) : null },
+      validation_source: buildValidationSource({
+        skillId,
+        plan: planSummary,
+        sessionId,
+        reportId,
+        entrySource: link?.entry_source,
+        decisionMode: link?.decision_mode ?? null,
+      }),
+    }),
+    compactCard({
+      id: `fixing:targeted-retest:${reportId ?? sessionId ?? "latest"}`,
+      contract_id: "fixing.targeted_retest",
+      title: "局部重测",
+      summary: "整改完成后，针对失败报告执行局部重测。",
+      status: "pending",
+      kind: "fixing",
+      mode: "report",
+      phase: "fixing",
+      priority: 112,
+      target: { type: "report", key: reportId ? String(reportId) : sessionId ? String(sessionId) : null },
+      source_card_id: overviewCardId,
+      validation_source: buildValidationSource({
+        skillId,
+        plan: planSummary,
+        sessionId,
+        reportId,
+        entrySource: link?.entry_source,
+        decisionMode: link?.decision_mode ?? null,
+      }),
+    }),
+  ];
 }
 
 function normalizeCandidates(
@@ -245,30 +499,30 @@ async function resolveEntry(
   if (!readiness?.readiness?.ready) {
     const issues = readiness?.readiness?.blocking_issues || ["missing_permission_mount"];
     const gateDetails = buildLocalGateDetails(issues);
-    return ok<TestFlowResolveResponse>({
+    return ok<TestFlowResolveResponse>(withWorkflowCards({
       action: "mount_blocked",
       reason: "case_generation_gate_blocked",
       skill,
       blocking_issues: issues,
       latest_plan: summarizePlan(latest?.plan || null),
       ...gateDetails,
-    });
+    }, payload.entry_source));
   }
 
   if (latest?.plan?.id) {
-    return ok<TestFlowResolveResponse>({
+    return ok<TestFlowResolveResponse>(withWorkflowCards({
       action: "choose_existing_plan",
       reason: "existing_case_plan_found",
       skill,
       latest_plan: summarizePlan(latest.plan),
-    });
+    }, payload.entry_source));
   }
 
-  return ok<TestFlowResolveResponse>({
+  return ok<TestFlowResolveResponse>(withWorkflowCards({
     action: "generate_cases",
     reason: "ready_without_existing_plan",
     skill,
-  });
+  }, payload.entry_source));
 }
 
 function decorateWithRunLink(value: Record<string, unknown>, link: TestFlowRunLink | undefined) {
@@ -348,6 +602,13 @@ export async function rememberTestFlowBackendResponse(input: {
         conversation_id: typeof input.requestPayload?.conversation_id === "number" ? input.requestPayload.conversation_id : null,
         created_at: new Date().toISOString(),
       });
+      return decorateEnvelopeDataWithCards(input.backendBody, buildMaterializeCards({
+        skillId: matched.skillId,
+        plan,
+        sessionId,
+        entrySource: (input.requestPayload?.entry_source as string) || "skill_governance_panel",
+        decisionMode: (input.requestPayload?.decision_mode as string) || null,
+      }));
     }
   }
 
@@ -368,7 +629,41 @@ export async function rememberTestFlowBackendResponse(input: {
     const reportId = typeof session.report_id === "number" ? session.report_id : null;
     await syncObservedReportLink(route.sessionId, reportId);
     const state = await readTestFlowState();
-    return decorateWithRunLink(session, state.run_links_by_session_id[String(route.sessionId)]);
+    const link = state.run_links_by_session_id[String(route.sessionId)];
+    const decorated = decorateWithRunLink(session, link);
+    return {
+      ...decorated,
+      workflow_cards: link
+        ? buildMaterializeCards({
+            skillId: link.skill_id,
+            plan: {
+              id: link.plan_id,
+              skill_id: link.skill_id,
+              bundle_id: 0,
+              declaration_id: 0,
+              plan_version: link.plan_version,
+              skill_content_version: 0,
+              governance_version: 0,
+              permission_declaration_version: null,
+              status: "materialized",
+              focus_mode: "permission_minimal",
+              max_cases: link.case_count,
+              case_count: link.case_count,
+              blocking_issues: [],
+              cases: [],
+              materialization: {
+                sandbox_session_id: link.session_id,
+                status: "materialized",
+                case_count: link.case_count,
+                created_at: link.created_at,
+              },
+            } as PermissionCasePlan,
+            sessionId: link.session_id,
+            entrySource: link.entry_source,
+            decisionMode: link.decision_mode ?? null,
+          })
+        : [],
+    };
   }
 
   if (route.kind === "report" && typeof input.backendBody === "object" && input.backendBody !== null) {
@@ -379,7 +674,12 @@ export async function rememberTestFlowBackendResponse(input: {
     const reportId = typeof report.report_id === "number" ? report.report_id : null;
     await syncObservedReportLink(route.sessionId, reportId);
     const state = await readTestFlowState();
-    return decorateWithRunLink(report, state.run_links_by_session_id[String(route.sessionId)]);
+    const link = state.run_links_by_session_id[String(route.sessionId)];
+    const decorated = decorateWithRunLink(report, link);
+    return {
+      ...decorated,
+      workflow_cards: buildReportCards(decorated, link),
+    };
   }
 
   return input.backendBody;

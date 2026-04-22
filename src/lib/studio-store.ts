@@ -2,6 +2,7 @@
 
 import { create } from "zustand";
 import type {
+  ArchitectArtifact,
   StudioDraft,
   StudioSummary,
   StudioToolSuggestion,
@@ -11,7 +12,14 @@ import type {
   StagedEdit,
 } from "@/components/skill-studio/types";
 import type { StudioDeepPatch, WorkflowStateData } from "@/components/skill-studio/workflow-protocol";
-import type { StudioWorkspaceState, WorkbenchCard, WorkbenchMode } from "@/components/skill-studio/workbench-types";
+import type { StudioOrchestrationErrorPayload } from "@/components/skill-studio/workflow-adapter";
+import {
+  resolveFocusedWorkbenchCardId,
+  type CardQueueWindow,
+  type StudioWorkspaceState,
+  type WorkbenchCard,
+  type WorkbenchMode,
+} from "@/components/skill-studio/workbench-types";
 import type { SkillMemo } from "@/lib/types";
 import { reconcileStudioArtifacts } from "@/lib/studio-reconcile";
 
@@ -94,6 +102,19 @@ export interface StudioSessionState {
   setSessionState: (state: V2SessionState | null) => void;
   memo: SkillMemo | null;
   setMemo: (memo: SkillMemo | null) => void;
+
+  queueWindow: CardQueueWindow | null;
+  setQueueWindow: (qw: CardQueueWindow | null) => void;
+  resumeHintDismissed: boolean;
+  dismissResumeHint: () => void;
+
+  studioError: StudioOrchestrationErrorPayload | null;
+  setStudioError: (error: StudioOrchestrationErrorPayload | null) => void;
+
+  architectArtifacts: ArchitectArtifact[];
+  mergeArchitectArtifacts: (artifacts: ArchitectArtifact[]) => void;
+  clearArchitectArtifacts: () => void;
+
   resetWorkflowArtifacts: () => void;
 
   reset: () => void;
@@ -134,6 +155,10 @@ const initialState = {
   pendingFileSplit: null as StudioFileSplit | null,
   sessionState: null as V2SessionState | null,
   memo: null as SkillMemo | null,
+  queueWindow: null as CardQueueWindow | null,
+  resumeHintDismissed: false,
+  studioError: null as StudioOrchestrationErrorPayload | null,
+  architectArtifacts: [] as ArchitectArtifact[],
 };
 
 function buildResolvedStudioArtifacts(state: Pick<
@@ -165,13 +190,20 @@ function deriveWorkspaceFromCard(card: WorkbenchCard | null): StudioWorkspaceSta
   };
 }
 
-function orderWorkbenchCards(cardsById: Record<string, WorkbenchCard>, currentOrder: string[]) {
+function orderWorkbenchCards(
+  cardsById: Record<string, WorkbenchCard>,
+  currentOrder: string[],
+  options?: { preserveProvidedOrder?: boolean },
+) {
   const known = new Set(currentOrder);
   const ordered = currentOrder.filter((id) => cardsById[id]);
   const missing = Object.values(cardsById)
     .filter((card) => !known.has(card.id))
     .sort((left, right) => right.priority - left.priority)
     .map((card) => card.id);
+  if (options?.preserveProvidedOrder) {
+    return Array.from(new Set([...ordered, ...missing]));
+  }
   const sorted = [...ordered, ...missing].sort((leftId, rightId) => {
     const left = cardsById[leftId];
     const right = cardsById[rightId];
@@ -184,6 +216,7 @@ function orderWorkbenchCards(cardsById: Record<string, WorkbenchCard>, currentOr
         adopted: 2,
         rejected: 1,
         dismissed: 0,
+        stale: -1,
       };
       return rank[right.status] - rank[left.status];
     }
@@ -193,15 +226,10 @@ function orderWorkbenchCards(cardsById: Record<string, WorkbenchCard>, currentOr
 }
 
 function deriveActiveCardId(cardsById: Record<string, WorkbenchCard>, cardOrder: string[], preferredActiveId?: string | null) {
-  if (preferredActiveId && cardsById[preferredActiveId]) return preferredActiveId;
-  const validation = cardOrder
-    .map((id) => cardsById[id])
-    .find((card) => card && card.kind === "validation" && (card.status === "pending" || card.status === "active"));
-  if (validation) return validation.id;
-  const pending = cardOrder
-    .map((id) => cardsById[id])
-    .find((card) => card && (card.status === "pending" || card.status === "active"));
-  return pending?.id ?? cardOrder[0] ?? null;
+  return resolveFocusedWorkbenchCardId(
+    cardOrder.map((id) => cardsById[id]).filter(Boolean),
+    preferredActiveId,
+  );
 }
 
 export const useStudioStore = create<StudioSessionState>((set) => ({
@@ -267,7 +295,7 @@ export const useStudioStore = create<StudioSessionState>((set) => ({
   replaceWorkbenchCards: (cards, preferredActiveId) =>
     set((s) => {
       const cardsById = Object.fromEntries(cards.map((card) => [card.id, card]));
-      const cardOrder = orderWorkbenchCards(cardsById, cards.map((card) => card.id));
+      const cardOrder = orderWorkbenchCards(cardsById, cards.map((card) => card.id), { preserveProvidedOrder: true });
       const activeCardId = deriveActiveCardId(
         cardsById,
         cardOrder,
@@ -435,9 +463,8 @@ export const useStudioStore = create<StudioSessionState>((set) => ({
           }
         : s.cardsById;
       const nextCardOrder = linkedWorkbenchCardId ? orderWorkbenchCards(nextCardsById, s.cardOrder) : s.cardOrder;
-      const activeCardId = linkedWorkbenchCardId
-        ? deriveActiveCardId(nextCardsById, nextCardOrder, linkedWorkbenchCardId)
-        : s.activeCardId;
+      // 采纳后焦点保留在刚处理完的卡上，让用户确认结果
+      const activeCardId = linkedWorkbenchCardId ?? s.activeCardId;
       return {
         stagedEditLedger,
         cardsById: nextCardsById,
@@ -495,10 +522,25 @@ export const useStudioStore = create<StudioSessionState>((set) => ({
   setPendingFileSplit: (split) => set({ pendingFileSplit: split }),
   setSessionState: (state) => set({ sessionState: state }),
   setMemo: (memo) => set({ memo }),
+
+  setQueueWindow: (qw) => set({ queueWindow: qw }),
+  dismissResumeHint: () => set({ resumeHintDismissed: true }),
+  setStudioError: (error) => set({ studioError: error }),
+
+  mergeArchitectArtifacts: (artifacts) =>
+    set((s) => {
+      const byId = new Map(s.architectArtifacts.map((a) => [a.id, a]));
+      for (const a of artifacts) byId.set(a.id, a);
+      return { architectArtifacts: Array.from(byId.values()) };
+    }),
+  clearArchitectArtifacts: () => set({ architectArtifacts: [] }),
+
   resetWorkflowArtifacts: () => set({
     sessionMode: null,
     activeAssistSkills: [],
     workflowState: null,
+    queueWindow: null,
+    resumeHintDismissed: false,
     activeRunId: null,
     activeRunVersion: null,
     archivedRuns: [],
@@ -521,6 +563,7 @@ export const useStudioStore = create<StudioSessionState>((set) => ({
     stagedEdits: [],
     stagedEditSources: {},
     stagedEditLedger: {},
+    architectArtifacts: [],
   }),
 
   reset: () => set(initialState),

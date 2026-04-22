@@ -192,6 +192,16 @@ export function normalizeStagedEditPayload(raw: Record<string, unknown>, source?
   return {
     id: String(raw.id ?? `se-${Date.now()}`),
     source,
+    sourceCardId: typeof raw.sourceCardId === "string"
+      ? raw.sourceCardId
+      : typeof raw.source_card_id === "string"
+        ? raw.source_card_id
+        : null,
+    contractId: typeof raw.contractId === "string"
+      ? raw.contractId
+      : typeof raw.contract_id === "string"
+        ? raw.contract_id
+        : null,
     fileType,
     filename,
     diff: rawDiff.map((op) => normalizeDiffOp(op as DiffOp | Record<string, unknown>)),
@@ -202,6 +212,11 @@ export function normalizeStagedEditPayload(raw: Record<string, unknown>, source?
         : typeof raw.summary === "string"
           ? raw.summary
           : undefined,
+    nextAction: typeof raw.nextAction === "string"
+      ? raw.nextAction
+      : typeof raw.next_action === "string"
+        ? raw.next_action
+        : null,
     status: (raw.status as StagedEdit["status"]) || "pending",
   };
 }

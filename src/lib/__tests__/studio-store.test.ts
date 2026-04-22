@@ -179,4 +179,37 @@ describe("studio-store reconciliation", () => {
     expect(state.cardsById["edit-1"]?.status).toBe("adopted");
     expect(state.activeCardId).toBe("edit-1");
   });
+
+  it("preserves backend card order during recovery hydration", () => {
+    const cards: WorkbenchCard[] = [
+      {
+        id: "low-priority-first",
+        title: "后端指定第一张",
+        summary: "低优先级但应排第一",
+        status: "pending",
+        kind: "governance",
+        mode: "file",
+        phase: "governance_execution",
+        source: "memo-recovery",
+        priority: 10,
+        target: { type: "source_file", key: "first.md" },
+      },
+      {
+        id: "high-priority-second",
+        title: "后端指定第二张",
+        summary: "高优先级但应排第二",
+        status: "pending",
+        kind: "governance",
+        mode: "file",
+        phase: "governance_execution",
+        source: "memo-recovery",
+        priority: 90,
+        target: { type: "source_file", key: "second.md" },
+      },
+    ];
+
+    useStudioStore.getState().replaceWorkbenchCards(cards);
+
+    expect(useStudioStore.getState().cardOrder).toEqual(["low-priority-first", "high-priority-second"]);
+  });
 });

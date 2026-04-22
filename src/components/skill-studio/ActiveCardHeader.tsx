@@ -8,6 +8,10 @@ const KIND_LABEL: Record<WorkbenchCard["kind"], string> = {
   governance: "治理卡",
   validation: "验证卡",
   system: "系统卡",
+  create: "创作卡",
+  refine: "完善卡",
+  fixing: "整改卡",
+  release: "发布卡",
 };
 
 const STATUS_LABEL: Record<WorkbenchCard["status"], string> = {
@@ -17,6 +21,7 @@ const STATUS_LABEL: Record<WorkbenchCard["status"], string> = {
   adopted: "已采纳",
   rejected: "已拒绝",
   dismissed: "已关闭",
+  stale: "已过期",
 };
 
 export function ActiveCardHeader({

@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { ShieldCheck } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 import { consumeSandboxSessionStream } from "@/lib/sandbox-stream";
-import type { SkillDetail, SkillMemo, SandboxReport } from "@/lib/types";
+import type { SkillDetail, SkillMemo, SandboxReport, StudioCardQueueLedger, StudioSessionPayload } from "@/lib/types";
 import type { TestFlowPlanSummary, TestFlowBlockedStage, TestFlowBlockedBefore, TestFlowGateReason, TestFlowGuidedStep } from "@/lib/test-flow-types";
 import type { Suggestion } from "@/components/skill/CommentsPanel";
 import { ImportSkillModal } from "@/components/skill/ImportSkillModal";
@@ -16,15 +16,18 @@ import { useStudioStore } from "@/lib/studio-store";
 import type { ChatMessage, SelectedFile, StudioDraft, StagedEdit } from "./types";
 import { SkillList, SkillIcon } from "./SkillList";
 import { PromptEditor } from "./PromptEditor";
-import { StudioChat } from "./StudioChat";
+import { StudioChat, type StudioChatHandle } from "./StudioChat";
 import { AssetFileEditor } from "./AssetFileEditor";
 import { SkillGovernancePanel } from "./SkillGovernancePanel";
 import { StudioCardRail } from "./StudioCardRail";
+import { resolveStudioCardContract, type StudioCardContract } from "./card-contracts";
 import { buildAssetEditorTarget, buildAssetLoadingTarget, buildEditorErrorTarget, buildPromptEditorTarget, editorTargetFromSelectedFile, selectedFileFromEditorTarget, type StudioEditorTarget } from "./editor-target";
 import { normalizeStagedEditPayload } from "./utils";
 import { normalizeWorkflowCardPayload, parseWorkflowStatePayload } from "./workflow-adapter";
+import { hydrateStudioSessionRecovery } from "./session-recovery";
 import type { WorkflowStateData } from "./workflow-protocol";
 import { buildWorkbenchCards, resolvePreferredWorkbenchCardId } from "./workbench";
+import { FILE_ROLE_LABEL, isPendingFileConfirmationCard, type CardQueueWindow } from "./workbench-types";
 
 // ─── Main page ────────────────────────────────────────────────────────────────
 
@@ -108,6 +111,7 @@ export function SkillStudio({
   const [activeSandboxReport, setActiveSandboxReport] = useState<SandboxReport | null>(null);
   const [sandboxRemediationSummary, setSandboxRemediationSummary] = useState<{ cards: number; stagedEdits: number } | null>(null);
   const [sandboxRemediationLoading, setSandboxRemediationLoading] = useState(false);
+  const [cardQueueLedger, setCardQueueLedger] = useState<StudioCardQueueLedger | null>(null);
 
   const [prompt, setPrompt] = useState("");
   const [savedPrompt, setSavedPrompt] = useState("");  // last persisted version for dirty tracking
@@ -117,13 +121,27 @@ export function SkillStudio({
   const editorSaveRef = useRef<(() => void) | null>(null);
   const clearChatRef = useRef<(() => void) | null>(null);
   const setInputRef = useRef<((text: string) => void) | null>(null);
+  const chatActionsRef = useRef<StudioChatHandle | null>(null);
+
+  // ── Pending states for Card Queue (derived from store) ──
+  const storePendingDraft = useStudioStore((s) => s.pendingDraft);
+  const storePendingSummary = useStudioStore((s) => s.pendingSummary);
+  const storePendingToolSuggestion = useStudioStore((s) => s.pendingToolSuggestion);
+  const storePendingFileSplit = useStudioStore((s) => s.pendingFileSplit);
+  const setStorePendingDraft = useStudioStore((s) => s.setPendingDraft);
+  const setStorePendingSummary = useStudioStore((s) => s.setPendingSummary);
+  const setStorePendingToolSuggestion = useStudioStore((s) => s.setPendingToolSuggestion);
+  const setStorePendingFileSplit = useStudioStore((s) => s.setPendingFileSplit);
+  const hasPendingDraft = Boolean(storePendingDraft);
+  const hasPendingSummary = Boolean(storePendingSummary);
+  const hasPendingToolSuggestion = Boolean(storePendingToolSuggestion);
+  const hasPendingFileSplit = Boolean(storePendingFileSplit);
 
   const editorIsDirty = prompt !== savedPrompt && prompt.trim().length > 0;
 
   // ── Editor visibility from store ──
   const editorVisibility = useStudioStore((s) => s.editorVisibility);
   const setEditorVisibility = useStudioStore((s) => s.setEditorVisibility);
-  const editorManuallyCollapsed = useStudioStore((s) => s.editorManuallyCollapsed);
   const setEditorManuallyCollapsed = useStudioStore((s) => s.setEditorManuallyCollapsed);
   const activeWorkbenchCardId = useStudioStore((s) => s.activeWorkbenchCardId);
   const setActiveWorkbenchCardId = useStudioStore((s) => s.setActiveWorkbenchCardId);
@@ -137,20 +155,12 @@ export function SkillStudio({
   const setStoreMemo = useStudioStore((s) => s.setMemo);
   const setWorkflowState = useStudioStore((s) => s.setWorkflowState);
   const resetWorkflowArtifacts = useStudioStore((s) => s.resetWorkflowArtifacts);
+  const setStoreQueueWindow = useStudioStore((s) => s.setQueueWindow);
+  const mergeArchitectArtifacts = useStudioStore((s) => s.mergeArchitectArtifacts);
   const hydratedRecoveryRef = useRef<string | null>(null);
+  const lastAutoOpenedCardIdRef = useRef<string | null>(null);
 
-  // Auto-expand editor when selecting a file to edit
-  const prevSelectedFileRef = useRef(selectedFile);
-  useEffect(() => {
-    if (selectedFile && selectedFile !== prevSelectedFileRef.current) {
-      if (editorVisibility === "collapsed" && !editorManuallyCollapsed) {
-        setEditorVisibility("auto_expanded");
-      }
-    }
-    prevSelectedFileRef.current = selectedFile;
-  }, [selectedFile, editorVisibility, editorManuallyCollapsed, setEditorVisibility]);
-
-  // File workspace panel visibility: visible unless user manually collapsed
+  // File workspace panel visibility: visible only when pinned or confirmation flow opens it.
   const editorVisible = editorVisibility !== "collapsed";
 
   const router = useRouter();
@@ -226,7 +236,12 @@ export function SkillStudio({
     memo,
     governanceIntent: governanceWorkbenchIntent,
     activeSandboxReport,
-  }), [activeSandboxReport, governanceWorkbenchIntent, memo, selectedFile, selectedSkill, storeGovernanceCards, storeStagedEdits, storeWorkflowState]);
+    prompt,
+    hasPendingDraft,
+    hasPendingSummary,
+    hasPendingToolSuggestion,
+    hasPendingFileSplit,
+  }), [activeSandboxReport, governanceWorkbenchIntent, memo, selectedFile, selectedSkill, storeGovernanceCards, storeStagedEdits, storeWorkflowState, prompt, hasPendingDraft, hasPendingSummary, hasPendingToolSuggestion, hasPendingFileSplit]);
 
   const lastReplaceKeyRef = useRef<string | null>(null);
   useEffect(() => {
@@ -257,10 +272,34 @@ export function SkillStudio({
 
   const activeWorkbenchId = activeWorkbenchCardId;
   const activeWorkbenchCard = workbenchCards.find((card) => card.id === activeWorkbenchId) ?? null;
-  const pendingWorkbenchCards = useMemo(
-    () => workbenchCards.filter((card) => card.id !== activeWorkbenchId && (card.status === "pending" || card.status === "active")),
-    [activeWorkbenchId, workbenchCards],
-  );
+  const activeCardQueueWindow = useMemo(() => {
+    if (activeWorkbenchCard?.queueWindow) {
+      return activeWorkbenchCard.queueWindow;
+    }
+    if (storeWorkflowState?.queue_window) {
+      return storeWorkflowState.queue_window;
+    }
+    if (!activeWorkbenchCard) return null;
+    const visibleIds = workbenchCards
+      .filter((card) => card.status === "active" || card.status === "pending" || card.status === "reviewing")
+      .slice(0, 5)
+      .map((card) => card.id);
+    return {
+      active_card_id: activeWorkbenchCard.id,
+      visible_card_ids: visibleIds.includes(activeWorkbenchCard.id)
+        ? visibleIds
+        : [activeWorkbenchCard.id, ...visibleIds].slice(0, 5),
+      backlog_count: Math.max(workbenchCards.length - Math.min(visibleIds.length || 1, 5), 0),
+      phase: activeWorkbenchCard.phase || storeWorkflowState?.phase || "discover",
+      max_visible: 5,
+      reveal_policy: "stage_gated" as const,
+      _fallback: true as const,
+    };
+  }, [activeWorkbenchCard, storeWorkflowState, workbenchCards]);
+
+  useEffect(() => {
+    setStoreQueueWindow(activeCardQueueWindow);
+  }, [activeCardQueueWindow, setStoreQueueWindow]);
 
   const handleOpenPromptFromWorkspace = useCallback(() => {
     const targetSkillId = selectedSkill?.id ?? selectedFile?.skillId ?? initialSkillId;
@@ -271,6 +310,27 @@ export function SkillStudio({
   const handleFocusChatFromWorkspace = useCallback((text: string) => {
     setInputRef.current?.(text);
   }, []);
+
+  const handleManualExpandEditor = useCallback(() => {
+    setEditorManuallyCollapsed(false);
+    setEditorVisibility("pinned_open");
+  }, [setEditorManuallyCollapsed, setEditorVisibility]);
+
+  const handlePendingDraftChange = useCallback((draft: StudioDraft | null) => {
+    setStorePendingDraft(draft);
+  }, [setStorePendingDraft]);
+
+  const handlePendingSummaryChange = useCallback((summary: import("./types").StudioSummary | null) => {
+    setStorePendingSummary(summary);
+  }, [setStorePendingSummary]);
+
+  const handlePendingToolSuggestionChange = useCallback((suggestion: import("./types").StudioToolSuggestion | null) => {
+    setStorePendingToolSuggestion(suggestion);
+  }, [setStorePendingToolSuggestion]);
+
+  const handlePendingFileSplitChange = useCallback((split: import("./types").StudioFileSplit | null) => {
+    setStorePendingFileSplit(split);
+  }, [setStorePendingFileSplit]);
 
   const handleOpenChatTestFlowPanel = useCallback((intent: {
     skillId: number;
@@ -319,9 +379,33 @@ export function SkillStudio({
   useEffect(() => {
     if (!activeWorkbenchCard) {
       setWorkbenchMode("analysis");
+      if (editorVisibility === "auto_expanded") {
+        setEditorVisibility("collapsed");
+      }
       return;
     }
     setWorkbenchMode(activeWorkbenchCard.mode);
+
+    // File Workspace 自动展开规则：
+    // 1. contract drawerPolicy === "on_pending_edit" → 展开
+    // 2. 无 contract 时 fallback: isPendingFileConfirmationCard
+    // 3. store 有 pendingDraft 或 pendingFileSplit → 展开（不论 active card）
+    const contract: StudioCardContract | null = resolveStudioCardContract(activeWorkbenchCard);
+    const drawerPolicy = contract?.drawerPolicy ?? null;
+    const shouldAutoOpenWorkspace =
+      drawerPolicy === "on_pending_edit"
+      || (!drawerPolicy && isPendingFileConfirmationCard(activeWorkbenchCard))
+      || hasPendingDraft
+      || hasPendingFileSplit;
+
+    if (shouldAutoOpenWorkspace && lastAutoOpenedCardIdRef.current !== activeWorkbenchCard.id) {
+      lastAutoOpenedCardIdRef.current = activeWorkbenchCard.id;
+      setEditorManuallyCollapsed(false);
+      setEditorVisibility("auto_expanded");
+    } else if (!shouldAutoOpenWorkspace && editorVisibility === "auto_expanded") {
+      lastAutoOpenedCardIdRef.current = null;
+      setEditorVisibility("collapsed");
+    }
 
     if (activeWorkbenchCard.mode === "governance" && !showGovernancePanel && selectedSkill) {
       setShowGovernancePanel(true);
@@ -348,68 +432,87 @@ export function SkillStudio({
     selectedFile,
     selectedSkill,
     setSelectedFile,
+    editorVisibility,
+    setEditorManuallyCollapsed,
+    setEditorVisibility,
     setWorkbenchMode,
     showGovernancePanel,
+    hasPendingDraft,
+    hasPendingFileSplit,
   ]);
 
   // ── Memo: fetch when selected skill changes ──
   const fetchMemo = useCallback((skillId: number) => {
     apiFetch<SkillMemo>(`/skills/${skillId}/memo`)
       .then((data) => {
-        // Backend returns { skill_id, memo: null } when no memo exists
         if (data && data.lifecycle_stage) {
           setMemo(data);
           setStoreMemo(data);
-          const recovery = data.workflow_recovery;
-          const recoveredWorkflowState = recovery?.workflow_state
-            ? parseWorkflowStatePayload(recovery.workflow_state as Record<string, unknown>)
-            : null;
-          setWorkflowState(recoveredWorkflowState);
-          const recoverySignature = `${skillId}:${(recovery?.revision ?? recovery?.updated_at) || "none"}`;
-          if (hydratedRecoveryRef.current !== recoverySignature) {
-            const recoveryCards = Array.isArray(recovery?.cards) ? recovery.cards : [];
-            const recoveryEdits = Array.isArray(recovery?.staged_edits) ? recovery.staged_edits : [];
-            const cards = recoveryCards.map((card) => normalizeWorkflowCardPayload(card, "memo-recovery"));
-            const edits = recoveryEdits.map((edit) => normalizeStagedEditPayload(edit, "memo-recovery"));
-            syncGovernanceCards("memo-recovery", cards);
-            syncStagedEdits("memo-recovery", edits);
-            hydratedRecoveryRef.current = recoverySignature;
-            if (cards.length > 0 || edits.some((edit) => edit.status === "pending")) {
-              setEditorManuallyCollapsed(false);
-              setEditorVisibility("auto_expanded");
-            }
-          }
         } else {
           setMemo(null);
           setStoreMemo(null);
-          setWorkflowState(null);
-          syncGovernanceCards("memo-recovery", []);
-          syncStagedEdits("memo-recovery", []);
-          hydratedRecoveryRef.current = skillId ? `${skillId}:none` : null;
         }
       })
       .catch(() => {
         setMemo(null);
         setStoreMemo(null);
+      });
+  }, [setStoreMemo]);
+
+  const fetchStudioSession = useCallback((skillId: number) => {
+    apiFetch<StudioSessionPayload>(`/skills/${skillId}/studio/session`)
+      .then((data) => {
+        const hydrated = hydrateStudioSessionRecovery(skillId, data);
+        setWorkflowState(hydrated.workflowState);
+        if (hydratedRecoveryRef.current === hydrated.recoverySignature) {
+          return;
+        }
+        syncGovernanceCards("memo-recovery", hydrated.governanceCards);
+        syncStagedEdits("memo-recovery", hydrated.stagedEdits);
+        setStoreQueueWindow(hydrated.queueWindow);
+        setCardQueueLedger(hydrated.cardQueueLedger);
+        if (hydrated.architectArtifacts.length > 0) {
+          mergeArchitectArtifacts(hydrated.architectArtifacts);
+        }
+        hydratedRecoveryRef.current = hydrated.recoverySignature;
+        if (hydrated.stagedEdits.some((edit) => edit.status === "pending")) {
+          setEditorManuallyCollapsed(false);
+          setEditorVisibility("auto_expanded");
+        }
+      })
+      .catch(() => {
         setWorkflowState(null);
         syncGovernanceCards("memo-recovery", []);
         syncStagedEdits("memo-recovery", []);
+        setStoreQueueWindow(null);
+        setCardQueueLedger(null);
         hydratedRecoveryRef.current = skillId ? `${skillId}:none` : null;
       });
-  }, [setStoreMemo, setWorkflowState, setEditorManuallyCollapsed, setEditorVisibility, syncGovernanceCards, syncStagedEdits]);
+  }, [
+    mergeArchitectArtifacts,
+    setWorkflowState,
+    setEditorManuallyCollapsed,
+    setEditorVisibility,
+    setStoreQueueWindow,
+    syncGovernanceCards,
+    syncStagedEdits,
+  ]);
 
   useEffect(() => {
     const skillId = selectedFile?.skillId;
     if (skillId) {
       resetWorkflowArtifacts();
       hydratedRecoveryRef.current = null;
+      setCardQueueLedger(null);
       fetchMemo(skillId);
+      fetchStudioSession(skillId);
     }
     return () => {
       setMemo(null);
       setStoreMemo(null);
+      setCardQueueLedger(null);
     };
-  }, [selectedFile?.skillId, fetchMemo, resetWorkflowArtifacts, setStoreMemo]);
+  }, [selectedFile?.skillId, fetchMemo, fetchStudioSession, resetWorkflowArtifacts, setStoreMemo]);
 
   // ── Sandbox report 入口：首次进入时刷新 memo + 拉取报告，绑定整改上下文 ──
   useEffect(() => {
@@ -459,7 +562,7 @@ export function SkillStudio({
                 cards: remediation.cards?.length || 0,
                 stagedEdits: remediation.staged_edits?.length || 0,
               });
-              if ((remediation.cards?.length || 0) > 0 || (remediation.staged_edits?.length || 0) > 0) {
+              if ((remediation.staged_edits?.length || 0) > 0) {
                 setEditorManuallyCollapsed(false);
                 setEditorVisibility("auto_expanded");
                 const firstSourceFileEdit = (remediation.staged_edits || []).find((edit) =>
@@ -480,10 +583,6 @@ export function SkillStudio({
         if (memoData && memoData.lifecycle_stage) {
           setMemo(memoData);
           setStoreMemo(memoData);
-          const workflowState = memoData.workflow_recovery?.workflow_state
-            ? parseWorkflowStatePayload(memoData.workflow_recovery.workflow_state as Record<string, unknown>)
-            : null;
-          setWorkflowState(workflowState);
           if (memoData.lifecycle_stage !== "fixing" && (!memoData.latest_test || memoData.latest_test.status !== "failed")) {
             setMemoSyncError("整改计划未导入 — Memo 中未检测到 fixing 状态");
           }
@@ -507,7 +606,10 @@ export function SkillStudio({
         { body: JSON.stringify({ step: "memo_sync" }) },
       );
       setMemoSyncError(null);
-      if (initialSkillId) fetchMemo(initialSkillId);
+      if (initialSkillId) {
+        fetchMemo(initialSkillId);
+        fetchStudioSession(initialSkillId);
+      }
     } catch (err) {
       setMemoSyncError(err instanceof Error ? err.message : "重试 Memo 同步失败");
     } finally {
@@ -516,7 +618,10 @@ export function SkillStudio({
   };
 
   const handleMemoRefresh = () => {
-    if (selectedFile?.skillId) fetchMemo(selectedFile.skillId);
+    if (selectedFile?.skillId) {
+      fetchMemo(selectedFile.skillId);
+      fetchStudioSession(selectedFile.skillId);
+    }
   };
 
   // ── Memo: complete-from-save after file save ──
@@ -712,32 +817,6 @@ export function SkillStudio({
     }
   }
 
-  async function handleDevStudioJump(desc: string) {
-    if (!selectedSkill) return;
-    try {
-      await apiFetch("/dev-studio/tool-task", {
-        method: "POST",
-        body: JSON.stringify({
-          skill_id: selectedSkill.id,
-          skill_name: selectedSkill.name,
-          tool_description: desc,
-        }),
-      });
-    } catch { /* best effort */ }
-
-    // 自动在 workdir 中创建 skill 项目文件夹
-    const safeName = selectedSkill.name.replace(/[^a-zA-Z0-9\u4e00-\u9fff_-]/g, "");
-    const folderName = `skill-${selectedSkill.id}-${safeName}`;
-    try {
-      await apiFetch("/dev-studio/workdir/mkdir", {
-        method: "POST",
-        body: JSON.stringify({ path: folderName }),
-      });
-    } catch { /* 文件夹可能已存在，忽略 */ }
-
-    window.open(`/dev-studio?from_skill=${selectedSkill.id}`, "_blank");
-  }
-
   const showAssetEditor = (editorTarget.kind === "asset" || (editorTarget.kind === "loading" && editorTarget.next.fileType === "asset")) && selectedSkill !== null;
   const selectedEditorFilename = selectedFile?.fileType === "asset"
     ? (selectedFile as { filename: string }).filename
@@ -745,6 +824,38 @@ export function SkillStudio({
       ? "SKILL.md"
       : null;
   const editorErrorMessage = editorTarget.kind === "error" ? editorTarget.message : null;
+  const activeCardKindLabel = activeWorkbenchCard
+    ? ({
+        architect: "架构卡",
+        governance: "治理卡",
+        validation: "验证卡",
+        system: "系统卡",
+        create: "创作卡",
+        refine: "完善卡",
+        fixing: "整改卡",
+        release: "发布卡",
+      } as const)[activeWorkbenchCard.kind]
+    : null;
+  const activeCardStatusLabel = activeWorkbenchCard
+    ? ({
+        pending: "待处理",
+        active: "进行中",
+        reviewing: "待确认",
+        adopted: "已采纳",
+        rejected: "已拒绝",
+        dismissed: "已关闭",
+        stale: "已过期",
+      } as const)[activeWorkbenchCard.status]
+    : null;
+  const activeCardTargetLabel = activeWorkbenchCard?.target.key
+    ?? (selectedFile?.fileType === "asset"
+      ? (selectedFile as { filename: string }).filename
+      : selectedSkill
+        ? "SKILL.md"
+        : null);
+  const activeCardContractId = activeWorkbenchCard?.contractId
+    ?? resolveStudioCardContract(activeWorkbenchCard)?.contractId
+    ?? null;
 
   return (
     <div className="h-full flex flex-col overflow-hidden">
@@ -752,20 +863,31 @@ export function SkillStudio({
       <div className="flex-shrink-0 border-b-2 border-[#1A202C] bg-[#EBF4F7] px-4 py-2.5 flex items-center gap-3">
         <SkillIcon size={14} />
         <span className="text-[10px] font-bold uppercase tracking-widest text-[#1A202C]">Skill Studio</span>
-        <span className="text-[8px] text-gray-400 font-mono ml-2">
-          {selectedFile?.fileType === "asset"
-            ? `${selectedSkill?.name ?? ""} / ${(selectedFile as { filename: string }).filename}`
-            : selectedSkill
-              ? `${selectedSkill.name} / SKILL.md`
-              : isNew
-                ? "新建 Skill"
-                : "选择或新建 Skill 开始"}
-        </span>
+        <div className="ml-2 min-w-0">
+          <div className="text-[8px] font-bold uppercase tracking-widest text-[#00A3C4]">
+            {activeWorkbenchCard ? "当前" : "正在编辑"}
+          </div>
+          <div className="text-[10px] font-bold text-[#1A202C] truncate">
+            {activeWorkbenchCard
+              ? [
+                  activeCardQueueWindow?.phase || activeWorkbenchCard.phase || storeWorkflowState?.phase || "discover",
+                  activeWorkbenchCard.title,
+                  activeWorkbenchCard.fileRole ? FILE_ROLE_LABEL[activeWorkbenchCard.fileRole] : null,
+                ].filter(Boolean).join(" · ")
+              : selectedFile?.fileType === "asset"
+                ? `${selectedSkill?.name ?? ""} / ${(selectedFile as { filename: string }).filename}`
+                : selectedSkill
+                  ? `${selectedSkill.name} / SKILL.md`
+                  : isNew
+                    ? "新建 Skill"
+                    : "选择或新建 Skill 开始"}
+          </div>
+        </div>
         <div className="ml-auto flex items-center gap-2">
           {activeWorkbenchCard && (
             <div className="flex items-center gap-1.5">
               <span className="text-[7px] font-bold uppercase tracking-widest text-[#00A3C4]">
-                {activeWorkbenchCard.kind === "architect" ? "架构卡" : activeWorkbenchCard.kind === "governance" ? "治理卡" : activeWorkbenchCard.kind === "validation" ? "验证卡" : "系统卡"}
+                {activeCardKindLabel}
               </span>
               <span className={`text-[7px] font-bold uppercase tracking-widest px-1.5 py-0.5 border ${
                 activeWorkbenchCard.status === "pending" || activeWorkbenchCard.status === "active"
@@ -774,7 +896,7 @@ export function SkillStudio({
                     ? "border-[#00CC99]/40 bg-emerald-50 text-[#00CC99]"
                     : "border-gray-300 bg-gray-50 text-gray-400"
               }`}>
-                {activeWorkbenchCard.status === "pending" ? "待处理" : activeWorkbenchCard.status === "active" ? "进行中" : activeWorkbenchCard.status === "reviewing" ? "待确认" : activeWorkbenchCard.status === "adopted" ? "已采纳" : activeWorkbenchCard.status === "rejected" ? "已拒绝" : "已关闭"}
+                {activeCardStatusLabel}
               </span>
             </div>
           )}
@@ -857,9 +979,6 @@ export function SkillStudio({
           onSelectFile={(f) => {
             setSelectedFile(f);
             setIsNew(false);
-            if (!editorManuallyCollapsed) {
-              setEditorVisibility("auto_expanded");
-            }
           }}
           onNew={handleNewFromList}
           onImport={() => setShowImportModal(true)}
@@ -875,6 +994,7 @@ export function SkillStudio({
           cards={workbenchCards}
           activeCardId={activeWorkbenchId}
           memo={memo}
+          cardQueueLedger={cardQueueLedger}
           activeSandboxReport={activeSandboxReport}
           governanceIntent={chatTestFlowIntent}
           pendingGovernanceCount={pendingGovernanceCount}
@@ -887,15 +1007,131 @@ export function SkillStudio({
           }}
           onOpenPrompt={handleOpenPromptFromWorkspace}
           onFocusChat={handleFocusChatFromWorkspace}
+          onApplyDraft={() => chatActionsRef.current?.applyDraft()}
+          onDiscardDraft={() => chatActionsRef.current?.discardDraft()}
+          onConfirmSummary={() => chatActionsRef.current?.confirmSummary()}
+          onDiscardSummary={() => chatActionsRef.current?.discardSummary()}
+          onConfirmSplit={() => chatActionsRef.current?.confirmSplit()}
+          onDiscardSplit={() => chatActionsRef.current?.discardSplit()}
+          onStartFixTask={(task) => chatActionsRef.current?.startFixTask(task)}
+          onTargetedRetest={(taskId) => chatActionsRef.current?.targetedRetest(taskId)}
+          onSubmitApproval={() => {
+            // submit approval — trigger chat message
+            handleFocusChatFromWorkspace("请帮我提交审批");
+          }}
+          onConfirmTool={() => chatActionsRef.current?.toolBound()}
+          onExternalBuild={async (card) => {
+            if (!selectedSkill) return;
+            const rawCard = card.raw ?? {};
+            const handoffSummary = typeof rawCard.handoff_summary === "string" && rawCard.handoff_summary.trim()
+              ? rawCard.handoff_summary.trim()
+              : card.summary;
+            const rawCriteria = Array.isArray(rawCard.acceptance_criteria)
+              ? rawCard.acceptance_criteria.filter((item): item is string => typeof item === "string" && item.trim().length > 0)
+              : [];
+            const acceptanceCriteria = rawCriteria.length > 0
+              ? rawCriteria
+              : [`${card.title} 实现完成并通过基本功能验证`];
+            try {
+              const result = await apiFetch<{
+                ok: boolean;
+                route_kind?: "internal" | "external";
+                destination?: string;
+                derived_card_id?: string;
+                handoff_policy?: string;
+                return_to?: "bind_back" | "confirm" | "validate";
+                explanation?: string;
+                error?: string;
+              }>(`/skills/${selectedSkill.id}/studio/cards/${card.id}/handoff`, {
+                method: "POST",
+                body: JSON.stringify({
+                  target_role: card.fileRole || "tool",
+                  target_file: card.target.key,
+                  route_kind: card.routeKind || "external",
+                  destination: card.destination || "dev_studio",
+                  return_to: card.returnTo || "bind_back",
+                  handoff_policy: card.handoffPolicy || "open_development_studio",
+                  summary: card.summary,
+                  handoff_summary: handoffSummary,
+                  acceptance_criteria: acceptanceCriteria,
+                }),
+              });
+              if (!result.ok) {
+                useStudioStore.getState().setStudioError({
+                  kind: "handoff_failed",
+                  message: "外部交接记录创建失败，当前未进入外部处理。请重试。",
+                  step: "handoff",
+                  recoveryHint: "请重试创建交接记录，确认交接包完整后再发起外部实现。",
+                  autoAdvanced: false,
+                  activeCardId: card.id,
+                });
+                handleFocusChatFromWorkspace("外部交接记录创建失败，请先修复后再发起外部实现");
+                return;
+              }
+              useStudioStore.getState().setStudioError(null);
+              fetchStudioSession(selectedSkill.id);
+              const dest = result.destination || card.destination || "dev_studio";
+              if (dest === "opencode") {
+                const popup = window.open("/api/opencode/", "_blank", "noopener,noreferrer");
+                if (!popup) window.location.assign("/api/opencode/");
+              } else if (dest === "dev_studio") {
+                router.push("/dev-studio");
+              } else {
+                handleFocusChatFromWorkspace(result.explanation || "交接已记录，请回到 Studio 继续处理当前内部路由");
+              }
+            } catch {
+              useStudioStore.getState().setStudioError({
+                kind: "handoff_failed",
+                message: "外部交接记录创建失败，当前未进入外部处理。请重试。",
+                step: "handoff",
+                recoveryHint: "请重试创建交接记录，确认交接包完整后再发起外部实现。",
+                autoAdvanced: false,
+                activeCardId: card.id,
+              });
+              handleFocusChatFromWorkspace("外部交接记录创建失败，请先修复后再发起外部实现");
+            }
+          }}
+          onBindBack={async (card) => {
+            if (!selectedSkill) return;
+            try {
+              const result = await apiFetch<{
+                ok: boolean;
+                next_card_id?: string;
+                next_card_kind?: string;
+                explanation?: string;
+              }>(`/skills/${selectedSkill.id}/studio/cards/${card.id}/bind-back`, {
+                method: "POST",
+                body: JSON.stringify({
+                  source: "user_initiated",
+                  summary: "外部编辑完成，回绑变更",
+                }),
+              });
+              useStudioStore.getState().setStudioError(null);
+              fetchStudioSession(selectedSkill.id);
+              if (result?.next_card_id) {
+                setActiveWorkbenchCardId(`workflow-card:${result.next_card_id}`);
+              }
+            } catch {
+              useStudioStore.getState().setStudioError({
+                kind: "bindback_failed",
+                message: "回绑操作失败，外部变更未确认。请重试。",
+                step: "bind_back",
+                recoveryHint: "请重试回绑；如果外部产物尚未准备好，先回到外部工作台确认结果。",
+                autoAdvanced: false,
+                activeCardId: card.id,
+              });
+              handleFocusChatFromWorkspace("外部编辑完成，请回绑变更并触发验证");
+            }
+          }}
         />
 
         {/* Studio Chat */}
         <div className="w-[420px] flex-shrink-0 overflow-hidden bg-white border-r-2 border-[#1A202C]">
           <StudioChat
+            ref={chatActionsRef}
             convId={convId}
             skillId={selectedSkill?.id ?? null}
             currentPrompt={prompt}
-            currentDescription={selectedSkill?.description ?? ""}
             editorIsDirty={editorIsDirty}
             selectedSourceFile={selectedEditorFilename}
             allSkills={searchableSkills}
@@ -903,16 +1139,15 @@ export function SkillStudio({
             onApplyDraft={handleApplyDraft}
             onNewSession={handleNewSession}
             onToolBound={() => { if (selectedSkill) { refreshSkill(selectedSkill.id); handleMemoRefresh(); } }}
-            onDevStudio={handleDevStudioJump}
             onFileSplitDone={() => { if (selectedSkill) refreshSkill(selectedSkill.id); }}
             onMemoRefresh={handleMemoRefresh}
             onOpenSandbox={(id) => setShowSandbox(id)}
             onEditorTarget={handleEditorTarget}
             clearRef={clearChatRef}
             setInputRef={setInputRef}
-            onViewReport={selectedFile?.skillId ? () => setShowSandbox(selectedFile.skillId) : undefined}
             sandboxReportId={fromSandbox ? sandboxReportId : undefined}
             fromSandbox={fromSandbox}
+            onExpandEditor={handleManualExpandEditor}
             onRefreshSkill={() => { if (selectedSkill) refreshSkill(selectedSkill.id); }}
             onOpenTestFlowPanel={handleOpenChatTestFlowPanel}
             onSelectSkillForTestFlow={handleSelectSkillForTestFlow}
@@ -922,10 +1157,21 @@ export function SkillStudio({
             activeCardMode={activeWorkbenchCard?.mode ?? null}
             activeCardTarget={activeWorkbenchCard?.target.key ?? null}
             activeCardId={activeWorkbenchCard?.id ?? null}
+            activeCardContractId={activeCardContractId}
             activeCardSourceCardId={activeWorkbenchCard?.sourceCardId ?? null}
             activeCardStagedEditId={activeWorkbenchCard?.stagedEditId ?? null}
             activeCardValidationSource={activeWorkbenchCard?.validationSource ?? null}
+            activeCardFileRole={activeWorkbenchCard?.fileRole ?? null}
+            activeCardHandoffPolicy={activeWorkbenchCard?.handoffPolicy ?? null}
+            activeCardRouteKind={activeWorkbenchCard?.routeKind ?? null}
+            activeCardDestination={activeWorkbenchCard?.destination ?? null}
+            activeCardReturnTo={activeWorkbenchCard?.returnTo ?? null}
+            activeCardQueueWindow={activeCardQueueWindow}
             onActiveCardActionsChange={setActiveCardActions}
+            onPendingDraftChange={handlePendingDraftChange}
+            onPendingSummaryChange={handlePendingSummaryChange}
+            onPendingToolSuggestionChange={handlePendingToolSuggestionChange}
+            onPendingFileSplitChange={handlePendingFileSplitChange}
           />
         </div>
 

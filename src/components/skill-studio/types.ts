@@ -145,7 +145,7 @@ export interface GovernanceCardData {
   type: "route_status" | "assist_skills_status" | "staged_edit" | "adoption_prompt" | "followup_prompt";
   title: string;
   content: Record<string, unknown>;
-  status: "pending" | "adopted" | "rejected" | "dismissed";
+  status: "pending" | "adopted" | "rejected" | "dismissed" | "stale";
   actions: GovernanceAction[];
 }
 
@@ -218,6 +218,7 @@ export interface ArchitectPhaseSummary {
   deliverables: string[];
   confidence: number;
   ready_for_next: boolean;
+  artifacts?: Record<string, unknown>;
 }
 
 export interface ArchitectStructure {
@@ -244,6 +245,18 @@ export interface ArchitectReadyForDraft {
   draft_approach: string;
 }
 
+export interface ArchitectArtifact {
+  id: string;
+  artifactKey: string;
+  title: string;
+  summary?: string;
+  phase?: string | null;
+  cardId?: string | null;
+  contractId?: string | null;
+  stale?: boolean;
+  data: unknown;
+}
+
 export interface ArchitectPhaseStatus {
   phase: string;
   mode_source: string;
@@ -259,9 +272,12 @@ export interface ArchitectPhaseStatus {
 export interface StagedEdit {
   id: string;
   source?: string;
+  sourceCardId?: string | null;
+  contractId?: string | null;
   fileType: string;
   filename: string;
   diff: DiffOp[];
   changeNote?: string;
+  nextAction?: string | null;
   status: "pending" | "adopted" | "rejected";
 }

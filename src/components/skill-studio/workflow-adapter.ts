@@ -2,6 +2,17 @@ import type { AuditResult, GovernanceCardData, GovernanceAction, StagedEdit } fr
 import type { StudioDeepPatch, StudioPatchEnvelope, WorkflowEventEnvelope, WorkflowStateData } from "./workflow-protocol";
 import { normalizeStagedEditPayload } from "./utils";
 
+export interface StudioOrchestrationErrorPayload {
+  kind: string;
+  message: string;
+  step?: string | null;
+  recoveryHint?: string | null;
+  activeCardId?: string | null;
+  autoAdvanced?: boolean | null;
+  retryable?: boolean;
+  payloadSnapshot?: Record<string, unknown> | null;
+}
+
 export function normalizeWorkflowCardPayload(
   raw: Record<string, unknown>,
   source: string,
@@ -9,35 +20,81 @@ export function normalizeWorkflowCardPayload(
   if (raw.id && raw.type && raw.actions) {
     return { ...(raw as unknown as GovernanceCardData), source };
   }
+  const rawContent = typeof raw.content === "object" && raw.content
+    ? raw.content as Record<string, unknown>
+    : {};
+  const cardId = raw.card_id != null
+    ? String(raw.card_id)
+    : raw.id != null
+      ? String(raw.id)
+      : `gov-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+  const contractId = raw.contract_id != null
+    ? String(raw.contract_id)
+    : rawContent.contract_id != null
+      ? String(rawContent.contract_id)
+      : undefined;
+  const status = raw.status === "adopted" || raw.status === "rejected" || raw.status === "dismissed"
+    || raw.status === "stale"
+    ? raw.status
+    : "pending";
+  const cardType: GovernanceCardData["type"] =
+    raw.type === "route_status" || raw.type === "assist_skills_status" || raw.type === "staged_edit" || raw.type === "adoption_prompt" || raw.type === "followup_prompt"
+      ? raw.type
+      : raw.suggested_action === "staged_edit" || raw.staged_edit_id != null
+        ? "staged_edit"
+        : "followup_prompt";
 
   const actions: GovernanceAction[] = raw.suggested_action === "staged_edit"
     ? [{ label: "查看修改", type: "view_diff" }, { label: "采纳", type: "adopt" }]
-    : [{ label: "查看", type: "view_diff" }, { label: "忽略", type: "reject" }];
+    : contractId
+      ? []
+      : [{ label: "查看", type: "view_diff" }, { label: "忽略", type: "reject" }];
 
   return {
-    id: `gov-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+    id: cardId,
     source,
-    type: raw.suggested_action === "staged_edit" ? "staged_edit" : "followup_prompt",
+    type: cardType,
     title: String(raw.title || "治理建议"),
     content: {
+      card_id: cardId,
+      contract_id: contractId,
       summary: raw.summary,
       description: raw.description,
       severity: raw.severity,
       category: raw.category,
+      status: raw.status,
+      kind: raw.kind,
+      mode: raw.mode,
+      phase: raw.phase,
+      priority: raw.priority,
+      target: raw.target,
+      artifact_refs: raw.artifact_refs,
+      blocked_by: raw.blocked_by,
+      exit_reason: raw.exit_reason,
+      source_card_id: raw.source_card_id,
+      validation_source: raw.validation_source,
       target_kind: raw.target_kind,
       target_ref: raw.target_ref ?? raw.target_file,
       acceptance_rule: raw.acceptance_rule ?? raw.acceptance_rule_text,
       evidence_snippets: raw.evidence_snippets,
       target_files: raw.target_files,
       problem_refs: raw.problem_refs,
+      target_file: raw.target_file,
+      file_role: raw.file_role,
+      handoff_policy: raw.handoff_policy,
+      route_kind: raw.route_kind,
+      destination: raw.destination,
+      return_to: raw.return_to,
+      external_state: raw.external_state,
+      queue_window: raw.queue_window,
       staged_edit_id: raw.staged_edit_id != null
         ? String(raw.staged_edit_id)
-        : raw.id != null
+        : cardType === "staged_edit" && raw.id != null
           ? String(raw.id)
           : undefined,
-      ...(typeof raw.content === "object" && raw.content ? raw.content as Record<string, unknown> : {}),
+      ...rawContent,
     },
-    status: "pending",
+    status,
     actions,
   };
 }
@@ -55,7 +112,20 @@ export function parseWorkflowEnvelope(raw: Record<string, unknown>): WorkflowEve
 }
 
 export function parseWorkflowStatePayload(raw: Record<string, unknown>): WorkflowStateData | null {
-  if (!raw.session_mode || !raw.workflow_mode || !raw.phase || !raw.next_action) return null;
+  const hasCoreWorkflowFields =
+    typeof raw.session_mode === "string"
+    && typeof raw.workflow_mode === "string"
+    && typeof raw.phase === "string"
+    && typeof raw.next_action === "string";
+  const hasPatchFields = [
+    "queue_window",
+    "active_card_id",
+    "workspace_mode",
+    "metadata",
+    "next_action",
+    "phase",
+  ].some((key) => key in raw);
+  if (!hasCoreWorkflowFields && !hasPatchFields) return null;
   return raw as unknown as WorkflowStateData;
 }
 
@@ -134,5 +204,33 @@ export function normalizeDeepPatchEnvelope(envelope: StudioPatchEnvelope): Studi
     evidence,
     created_at: envelope.created_at,
     payload,
+  };
+}
+
+export function normalizeStudioErrorPayload(raw: Record<string, unknown>): StudioOrchestrationErrorPayload | null {
+  const message = typeof raw.message === "string" && raw.message.trim()
+    ? raw.message.trim()
+    : null;
+  if (!message) return null;
+
+  const payloadSnapshot = raw.payload_snapshot && typeof raw.payload_snapshot === "object"
+    ? raw.payload_snapshot as Record<string, unknown>
+    : null;
+
+  return {
+    kind: typeof raw.error_type === "string" && raw.error_type.trim()
+      ? raw.error_type.trim()
+      : "server_error",
+    message,
+    step: typeof raw.step === "string" && raw.step.trim() ? raw.step.trim() : null,
+    recoveryHint: typeof raw.recovery_hint === "string" && raw.recovery_hint.trim()
+      ? raw.recovery_hint.trim()
+      : null,
+    activeCardId: typeof raw.active_card_id === "string" && raw.active_card_id.trim()
+      ? raw.active_card_id.trim()
+      : null,
+    autoAdvanced: typeof raw.auto_advanced === "boolean" ? raw.auto_advanced : null,
+    retryable: raw.retryable === true,
+    payloadSnapshot,
   };
 }

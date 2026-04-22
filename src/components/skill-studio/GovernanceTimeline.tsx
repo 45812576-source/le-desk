@@ -2,7 +2,7 @@
 
 import { memo } from "react";
 import type { StudioDeepPatch } from "./workflow-protocol";
-import type { ChatMessage, GovernanceCardData, GovernanceAction, AuditResult, GovernanceActionCard, PhaseProgress, ArchitectPhaseStatus, ArchitectQuestion, ArchitectPhaseSummary, ArchitectStructure, ArchitectPriorityMatrix, ArchitectOodaDecision, ArchitectReadyForDraft } from "./types";
+import type { ChatMessage, GovernanceCardData, GovernanceAction, AuditResult, GovernanceActionCard, PhaseProgress, ArchitectArtifact, ArchitectPhaseStatus, ArchitectQuestion, ArchitectPhaseSummary, ArchitectStructure, ArchitectPriorityMatrix, ArchitectOodaDecision, ArchitectReadyForDraft } from "./types";
 import { GovernanceCard } from "./cards/GovernanceCard";
 import { ArchitectPhaseCard } from "./cards/ArchitectPhaseCard";
 import { ArchitectQuestionCard } from "./cards/ArchitectQuestionCard";
@@ -298,6 +298,111 @@ const MessageBubble = memo(function MessageBubble({
   );
 });
 
+const DEDICATED_ARTIFACT_KEYS = new Set([
+  "question",
+  "issue_tree",
+  "dimension_map",
+  "value_chain",
+  "priority_matrix",
+  "ooda_rounds",
+  "ready_for_draft_summary",
+]);
+
+function formatArtifactLabel(value: string) {
+  return value
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function renderArchitectArtifactValue(value: unknown) {
+  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+    return <p className="text-[#1A202C] dark:text-foreground">{String(value)}</p>;
+  }
+  if (Array.isArray(value)) {
+    return (
+      <ul className="space-y-1">
+        {value.map((item, index) => (
+          <li key={index} className="flex items-start gap-1.5 text-[#1A202C] dark:text-foreground">
+            <span className="text-[#00A3C4]">•</span>
+            <span>{typeof item === "string" ? item : JSON.stringify(item)}</span>
+          </li>
+        ))}
+      </ul>
+    );
+  }
+  if (value && typeof value === "object") {
+    return (
+      <div className="space-y-1">
+        {Object.entries(value as Record<string, unknown>).map(([key, entry]) => (
+          <div key={key} className="flex items-start gap-2">
+            <span className="w-24 flex-shrink-0 text-[8px] font-bold uppercase tracking-widest text-gray-400 dark:text-zinc-500">
+              {formatArtifactLabel(key)}
+            </span>
+            <div className="flex-1 min-w-0">
+              {renderArchitectArtifactValue(entry)}
+            </div>
+          </div>
+        ))}
+      </div>
+    );
+  }
+  return <p className="text-gray-400 dark:text-zinc-500">暂无结构化内容</p>;
+}
+
+const ArchitectArtifactPanel = memo(function ArchitectArtifactPanel({
+  artifacts,
+}: {
+  artifacts: ArchitectArtifact[];
+}) {
+  const visibleArtifacts = artifacts.filter((artifact) => !DEDICATED_ARTIFACT_KEYS.has(artifact.artifactKey));
+  if (visibleArtifacts.length === 0) return null;
+
+  return (
+    <div className="mx-3 my-2 border border-cyan-200 dark:border-cyan-900 rounded-lg overflow-hidden bg-cyan-50/60 dark:bg-cyan-950/20 text-[9px] font-mono">
+      <div className="px-3 py-1.5 border-b border-cyan-200 dark:border-cyan-900 flex items-center gap-2">
+        <span className="bg-[#00A3C4] text-white px-1.5 py-0.5 text-[7px] font-bold uppercase tracking-widest">
+          Artifacts
+        </span>
+        <span className="text-[#00A3C4] font-bold text-[8px] uppercase tracking-widest">
+          Skill Architect 沉淀结果
+        </span>
+      </div>
+      <div className="px-3 py-2 space-y-2">
+        {visibleArtifacts.map((artifact) => (
+          <div
+            key={artifact.id}
+            className={`rounded-md border px-2.5 py-2 ${
+              artifact.stale
+                ? "border-amber-300 bg-amber-50/80 dark:border-amber-900 dark:bg-amber-950/20"
+                : "border-white/70 bg-white/80 dark:border-zinc-800 dark:bg-zinc-950/50"
+            }`}
+          >
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="font-bold text-[#1A202C] dark:text-foreground">{artifact.title}</span>
+              {artifact.phase && (
+                <span className="text-[7px] font-bold uppercase tracking-widest text-gray-400 dark:text-zinc-500">
+                  {artifact.phase}
+                </span>
+              )}
+              {artifact.stale && (
+                <span className="text-[7px] font-bold uppercase tracking-widest text-amber-600 dark:text-amber-300">
+                  stale
+                </span>
+              )}
+            </div>
+            {artifact.summary && (
+              <p className="mt-1 text-gray-500 dark:text-muted-foreground">{artifact.summary}</p>
+            )}
+            <div className="mt-2">
+              {renderArchitectArtifactValue(artifact.data)}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+});
+
 // ─── GovernanceTimeline ──────────────────────────────────────────────────────
 
 export function GovernanceTimeline({
@@ -314,6 +419,7 @@ export function GovernanceTimeline({
   answeredQuestionIdx = -1,
   pendingPhaseSummary,
   confirmedPhases = [],
+  architectArtifacts = [],
   architectStructures = [],
   architectPriorities = [],
   oodaDecisions = [],
@@ -347,6 +453,7 @@ export function GovernanceTimeline({
   answeredQuestionIdx?: number;
   pendingPhaseSummary?: ArchitectPhaseSummary | null;
   confirmedPhases?: string[];
+  architectArtifacts?: ArchitectArtifact[];
   architectStructures?: ArchitectStructure[];
   architectPriorities?: ArchitectPriorityMatrix[];
   onGovernanceAction: (card: GovernanceCardData, action: GovernanceAction) => void;
@@ -421,6 +528,8 @@ export function GovernanceTimeline({
           onCustom={(text) => onArchitectCustom?.(text)}
         />
       ))}
+
+      <ArchitectArtifactPanel artifacts={architectArtifacts} />
 
       {/* Architect structure cards (issue tree / dimension map / value chain) */}
       {architectStructures.map((s, i) => (

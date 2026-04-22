@@ -62,6 +62,14 @@ describe("test-flow-service", () => {
         action: "mount_blocked",
         skill: { id: 7, name: "销售复盘助手" },
         blocking_issues: ["missing_permission_mount"],
+        workflow_cards: [
+          expect.objectContaining({
+            id: "governance:test-flow:7:mount-blocked",
+            contract_id: "governance.panel",
+            kind: "validation",
+            mode: "governance",
+          }),
+        ],
       },
     });
   });
@@ -125,6 +133,12 @@ describe("test-flow-service", () => {
           plan_version: 4,
           case_count: 2,
         },
+        workflow_cards: [
+          expect.objectContaining({
+            id: "validation:case-plan:90:decision",
+            contract_id: "validation.test_ready",
+          }),
+        ],
       },
     });
   });
@@ -162,7 +176,7 @@ describe("test-flow-service", () => {
       };
     });
 
-    await rememberTestFlowBackendResponse({
+    const materialized = await rememberTestFlowBackendResponse({
       method: "POST",
       pathname: "/sandbox-case-plans/120/materialize",
       backendBody: ok({ materialized_count: 3, sandbox_session_id: 501, status: "materialized" }),
@@ -170,6 +184,18 @@ describe("test-flow-service", () => {
         entry_source: "sandbox_chat",
         decision_mode: "revise",
         conversation_id: 77,
+      },
+    });
+
+    expect(materialized).toMatchObject({
+      ok: true,
+      data: {
+        workflow_cards: [
+          expect.objectContaining({
+            id: "validation:sandbox-session:501:run",
+            contract_id: "validation.test_ready",
+          }),
+        ],
       },
     });
 
@@ -195,6 +221,31 @@ describe("test-flow-service", () => {
         source_conversation_id: 77,
       }),
     ]);
+
+    const failedReport = await rememberTestFlowBackendResponse({
+      method: "GET",
+      pathname: "/sandbox/interactive/501/report",
+      backendBody: {
+        session_id: 501,
+        report_id: 9001,
+        approval_eligible: false,
+        summary: "Prompt 未正确拒绝越权请求",
+      },
+    });
+
+    expect(failedReport).toMatchObject({
+      workflow_cards: [
+        expect.objectContaining({
+          id: "fixing:report:9001:overview",
+          contract_id: "fixing.overview",
+        }),
+        expect.objectContaining({
+          id: "fixing:targeted-retest:9001",
+          contract_id: "fixing.targeted_retest",
+          source_card_id: "fixing:report:9001:overview",
+        }),
+      ],
+    });
   });
 
   it("does not create local test-flow state file on passive read", async () => {

@@ -2,6 +2,7 @@ import type { WorkflowStateData } from "./workflow-protocol";
 import { parseStructuredStudioMessage } from "./message-parser";
 import type { StudioMetaDirective } from "./studio-meta";
 import type {
+  ArchitectArtifact,
   ArchitectOodaDecision,
   ArchitectPhaseSummary,
   ArchitectPriorityMatrix,
@@ -40,6 +41,7 @@ export interface RecoveredStudioHistory {
   oodaDecisions: ArchitectOodaDecision[];
   pendingPhaseSummary: ArchitectPhaseSummary | null;
   architectReady: ArchitectReadyForDraft | null;
+  architectArtifacts: ArchitectArtifact[];
   studioMeta: StudioMetaDirective | null;
   answeredQuestionIdx: number;
   confirmedPhases: string[];
@@ -69,6 +71,18 @@ function uniquePush(values: string[], nextValue: string | null | undefined) {
   values.push(nextValue);
 }
 
+function mergeArchitectArtifacts(
+  current: ArchitectArtifact[],
+  next: ArchitectArtifact[],
+): ArchitectArtifact[] {
+  if (next.length === 0) return current;
+  const map = new Map(current.map((artifact) => [artifact.id, artifact]));
+  for (const artifact of next) {
+    map.set(artifact.id, artifact);
+  }
+  return Array.from(map.values());
+}
+
 function clearActiveArchitectState() {
   return {
     architectQuestions: [] as ArchitectQuestion[],
@@ -76,6 +90,7 @@ function clearActiveArchitectState() {
     architectPriorities: null as ArchitectPriorityMatrix | null,
     pendingPhaseSummary: null as ArchitectPhaseSummary | null,
     architectReady: null as ArchitectReadyForDraft | null,
+    architectArtifacts: [] as ArchitectArtifact[],
     answeredQuestionIdx: -1,
     currentArchitectPhase: null as string | null,
   };
@@ -98,6 +113,7 @@ export function recoverStudioHistory(
   let oodaDecisions: ArchitectOodaDecision[] = [];
   let pendingPhaseSummary: ArchitectPhaseSummary | null = null;
   let architectReady: ArchitectReadyForDraft | null = null;
+  let architectArtifacts: ArchitectArtifact[] = [];
   let studioMeta: StudioMetaDirective | null = null;
   let answeredQuestionIdx = -1;
   let currentArchitectPhase: string | null = null;
@@ -117,6 +133,7 @@ export function recoverStudioHistory(
           architectPriorities,
           pendingPhaseSummary,
           architectReady,
+          architectArtifacts,
           answeredQuestionIdx,
           currentArchitectPhase,
         } = clearActiveArchitectState());
@@ -124,6 +141,7 @@ export function recoverStudioHistory(
         architectStructures = [];
         architectPriorities = null;
         pendingPhaseSummary = null;
+        architectArtifacts = [];
       } else if (trimmedContent === "生成 Skill 草稿") {
         ({
           architectQuestions,
@@ -131,6 +149,7 @@ export function recoverStudioHistory(
           architectPriorities,
           pendingPhaseSummary,
           architectReady,
+          architectArtifacts,
           answeredQuestionIdx,
           currentArchitectPhase,
         } = clearActiveArchitectState());
@@ -148,7 +167,8 @@ export function recoverStudioHistory(
     const parsed = parseStructuredStudioMessage(message.content);
     studioMeta = parsed.studioMeta;
     const latestQuestion = parsed.architectQuestions[parsed.architectQuestions.length - 1] || null;
-    const messageArchitectPhase = parsed.pendingPhaseSummary?.phase || latestQuestion?.phase || currentArchitectPhase;
+    const latestArtifactPhase = [...parsed.architectArtifacts].reverse().find((artifact) => artifact.phase)?.phase;
+    const messageArchitectPhase = parsed.pendingPhaseSummary?.phase || latestQuestion?.phase || latestArtifactPhase || currentArchitectPhase;
 
     if (parsed.summary) pendingSummary = parsed.summary;
     if (parsed.draft) {
@@ -159,6 +179,7 @@ export function recoverStudioHistory(
         architectPriorities,
         pendingPhaseSummary,
         architectReady,
+        architectArtifacts,
         answeredQuestionIdx,
         currentArchitectPhase,
       } = clearActiveArchitectState());
@@ -184,6 +205,7 @@ export function recoverStudioHistory(
       architectStructures = [];
       architectPriorities = null;
       pendingPhaseSummary = null;
+      architectArtifacts = [];
       answeredQuestionIdx = -1;
     }
 
@@ -194,6 +216,7 @@ export function recoverStudioHistory(
         architectStructures = [];
         architectPriorities = null;
         pendingPhaseSummary = null;
+        architectArtifacts = [];
         answeredQuestionIdx = -1;
       }
       currentArchitectPhase = nextPhase;
@@ -204,6 +227,7 @@ export function recoverStudioHistory(
     if (parsed.architectStructures.length > 0) {
       if (messageArchitectPhase && currentArchitectPhase && messageArchitectPhase !== currentArchitectPhase) {
         architectStructures = [];
+        architectArtifacts = [];
       }
       architectStructures = [...architectStructures, ...parsed.architectStructures];
     }
@@ -221,6 +245,7 @@ export function recoverStudioHistory(
         architectQuestions = [];
         architectStructures = [];
         architectPriorities = null;
+        architectArtifacts = [];
       }
       currentArchitectPhase = parsed.pendingPhaseSummary.phase;
       pendingPhaseSummary = parsed.pendingPhaseSummary;
@@ -233,8 +258,13 @@ export function recoverStudioHistory(
       architectStructures = [];
       architectPriorities = null;
       pendingPhaseSummary = null;
+      architectArtifacts = [];
       answeredQuestionIdx = -1;
       currentArchitectPhase = "ready_for_draft";
+    }
+
+    if (parsed.architectArtifacts.length > 0) {
+      architectArtifacts = mergeArchitectArtifacts(architectArtifacts, parsed.architectArtifacts);
     }
 
     return {
@@ -250,6 +280,7 @@ export function recoverStudioHistory(
     architectPriorities = null;
     pendingPhaseSummary = null;
     architectReady = null;
+    architectArtifacts = [];
     answeredQuestionIdx = -1;
   }
 
@@ -268,6 +299,7 @@ export function recoverStudioHistory(
     oodaDecisions,
     pendingPhaseSummary,
     architectReady,
+    architectArtifacts,
     studioMeta,
     answeredQuestionIdx,
     confirmedPhases,

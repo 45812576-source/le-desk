@@ -30,6 +30,10 @@ import {
   rememberTestFlowBackendResponse,
   resolveTestFlowRequest,
 } from "@/lib/server/test-flow-service";
+import {
+  resolveSkillStudioStreamOrchestration,
+  type SkillStudioSsePreludeEvent,
+} from "@/lib/server/skill-studio-orchestration";
 
 export const maxDuration = 1800;
 
@@ -75,6 +79,38 @@ function buildTextHeaders(input: {
     }));
   }
   return headers;
+}
+
+function encodeSseEvent(event: SkillStudioSsePreludeEvent): string {
+  return `event: ${event.event}\ndata: ${JSON.stringify(event.data)}\n\n`;
+}
+
+function prependSseEvents(
+  upstreamBody: ReadableStream<Uint8Array> | null,
+  events: SkillStudioSsePreludeEvent[],
+): ReadableStream<Uint8Array> | null {
+  if (!upstreamBody || events.length === 0) {
+    return upstreamBody;
+  }
+  const encoder = new TextEncoder();
+  return new ReadableStream<Uint8Array>({
+    async start(controller) {
+      try {
+        for (const event of events) {
+          controller.enqueue(encoder.encode(encodeSseEvent(event)));
+        }
+        const reader = upstreamBody.getReader();
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          if (value) controller.enqueue(value);
+        }
+        controller.close();
+      } catch (error) {
+        controller.error(error);
+      }
+    },
+  });
 }
 
 export async function handler(
@@ -123,6 +159,17 @@ export async function handler(
   }
 
   const requestPayload = parseJsonObject(typeof body === "string" ? body : undefined);
+  const studioStreamOrchestration = typeof body === "string"
+    ? resolveSkillStudioStreamOrchestration({
+        method: request.method,
+        targetPath,
+        payload: requestPayload,
+      })
+    : null;
+  if (studioStreamOrchestration) {
+    body = JSON.stringify(studioStreamOrchestration.payload);
+    headers["Content-Type"] = "application/json";
+  }
   const orgMemoryProxyConfig = readOrgMemoryProxyConfig();
   const isOrgMemoryRequest = isOrgMemoryPath(targetPath);
   const isSkillGovernanceRequest = isSkillGovernanceManagedPath(targetPath);
@@ -336,10 +383,13 @@ export async function handler(
         routeTarget: routeTarget || "backend",
       }));
     }
-    return new Response(resp.body, {
-      status: resp.status,
-      headers: streamHeaders,
-    });
+    return new Response(
+      prependSseEvents(resp.body, studioStreamOrchestration?.preludeEvents ?? []),
+      {
+        status: resp.status,
+        headers: streamHeaders,
+      },
+    );
   }
 
   const isBinary = respContentType.startsWith("image/")
