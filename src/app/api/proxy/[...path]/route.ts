@@ -383,6 +383,14 @@ export async function handler(
         routeTarget: routeTarget || "backend",
       }));
     }
+    const studioRunId = resp.headers.get("X-Studio-Run-Id");
+    if (studioRunId) {
+      streamHeaders["X-Studio-Run-Id"] = studioRunId;
+    }
+    const requestId = resp.headers.get("X-Request-Id");
+    if (requestId) {
+      streamHeaders["X-Request-Id"] = requestId;
+    }
     return new Response(
       prependSseEvents(resp.body, studioStreamOrchestration?.preludeEvents ?? []),
       {

@@ -7,6 +7,51 @@ import {
   test,
 } from "./harness-engineering.fixtures";
 
+async function startProxyStreamRun(
+  page: { evaluate: <T, Arg>(pageFunction: (arg: Arg) => Promise<T>, arg: Arg) => Promise<T> },
+  args: { conversationId: number; skillId: number; content: string; minEventCount?: number },
+) {
+  return page.evaluate(
+    async ({ conversationId, skillId, content, minEventCount }) => {
+      const token = window.localStorage.getItem("token");
+      const controller = new AbortController();
+      const response = await fetch(`/api/proxy/conversations/${conversationId}/messages/stream`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+        body: JSON.stringify({
+          content,
+          selected_skill_id: skillId,
+          editor_is_dirty: false,
+        }),
+        signal: controller.signal,
+      });
+      const runId = response.headers.get("X-Studio-Run-Id");
+      const reader = response.body?.getReader();
+      const decoder = new TextDecoder();
+      let text = "";
+      let eventCount = 0;
+      const targetEventCount = Math.max(minEventCount ?? 1, 1);
+      const deadline = Date.now() + 15_000;
+
+      try {
+        while (reader && Date.now() < deadline && eventCount < targetEventCount) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          if (!value) continue;
+          text += decoder.decode(value, { stream: true });
+          eventCount = (text.match(/^event:/gm) ?? []).length;
+        }
+      } finally {
+        await reader?.cancel().catch(() => undefined);
+        controller.abort();
+      }
+
+      return { ok: response.ok, status: response.status, runId, text, eventCount };
+    },
+    args,
+  );
+}
+
 test.describe("Skill Studio Harness Engineering E2E/Chaos", () => {
   test.beforeEach(async ({ runtime }) => {
     test.skip(!runtime.enabled, "Set HARNESS_ENGINEERING_E2E=1 to run live Harness Engineering Playwright gates");
@@ -33,24 +78,12 @@ test.describe("Skill Studio Harness Engineering E2E/Chaos", () => {
     await installAuthState(page, runtime);
     await page.goto(`/chat/${runtime.conversationId}?ws=skill_studio&skill_id=${runtime.skillId}`);
 
-    const stream = await page.evaluate(
-      async ({ conversationId, skillId }) => {
-        const token = window.localStorage.getItem("token");
-        const response = await fetch(`/api/proxy/conversations/${conversationId}/messages/stream`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-          body: JSON.stringify({
-            content: "Harness Engineering Playwright gate: emit queue, patch, and first useful response.",
-            selected_skill_id: skillId,
-            editor_is_dirty: false,
-          }),
-        });
-        const runId = response.headers.get("X-Studio-Run-Id");
-        const text = await response.text();
-        return { ok: response.ok, status: response.status, runId, text };
-      },
-      { conversationId: runtime.conversationId, skillId: runtime.skillId },
-    );
+    const stream = await startProxyStreamRun(page, {
+      conversationId: runtime.conversationId,
+      skillId: runtime.skillId,
+      content: "Harness Engineering Playwright gate: emit queue, patch, and first useful response.",
+      minEventCount: 3,
+    });
 
     expect(stream.ok, `stream failed with ${stream.status}`).toBeTruthy();
     expect(stream.runId, "frontend proxy must preserve X-Studio-Run-Id").toBeTruthy();
@@ -121,38 +154,22 @@ test.describe("Skill Studio Harness Engineering E2E/Chaos", () => {
     await installAuthState(page, runtime);
     await page.goto(`/chat/${runtime.conversationId}?ws=skill_studio&skill_id=${runtime.skillId}`);
 
-    const firstRun = await page.evaluate(
-      async ({ conversationId, skillId }) => {
-        const token = window.localStorage.getItem("token");
-        const response = await fetch(`/api/proxy/conversations/${conversationId}/messages/stream`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-          body: JSON.stringify({
-            content: "Harness Engineering old run: produce replayable patches.",
-            selected_skill_id: skillId,
-          }),
-        });
-        await response.text();
-        return response.headers.get("X-Studio-Run-Id");
-      },
-      { conversationId: runtime.conversationId, skillId: runtime.skillId },
-    );
-    const secondRun = await page.evaluate(
-      async ({ conversationId, skillId }) => {
-        const token = window.localStorage.getItem("token");
-        const response = await fetch(`/api/proxy/conversations/${conversationId}/messages/stream`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-          body: JSON.stringify({
-            content: "Harness Engineering new run: must not be polluted by old replay.",
-            selected_skill_id: skillId,
-          }),
-        });
-        await response.text();
-        return response.headers.get("X-Studio-Run-Id");
-      },
-      { conversationId: runtime.conversationId, skillId: runtime.skillId },
-    );
+    const firstRun = (
+      await startProxyStreamRun(page, {
+        conversationId: runtime.conversationId,
+        skillId: runtime.skillId,
+        content: "Harness Engineering old run: produce replayable patches.",
+        minEventCount: 2,
+      })
+    ).runId;
+    const secondRun = (
+      await startProxyStreamRun(page, {
+        conversationId: runtime.conversationId,
+        skillId: runtime.skillId,
+        content: "Harness Engineering new run: must not be polluted by old replay.",
+        minEventCount: 2,
+      })
+    ).runId;
     expect(firstRun).toBeTruthy();
     expect(secondRun).toBeTruthy();
     expect(firstRun).not.toBe(secondRun);
