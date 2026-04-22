@@ -15,6 +15,20 @@ import type {
   OrgMemorySnapshotCreateResult,
   OrgMemorySource,
   OrgMemorySourceIngestResult,
+  SnapshotScopeOption,
+  SnapshotTabKey,
+  WorkspaceSnapshotAggregateSyncStatus,
+  WorkspaceSnapshotConflict,
+  WorkspaceSnapshotDetail,
+  WorkspaceSnapshotEventPayload,
+  WorkspaceSnapshotEventResult,
+  WorkspaceSnapshotFailedSection,
+  WorkspaceSnapshotMissingInputType,
+  WorkspaceSnapshotMissingItem,
+  WorkspaceSnapshotRunDetail,
+  WorkspaceSnapshotRunStatus,
+  WorkspaceSnapshotSummary,
+  WorkspaceSnapshotTabSyncResult,
 } from "@/lib/types";
 import {
   MOCK_ORG_MEMORY_GOVERNANCE_VERSIONS,
@@ -574,6 +588,18 @@ export async function loadOrgMemorySnapshotGovernanceVersion(snapshotId: number)
   }
 }
 
+export async function loadWorkspaceSnapshotGovernanceVersion(snapshotId: number): Promise<OrgMemoryLoadResult<OrgMemoryGovernanceVersion | null>> {
+  try {
+    const payload = await apiFetch<unknown>(`/org-memory/workspace-snapshots/${snapshotId}/governance-version`);
+    return { data: normalizeGovernanceVersion(payload), fallback: false };
+  } catch (error) {
+    if (!shouldEnableOrgMemoryClientFallback()) {
+      throw error instanceof Error ? error : new Error("工作台治理版本加载失败");
+    }
+    return { data: null, fallback: true };
+  }
+}
+
 export async function loadCurrentOrgMemoryGovernanceVersion(): Promise<OrgMemoryLoadResult<OrgMemoryGovernanceVersion | null>> {
   try {
     const payload = await apiFetch<unknown>("/org-memory/governance-versions/current");
@@ -614,4 +640,397 @@ export function rollbackOrgMemoryProposalConfig(proposalId: number) {
   return apiFetch<OrgMemoryRollbackResult>(`/org-memory/proposals/${proposalId}/rollback`, {
     method: "POST",
   });
+}
+
+// ─── 组织治理快照工作台 API ───────────────────────────────────────────────────
+
+export const SNAPSHOT_SCOPE_LABELS: Record<string, string> = {
+  full: "全量快照",
+  single_tab: "单类快照",
+  current_tab_only: "仅当前 Tab",
+};
+
+export const SNAPSHOT_RUN_STATUS_LABELS: Record<string, string> = {
+  idle: "空闲",
+  queued: "排队中",
+  running: "生成中",
+  needs_input: "需补充信息",
+  ready_for_review: "待审阅",
+  synced: "已同步",
+  partial_sync: "部分同步",
+  failed: "失败",
+};
+
+export const SNAPSHOT_RUN_STATUS_STYLES: Record<string, string> = {
+  idle: "bg-slate-100 text-slate-700",
+  queued: "bg-blue-100 text-blue-700",
+  running: "bg-blue-100 text-blue-700",
+  needs_input: "bg-amber-100 text-amber-700",
+  ready_for_review: "bg-green-100 text-green-700",
+  synced: "bg-green-100 text-green-700",
+  partial_sync: "bg-amber-100 text-amber-700",
+  failed: "bg-red-100 text-red-700",
+};
+
+const DEFAULT_WORKSPACE_SNAPSHOT_APP = "le-desk";
+const DEFAULT_WORKSPACE_SNAPSHOT_ID = "org-management";
+const DEFAULT_WORKSPACE_SNAPSHOT_TYPE = "workspace";
+const SNAPSHOT_SYNC_SECTION = "structured";
+
+function isSnapshotTabKey(value: unknown): value is SnapshotTabKey {
+  return typeof value === "string" && value in {
+    organization: true,
+    department: true,
+    role: true,
+    person: true,
+    okr: true,
+    process: true,
+  };
+}
+
+function normalizeWorkspaceSnapshotScope(value: unknown): SnapshotScopeOption {
+  if (value === "all" || value === "full") return "full";
+  if (value === "active_tab" || value === "current_tab_only") return "current_tab_only";
+  if (isSnapshotTabKey(value) || value === "single_tab") return "single_tab";
+  return "full";
+}
+
+function toBackendSnapshotScope(scope: SnapshotScopeOption, tabKey?: SnapshotTabKey): string {
+  if (scope === "full") return "all";
+  if (tabKey) return "active_tab";
+  return "all";
+}
+
+function normalizeWorkspaceSnapshotStatus(value: unknown): WorkspaceSnapshotRunStatus {
+  if (
+    value === "idle"
+    || value === "queued"
+    || value === "running"
+    || value === "needs_input"
+    || value === "ready_for_review"
+    || value === "synced"
+    || value === "partial_sync"
+    || value === "failed"
+  ) {
+    return value;
+  }
+  if (value === "reviewed") return "ready_for_review";
+  return "idle";
+}
+
+function normalizeFailedSection(item: unknown): WorkspaceSnapshotFailedSection {
+  const obj = asObject(item);
+  return {
+    section: pickString(obj?.section, "unknown"),
+    reason: pickString(obj?.reason, "同步失败"),
+  };
+}
+
+function normalizeMissingInputType(value: unknown): WorkspaceSnapshotMissingInputType {
+  switch (value) {
+    case "select":
+    case "multi_select":
+    case "boolean":
+    case "user_select":
+    case "department_select":
+    case "role_select":
+      return value;
+    default:
+      return "text";
+  }
+}
+
+function normalizeMissingItem(item: unknown): WorkspaceSnapshotMissingItem {
+  const obj = asObject(item);
+  const fallbackFieldKey = pickString(obj?.label, "missing_item")
+    .toLowerCase()
+    .replace(/\s+/g, "_")
+    .replace(/[^\w\u4e00-\u9fa5]/g, "") || "missing_item";
+  const fieldKey = pickString(obj?.field_key || obj?.field, fallbackFieldKey);
+  const options = asArray(obj?.options).map((entry, index) => {
+    const optionObj = asObject(entry);
+    const value = pickString(optionObj?.value, pickString(optionObj?.id, `option_${index + 1}`));
+    return {
+      value,
+      label: pickString(optionObj?.label, value || `选项 ${index + 1}`),
+    };
+  });
+  return {
+    id: pickString(obj?.id, fieldKey),
+    field_key: fieldKey,
+    label: pickString(obj?.label, fieldKey || "补充信息"),
+    description: pickString(obj?.description || obj?.reason || obj?.impact, ""),
+    input_type: normalizeMissingInputType(obj?.input_type || obj?.suggested_input_type),
+    options: options.length > 0 ? options : undefined,
+    required: pickBoolean(obj?.required, false),
+    default_value: obj?.default_value as string | string[] | boolean | undefined,
+    raw: obj ?? undefined,
+  };
+}
+
+function normalizeWorkspaceSnapshotConflict(item: unknown): WorkspaceSnapshotConflict {
+  const obj = asObject(item);
+  const severity = obj?.severity === "high" || obj?.severity === "medium" || obj?.severity === "low"
+    ? obj.severity
+    : "medium";
+  return {
+    id: pickString(obj?.id, `${pickString(obj?.entity_name, "entity")}:${pickString(obj?.field, "field")}`),
+    entity_type: isSnapshotTabKey(obj?.entity_type) ? obj.entity_type : "organization",
+    entity_name: pickString(obj?.entity_name, "未命名对象"),
+    field: pickString(obj?.field, "unknown"),
+    current_value: pickString(obj?.current_value || obj?.before, ""),
+    new_value: pickString(obj?.new_value || obj?.after, ""),
+    source_label: pickString(obj?.source_label || obj?.source, ""),
+    severity,
+  };
+}
+
+function normalizeAggregateSyncStatus(value: unknown): WorkspaceSnapshotAggregateSyncStatus | null {
+  const obj = asObject(value);
+  if (!obj) return null;
+  return {
+    markdown_saved: pickBoolean(obj?.markdown_saved, false),
+    structured_updated: pickBoolean(obj?.structured_updated, false),
+    failed_sections: asArray(obj?.failed_sections).map(normalizeFailedSection),
+    parser_warnings: asArray(obj?.parser_warnings).map((item) => pickString(item)).filter(Boolean),
+  };
+}
+
+function normalizeWorkspaceSnapshotSummary(item: unknown): WorkspaceSnapshotSummary {
+  const obj = asObject(item);
+  return {
+    id: pickNumber(obj?.id),
+    workspace_id: pickNullableString(obj?.workspace_id),
+    workspace_type: pickNullableString(obj?.workspace_type),
+    app: pickNullableString(obj?.app),
+    title: pickString(obj?.title, "组织治理快照"),
+    source_snapshot_id: typeof obj?.source_snapshot_id === "number" ? obj.source_snapshot_id : null,
+    legacy_snapshot_id: typeof obj?.legacy_snapshot_id === "number" ? obj.legacy_snapshot_id : null,
+    version: pickString(obj?.version, "snapshot"),
+    scope: normalizeWorkspaceSnapshotScope(obj?.scope),
+    status: normalizeWorkspaceSnapshotStatus(obj?.status),
+    confidence_score: pickNumber(obj?.confidence_score, 0),
+    missing_count: pickNumber(obj?.missing_count, 0),
+    conflict_count: pickNumber(obj?.conflict_count, 0),
+    created_at: pickString(obj?.created_at, new Date().toISOString()),
+    updated_at: pickString(obj?.updated_at, new Date().toISOString()),
+  };
+}
+
+function normalizeWorkspaceSnapshotDetail(item: unknown): WorkspaceSnapshotDetail {
+  const obj = asObject(item);
+  const markdownByTab = asObject(obj?.markdown_by_tab) || {};
+  const structuredByTab = asObject(obj?.structured_by_tab) || {};
+  const governanceOutputs = asObject(obj?.governance_outputs) || {};
+  const lowConfidenceItems = asArray(obj?.low_confidence_items).map((entry) => {
+    const entryObj = asObject(entry);
+    return {
+      label: pickString(entryObj?.label, "未命名项"),
+      reason: pickString(entryObj?.reason, ""),
+      tab_key: isSnapshotTabKey(entryObj?.tab_key) ? entryObj.tab_key : undefined,
+    };
+  });
+  const separationOfDutyRisks = asArray(obj?.separation_of_duty_risks).map((entry) => {
+    const entryObj = asObject(entry);
+    const severity: "high" | "medium" | "low" = entryObj?.severity === "high" || entryObj?.severity === "medium" || entryObj?.severity === "low"
+      ? entryObj.severity
+      : "medium";
+    return {
+      description: pickString(entryObj?.description, "未命名风险"),
+      severity,
+      entities: asArray(entryObj?.entities).map((entity) => pickString(entity)).filter(Boolean),
+    };
+  });
+
+  return {
+    id: pickNumber(obj?.id),
+    workspace_id: pickNullableString(obj?.workspace_id),
+    workspace_type: pickNullableString(obj?.workspace_type),
+    app: pickNullableString(obj?.app),
+    title: pickString(obj?.title, "组织治理快照"),
+    source_snapshot_id: typeof obj?.source_snapshot_id === "number" ? obj.source_snapshot_id : null,
+    base_snapshot_id: typeof obj?.base_snapshot_id === "number" ? obj.base_snapshot_id : null,
+    legacy_snapshot_id: typeof obj?.legacy_snapshot_id === "number" ? obj.legacy_snapshot_id : null,
+    version: pickString(obj?.version, "snapshot"),
+    scope: normalizeWorkspaceSnapshotScope(obj?.scope),
+    status: normalizeWorkspaceSnapshotStatus(obj?.status),
+    confidence_score: pickNumber(obj?.confidence_score, 0),
+    created_at: pickString(obj?.created_at, new Date().toISOString()),
+    updated_at: pickString(obj?.updated_at, new Date().toISOString()),
+    markdown_by_tab: Object.fromEntries(
+      Object.entries(markdownByTab).filter(([key]) => isSnapshotTabKey(key)).map(([key, value]) => [key, pickString(value)]),
+    ) as Partial<Record<SnapshotTabKey, string>>,
+    structured_by_tab: Object.fromEntries(
+      Object.entries(structuredByTab)
+        .filter(([key, value]) => isSnapshotTabKey(key) && typeof value === "object" && value !== null)
+        .map(([key, value]) => [key, value as Record<string, unknown>]),
+    ) as Partial<Record<SnapshotTabKey, Record<string, unknown>>>,
+    governance_outputs: {
+      authority_map: asArray(governanceOutputs.authority_map).map((entry) => asObject(entry) || {}).filter((entry) => Object.keys(entry).length > 0),
+      resource_access_matrix: asArray(governanceOutputs.resource_access_matrix).map((entry) => asObject(entry) || {}).filter((entry) => Object.keys(entry).length > 0),
+      approval_route_candidates: asArray(governanceOutputs.approval_route_candidates).map((entry) => asObject(entry) || {}).filter((entry) => Object.keys(entry).length > 0),
+      policy_hints: asArray(governanceOutputs.policy_hints).map((entry) => asObject(entry) || {}).filter((entry) => Object.keys(entry).length > 0),
+    },
+    missing_items: asArray(obj?.missing_items).map(normalizeMissingItem),
+    conflicts: asArray(obj?.conflicts).map(normalizeWorkspaceSnapshotConflict),
+    low_confidence_items: lowConfidenceItems,
+    separation_of_duty_risks: separationOfDutyRisks,
+    change_summary: asObject(obj?.change_summary),
+    sync_status: normalizeAggregateSyncStatus(obj?.sync_status),
+  };
+}
+
+function normalizeWorkspaceSnapshotEventResult(item: unknown): WorkspaceSnapshotEventResult {
+  const obj = asObject(item);
+  return {
+    run_id: pickString(obj?.run_id),
+    snapshot_id: pickNumber(obj?.snapshot_id ?? obj?.id, 0) || null,
+    status: normalizeWorkspaceSnapshotStatus(obj?.status),
+    missing_items: asArray(obj?.missing_items).map(normalizeMissingItem),
+    error: pickNullableString(obj?.error || obj?.error_message) || undefined,
+  };
+}
+
+function normalizeWorkspaceSnapshotRun(item: unknown): WorkspaceSnapshotRunDetail {
+  const obj = asObject(item);
+  const responseSummary = asObject(obj?.response_summary);
+  const normalizedStatus = normalizeWorkspaceSnapshotStatus(
+    obj?.status === "completed"
+      ? responseSummary?.status
+      : obj?.status,
+  );
+  return {
+    run_id: pickString(obj?.run_id),
+    snapshot_id: pickNumber(obj?.snapshot_id ?? responseSummary?.snapshot_id, 0) || null,
+    event_type: pickNullableString(obj?.event_type) || undefined,
+    status: normalizedStatus,
+    message: pickNullableString(obj?.message || responseSummary?.message) || undefined,
+    error: pickNullableString(obj?.error || obj?.error_message) || undefined,
+    error_message: pickNullableString(obj?.error_message),
+    workspace_id: pickNullableString(obj?.workspace_id) || undefined,
+    workspace_type: pickNullableString(obj?.workspace_type) || undefined,
+    app: pickNullableString(obj?.app) || undefined,
+    response_summary: responseSummary,
+    created_at: pickNullableString(obj?.created_at),
+    updated_at: pickNullableString(obj?.updated_at),
+    completed_at: pickNullableString(obj?.completed_at),
+  };
+}
+
+function normalizeWorkspaceSnapshotTabSyncResult(
+  tabKey: SnapshotTabKey,
+  payload: unknown,
+): WorkspaceSnapshotTabSyncResult {
+  const detail = normalizeWorkspaceSnapshotDetail(payload);
+  const syncStatus = normalizeAggregateSyncStatus(asObject(payload)?.sync_status) ?? {
+    markdown_saved: true,
+    structured_updated: detail.status === "synced",
+    failed_sections: [],
+    parser_warnings: [],
+  };
+  const status: WorkspaceSnapshotTabSyncResult["status"] =
+    detail.status === "synced"
+      ? "synced"
+      : detail.status === "partial_sync"
+        ? "partial_sync"
+        : "failed";
+  return {
+    tab_key: tabKey,
+    status,
+    synced_sections: syncStatus.structured_updated ? [SNAPSHOT_SYNC_SECTION] : [],
+    failed_sections: syncStatus.failed_sections,
+    parser_warnings: syncStatus.parser_warnings,
+    detail,
+    error: status === "failed" ? "同步失败" : undefined,
+  };
+}
+
+/** 8.1 事件入口 — 生成/更新快照 */
+export function createWorkspaceSnapshotEvent(
+  payload: WorkspaceSnapshotEventPayload,
+) {
+  const requestPayload = {
+    event_type: payload.event_type,
+    workspace: {
+      app: payload.app || DEFAULT_WORKSPACE_SNAPSHOT_APP,
+      workspace_id: payload.workspace_id || DEFAULT_WORKSPACE_SNAPSHOT_ID,
+      workspace_type: payload.workspace_type || DEFAULT_WORKSPACE_SNAPSHOT_TYPE,
+    },
+    snapshot: {
+      scope: toBackendSnapshotScope(payload.scope, payload.tab_key),
+      active_tab: payload.tab_key,
+      snapshot_id: payload.snapshot_id,
+      base_snapshot_id: payload.base_snapshot_id ?? undefined,
+      source_snapshot_id: payload.source_snapshot_id ?? undefined,
+      title: payload.title,
+    },
+    sources: {
+      source_ids: payload.source_ids ?? [],
+    },
+    editor: {
+      existing_markdown_by_tab: payload.existing_markdown_by_tab ?? {},
+      tab_key: payload.tab_key,
+    },
+    form: payload.missing_item_answers ?? {},
+    options: {
+      preserve_existing_structured_on_parse_failure: payload.preserve_existing_structured_on_parse_failure ?? true,
+    },
+  };
+  return apiFetch<unknown>("/org-memory/workspace-snapshot-events", {
+    method: "POST",
+    body: JSON.stringify(requestPayload),
+  }).then((response) => normalizeWorkspaceSnapshotEventResult(response));
+}
+
+/** 8.2 版本列表 */
+export function loadWorkspaceSnapshots(params?: {
+  workspace_id?: string;
+  app?: string;
+}) {
+  const query = new URLSearchParams();
+  if (params?.workspace_id) query.set("workspace_id", params.workspace_id);
+  if (params?.app) query.set("app", params.app);
+  const qs = query.toString();
+  return apiFetch<unknown>(
+    `/org-memory/workspace-snapshots${qs ? `?${qs}` : ""}`,
+  ).then((payload) => extractItems(payload, normalizeWorkspaceSnapshotSummary));
+}
+
+/** 8.3 快照详情 */
+export function loadWorkspaceSnapshotDetail(snapshotId: number) {
+  return apiFetch<unknown>(
+    `/org-memory/workspace-snapshots/${snapshotId}`,
+  ).then((payload) => normalizeWorkspaceSnapshotDetail(payload));
+}
+
+/** 8.4 单 Tab 保存 Markdown */
+export function saveWorkspaceSnapshotTabMarkdown(
+  snapshotId: number,
+  tabKey: SnapshotTabKey,
+  markdown: string,
+) {
+  return apiFetch<unknown>(
+    `/org-memory/workspace-snapshots/${snapshotId}/tabs/${tabKey}/markdown`,
+    { method: "PUT", body: JSON.stringify({ markdown }) },
+  ).then((payload) => normalizeWorkspaceSnapshotTabSyncResult(tabKey, payload));
+}
+
+/** 8.5 全量同步 */
+export function syncWorkspaceSnapshot(snapshotId: number) {
+  return apiFetch<unknown>(`/org-memory/workspace-snapshots/${snapshotId}/sync`, { method: "POST" })
+    .then((payload) => {
+      const detail = normalizeWorkspaceSnapshotDetail(payload);
+      return {
+        status: detail.status as WorkspaceSnapshotRunStatus,
+        sync_status: detail.sync_status as WorkspaceSnapshotAggregateSyncStatus | null,
+        detail,
+      };
+    });
+}
+
+/** 8.6 查询运行状态 */
+export function loadWorkspaceSnapshotRun(runId: string) {
+  return apiFetch<unknown>(
+    `/org-memory/workspace-snapshot-runs/${runId}`,
+  ).then((payload) => normalizeWorkspaceSnapshotRun(payload));
 }

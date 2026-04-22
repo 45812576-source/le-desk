@@ -4,24 +4,36 @@ import { useMemo, useState } from "react";
 import OrgMemoryGovernanceVersionPanel from "@/components/org-memory/OrgMemoryGovernanceVersionPanel";
 import OrgMemorySnapshotsTab from "@/components/org-memory/OrgMemorySnapshotsTab";
 import OrgMemorySourcesTab from "@/components/org-memory/OrgMemorySourcesTab";
+import OrgGovernanceSnapshotWorkbench from "@/components/org-memory/OrgGovernanceSnapshotWorkbench";
+
+/** Feature flag: 新版治理快照工作台 */
+const USE_GOVERNANCE_SNAPSHOT_WORKBENCH =
+  typeof process !== "undefined"
+    ? process.env.NEXT_PUBLIC_ORG_GOVERNANCE_SNAPSHOT_WORKBENCH !== "off"
+    : true;
 
 export default function OrgMemoryWorkflow({
   legacyHint,
 }: {
   legacyHint?: string;
 }) {
-  const [selectedSnapshotId, setSelectedSnapshotId] = useState<number | null>(null);
+  const [selectedLegacySnapshotId, setSelectedLegacySnapshotId] = useState<number | null>(null);
+  const [selectedWorkspaceSnapshotId, setSelectedWorkspaceSnapshotId] = useState<number | null>(null);
   const [snapshotRefreshSeed, setSnapshotRefreshSeed] = useState(0);
   const [governanceRefreshSeed, setGovernanceRefreshSeed] = useState(0);
+  const [forceLegacySnapshots, setForceLegacySnapshots] = useState(false);
+  const useGovernanceSnapshotWorkbench = USE_GOVERNANCE_SNAPSHOT_WORKBENCH && !forceLegacySnapshots;
+  const governanceSnapshotId = useGovernanceSnapshotWorkbench ? selectedWorkspaceSnapshotId : selectedLegacySnapshotId;
+  const governanceSnapshotKind = useGovernanceSnapshotWorkbench ? "workspace" : "legacy";
 
   const steps = useMemo(
     () => [
       { key: "01", title: "资料接入", description: "导入资料并自动生成快照。" },
-      { key: "02", title: "快照结果", description: "核验六类对象、证据、低置信度与差异。" },
+      { key: "02", title: "快照结果", description: useGovernanceSnapshotWorkbench ? "横排 Tab 长文 Markdown 编辑、缺失项补齐、治理中间产物展示。" : "核验六类对象、证据、低置信度与差异。" },
       { key: "03", title: "治理版本", description: "查看由当前快照派生出的治理版本。" },
       { key: "04", title: "生效与影响", description: "确认生效、追踪当前 effective 版本并支持回滚。" },
     ],
-    [],
+    [useGovernanceSnapshotWorkbench],
   );
 
   return (
@@ -62,25 +74,52 @@ export default function OrgMemoryWorkflow({
       <WorkflowStep index={1} title="资料接入" description="导入资料后自动完成 source → snapshot → governance_version 的初次生成。">
         <OrgMemorySourcesTab
           onSnapshotReady={(snapshotId) => {
-            setSelectedSnapshotId(snapshotId);
+            setSelectedLegacySnapshotId(snapshotId);
             setSnapshotRefreshSeed((current) => current + 1);
             setGovernanceRefreshSeed((current) => current + 1);
           }}
         />
       </WorkflowStep>
 
-      <WorkflowStep index={2} title="快照结果" description="从结果页直接查看六类对象、证据、差异，并按需刷新治理版本。">
-        <OrgMemorySnapshotsTab
-          selectedSnapshotId={selectedSnapshotId}
-          refreshSeed={snapshotRefreshSeed}
-          onSelectedSnapshotChange={setSelectedSnapshotId}
-          onGovernanceVersionUpdated={() => setGovernanceRefreshSeed((current) => current + 1)}
-        />
+      <WorkflowStep
+        index={2}
+        title="快照结果"
+        description={useGovernanceSnapshotWorkbench
+          ? "横排 Tab 长文 Markdown 编辑、缺失项补齐、治理中间产物展示。"
+          : "从结果页直接查看六类对象、证据、差异，并按需刷新治理版本。"}
+      >
+        {useGovernanceSnapshotWorkbench ? (
+          <>
+            <OrgGovernanceSnapshotWorkbench
+              onSelectedSnapshotChange={setSelectedWorkspaceSnapshotId}
+              onGovernanceVersionUpdated={() => setGovernanceRefreshSeed((current) => current + 1)}
+              onUnavailable={() => {
+                setForceLegacySnapshots(true);
+                setSnapshotRefreshSeed((current) => current + 1);
+              }}
+            />
+          </>
+        ) : (
+          <>
+            {USE_GOVERNANCE_SNAPSHOT_WORKBENCH && forceLegacySnapshots && (
+              <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+                新版治理快照接口暂不可用，当前已自动回退到旧版结构化快照只读页面。
+              </div>
+            )}
+            <OrgMemorySnapshotsTab
+              selectedSnapshotId={selectedLegacySnapshotId}
+              refreshSeed={snapshotRefreshSeed}
+              onSelectedSnapshotChange={setSelectedLegacySnapshotId}
+              onGovernanceVersionUpdated={() => setGovernanceRefreshSeed((current) => current + 1)}
+            />
+          </>
+        )}
       </WorkflowStep>
 
       <WorkflowStep index={3} title="治理版本" description="治理版本直接回答：影响哪些 Skill、可访问哪些知识库 / 数据表、范围和脱敏要求是什么。">
         <OrgMemoryGovernanceVersionPanel
-          snapshotId={selectedSnapshotId}
+          snapshotId={governanceSnapshotId}
+          snapshotKind={governanceSnapshotKind}
           refreshSeed={governanceRefreshSeed}
           section="version"
         />
@@ -88,7 +127,8 @@ export default function OrgMemoryWorkflow({
 
       <WorkflowStep index={4} title="生效与影响" description="只有当前 effective 治理版本会被运行时消费，页面提供确认生效与回滚入口。">
         <OrgMemoryGovernanceVersionPanel
-          snapshotId={selectedSnapshotId}
+          snapshotId={governanceSnapshotId}
+          snapshotKind={governanceSnapshotKind}
           refreshSeed={governanceRefreshSeed}
           section="activation"
         />

@@ -7,6 +7,7 @@ import {
   loadCurrentOrgMemoryGovernanceVersion,
   loadOrgMemoryGovernanceVersions,
   loadOrgMemorySnapshotGovernanceVersion,
+  loadWorkspaceSnapshotGovernanceVersion,
   ORG_MEMORY_ACCESS_DECISION_LABELS,
   ORG_MEMORY_GOVERNANCE_STATUS_LABELS,
   ORG_MEMORY_GOVERNANCE_STATUS_STYLES,
@@ -17,10 +18,12 @@ import {
 
 export default function OrgMemoryGovernanceVersionPanel({
   snapshotId,
+  snapshotKind = "legacy",
   refreshSeed = 0,
   section,
 }: {
   snapshotId: number | null;
+  snapshotKind?: "legacy" | "workspace";
   refreshSeed?: number;
   section: "version" | "activation";
 }) {
@@ -46,10 +49,12 @@ export default function OrgMemoryGovernanceVersionPanel({
       }
       setLoading(true);
       try {
-        const linkedResult = await loadOrgMemorySnapshotGovernanceVersion(snapshotId);
+        const linkedResult = snapshotKind === "workspace"
+          ? await loadWorkspaceSnapshotGovernanceVersion(snapshotId)
+          : await loadOrgMemorySnapshotGovernanceVersion(snapshotId);
         const [currentResult, versionsResult] = await Promise.allSettled([
-          loadCurrentOrgMemoryGovernanceVersion(),
-          loadOrgMemoryGovernanceVersions(),
+          snapshotKind === "workspace" ? Promise.resolve({ data: null, fallback: false }) : loadCurrentOrgMemoryGovernanceVersion(),
+          snapshotKind === "workspace" ? Promise.resolve({ data: [], fallback: false }) : loadOrgMemoryGovernanceVersions(),
         ]);
         if (!active) return;
         setVersion(linkedResult.data);
@@ -76,7 +81,7 @@ export default function OrgMemoryGovernanceVersionPanel({
     return () => {
       active = false;
     };
-  }, [refreshSeed, snapshotId]);
+  }, [refreshSeed, snapshotId, snapshotKind]);
 
   const relatedVersions = useMemo(() => {
     if (!version) return [];
@@ -112,7 +117,11 @@ export default function OrgMemoryGovernanceVersionPanel({
       const result = await rollbackOrgMemoryGovernanceVersion(targetId);
       setMessage(result.message);
       const [linkedResult, currentResult, versionsResult] = await Promise.all([
-        snapshotId ? loadOrgMemorySnapshotGovernanceVersion(snapshotId) : Promise.resolve({ data: null, fallback: false }),
+        snapshotId
+          ? snapshotKind === "workspace"
+            ? loadWorkspaceSnapshotGovernanceVersion(snapshotId)
+            : loadOrgMemorySnapshotGovernanceVersion(snapshotId)
+          : Promise.resolve({ data: null, fallback: false }),
         loadCurrentOrgMemoryGovernanceVersion().catch(() => ({ data: null, fallback: false })),
         loadOrgMemoryGovernanceVersions(),
       ]);
@@ -124,6 +133,8 @@ export default function OrgMemoryGovernanceVersionPanel({
     }
     setActionPending("");
   }
+
+  const isWorkspaceSnapshotVersion = snapshotKind === "workspace";
 
   if (loading) {
     return <div className="rounded-lg border border-border bg-card p-5 text-sm text-muted-foreground">治理版本加载中…</div>;
@@ -168,6 +179,11 @@ export default function OrgMemoryGovernanceVersionPanel({
           </div>
         )}
         {message && <div className="mt-3 text-sm text-muted-foreground">{message}</div>}
+        {isWorkspaceSnapshotVersion && (
+          <div className="mt-3 rounded border border-sky-200 bg-sky-50 px-3 py-2 text-sm text-sky-800">
+            当前展示的是工作台快照派生的候选治理版本，仅用于联调验收与人工复核，暂不直接写入 effective 运行时版本。
+          </div>
+        )}
       </div>
 
       {section === "version" ? (
@@ -262,22 +278,28 @@ export default function OrgMemoryGovernanceVersionPanel({
                     : "当前还没有已生效版本，Skill 运行时不应按新规则放行。"}
                 </div>
               </div>
-              <div className="flex flex-wrap gap-3">
-                <button
-                  onClick={handleActivate}
-                  disabled={actionPending !== "" || version.status === "effective"}
-                  className="rounded bg-[#00A3C4] px-4 py-2 text-sm font-medium text-white hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  {actionPending === "activate" ? "生效中..." : "确认生效"}
-                </button>
-                <button
-                  onClick={handleRollback}
-                  disabled={actionPending !== "" || !currentEffectiveVersion}
-                  className="rounded border border-border px-4 py-2 text-sm font-medium text-foreground hover:bg-muted/50 disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  {actionPending === "rollback" ? "回滚中..." : "回滚到上一治理版本"}
-                </button>
-              </div>
+              {isWorkspaceSnapshotVersion ? (
+                <div className="rounded border border-dashed border-border px-4 py-2 text-sm text-muted-foreground">
+                  候选版本尚未接入正式生效 / 回滚接口。
+                </div>
+              ) : (
+                <div className="flex flex-wrap gap-3">
+                  <button
+                    onClick={handleActivate}
+                    disabled={actionPending !== "" || version.status === "effective"}
+                    className="rounded bg-[#00A3C4] px-4 py-2 text-sm font-medium text-white hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {actionPending === "activate" ? "生效中..." : "确认生效"}
+                  </button>
+                  <button
+                    onClick={handleRollback}
+                    disabled={actionPending !== "" || !currentEffectiveVersion}
+                    className="rounded border border-border px-4 py-2 text-sm font-medium text-foreground hover:bg-muted/50 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {actionPending === "rollback" ? "回滚中..." : "回滚到上一治理版本"}
+                  </button>
+                </div>
+              )}
             </div>
           </div>
 

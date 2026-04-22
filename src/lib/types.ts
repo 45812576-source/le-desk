@@ -2042,3 +2042,199 @@ export interface CollabProtocolItem {
   sla_description: string | null;
   is_active: boolean;
 }
+
+// ─── 组织治理快照工作台 ──────────────────────────────────────────────────────
+
+export type SnapshotTabKey =
+  | "organization"
+  | "department"
+  | "role"
+  | "person"
+  | "okr"
+  | "process";
+
+export const SNAPSHOT_TAB_KEYS: SnapshotTabKey[] = [
+  "organization",
+  "department",
+  "role",
+  "person",
+  "okr",
+  "process",
+];
+
+export const SNAPSHOT_TAB_LABELS: Record<SnapshotTabKey, string> = {
+  organization: "组织",
+  department: "部门",
+  role: "岗位",
+  person: "人员",
+  okr: "OKR",
+  process: "业务流程",
+};
+
+export type WorkspaceSnapshotRunStatus =
+  | "idle"
+  | "queued"
+  | "running"
+  | "needs_input"
+  | "ready_for_review"
+  | "synced"
+  | "partial_sync"
+  | "failed";
+
+export type SnapshotScopeOption = "full" | "single_tab" | "current_tab_only";
+
+export type WorkspaceSnapshotMissingInputType =
+  | "text"
+  | "select"
+  | "multi_select"
+  | "boolean"
+  | "user_select"
+  | "department_select"
+  | "role_select";
+
+export interface WorkspaceSnapshotRunState {
+  runId: string | null;
+  status: WorkspaceSnapshotRunStatus;
+  error: string | null;
+}
+
+export interface WorkspaceSnapshotMissingItem {
+  id: string;
+  field_key: string;
+  label: string;
+  description: string;
+  input_type: WorkspaceSnapshotMissingInputType;
+  options?: Array<{ value: string; label: string }>;
+  required: boolean;
+  default_value?: string | string[] | boolean;
+  raw?: Record<string, unknown>;
+}
+
+export interface WorkspaceSnapshotConflict {
+  id: string;
+  entity_type: SnapshotTabKey;
+  entity_name: string;
+  field: string;
+  current_value: string;
+  new_value: string;
+  source_label: string;
+  severity: "high" | "medium" | "low";
+}
+
+export interface WorkspaceSnapshotFailedSection {
+  section: string;
+  reason: string;
+}
+
+export interface WorkspaceSnapshotAggregateSyncStatus {
+  markdown_saved: boolean;
+  structured_updated: boolean;
+  failed_sections: WorkspaceSnapshotFailedSection[];
+  parser_warnings: string[];
+}
+
+export interface WorkspaceSnapshotTabSyncResult {
+  tab_key: SnapshotTabKey;
+  status: "synced" | "partial_sync" | "failed";
+  synced_sections: string[];
+  failed_sections: WorkspaceSnapshotFailedSection[];
+  parser_warnings?: string[];
+  detail?: WorkspaceSnapshotDetail;
+  error?: string;
+}
+
+export interface WorkspaceSnapshotSummary {
+  id: number;
+  workspace_id?: string | null;
+  workspace_type?: string | null;
+  app?: string | null;
+  title?: string;
+  source_snapshot_id?: number | null;
+  legacy_snapshot_id?: number | null;
+  version: string;
+  scope: SnapshotScopeOption;
+  status: WorkspaceSnapshotRunStatus;
+  confidence_score?: number;
+  missing_count?: number;
+  conflict_count?: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface WorkspaceSnapshotDetail {
+  id: number;
+  workspace_id?: string | null;
+  workspace_type?: string | null;
+  app?: string | null;
+  title?: string;
+  source_snapshot_id?: number | null;
+  base_snapshot_id?: number | null;
+  legacy_snapshot_id?: number | null;
+  version: string;
+  scope: SnapshotScopeOption;
+  status: WorkspaceSnapshotRunStatus;
+  confidence_score?: number;
+  created_at: string;
+  updated_at: string;
+  markdown_by_tab: Partial<Record<SnapshotTabKey, string>>;
+  structured_by_tab: Partial<Record<SnapshotTabKey, Record<string, unknown>>>;
+  governance_outputs: {
+    authority_map?: Record<string, unknown>[];
+    resource_access_matrix?: Record<string, unknown>[];
+    approval_route_candidates?: Record<string, unknown>[];
+    policy_hints?: Record<string, unknown>[];
+  };
+  missing_items: WorkspaceSnapshotMissingItem[];
+  conflicts: WorkspaceSnapshotConflict[];
+  low_confidence_items: Array<{ label: string; reason: string; tab_key?: SnapshotTabKey }>;
+  separation_of_duty_risks: Array<{ description: string; severity: "high" | "medium" | "low"; entities: string[] }>;
+  change_summary: Record<string, unknown> | null;
+  sync_status: WorkspaceSnapshotAggregateSyncStatus | null;
+}
+
+export interface WorkspaceSnapshotEventPayload {
+  event_type:
+    | "snapshot.generate"
+    | "snapshot.update"
+    | "snapshot.append_sources"
+    | "snapshot.resolve_questions";
+  workspace_id?: string;
+  workspace_type?: string;
+  app?: string;
+  snapshot_id?: number;
+  base_snapshot_id?: number | null;
+  source_snapshot_id?: number | null;
+  title?: string;
+  scope: SnapshotScopeOption;
+  source_ids?: number[];
+  tab_key?: SnapshotTabKey;
+  missing_item_answers?: Record<string, string | string[] | boolean>;
+  existing_markdown_by_tab?: Partial<Record<SnapshotTabKey, string>>;
+  preserve_existing_structured_on_parse_failure?: boolean;
+}
+
+export interface WorkspaceSnapshotEventResult {
+  run_id: string;
+  snapshot_id: number | null;
+  status: WorkspaceSnapshotRunStatus;
+  missing_items?: WorkspaceSnapshotMissingItem[];
+  error?: string;
+}
+
+export interface WorkspaceSnapshotRunDetail {
+  run_id: string;
+  snapshot_id: number | null;
+  event_type?: string;
+  status: WorkspaceSnapshotRunStatus;
+  progress?: number;
+  message?: string;
+  error?: string;
+  error_message?: string | null;
+  workspace_id?: string;
+  workspace_type?: string;
+  app?: string;
+  response_summary?: Record<string, unknown> | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+  completed_at?: string | null;
+}
