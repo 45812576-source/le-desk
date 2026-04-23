@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { GovernanceCardData, StagedEdit } from "../types";
-import { buildWorkbenchCards, resolveNextPendingWorkbenchCardId, type GovernanceWorkbenchIntent } from "../workbench";
+import { buildWorkbenchCards, doesWorkbenchCardTargetSavedFile, resolveNextPendingWorkbenchCardId, type GovernanceWorkbenchIntent } from "../workbench";
 
 const hiddenGovernanceIntent: GovernanceWorkbenchIntent = {
   visible: false,
@@ -164,5 +164,26 @@ describe("M1 QA · file role workbench wiring", () => {
       { id: "card-first", status: "pending" },
       { id: "card-second", status: "pending" },
     ] as never, "missing-card")).toBe("card-first");
+  });
+
+  it("matches prompt cards to SKILL.md saves", () => {
+    expect(doesWorkbenchCardTargetSavedFile({
+      id: "refine:draft-ready",
+      mode: "file",
+      target: { type: "prompt", key: "SKILL.md" },
+    } as never, "SKILL.md")).toBe(true);
+  });
+
+  it("matches source-file cards only to the same file", () => {
+    expect(doesWorkbenchCardTargetSavedFile({
+      id: "fixing:file",
+      mode: "file",
+      target: { type: "source_file", key: "docs/checklist.md" },
+    } as never, "docs/checklist.md")).toBe(true);
+    expect(doesWorkbenchCardTargetSavedFile({
+      id: "fixing:file",
+      mode: "file",
+      target: { type: "source_file", key: "docs/checklist.md" },
+    } as never, "SKILL.md")).toBe(false);
   });
 });

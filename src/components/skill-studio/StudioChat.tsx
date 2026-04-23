@@ -82,6 +82,8 @@ const STREAM_STAGE_LABELS: Record<string, string> = {
   ingest_parsing: "解析长文本",
 };
 
+const TEMP_STUDIO_DIFF_STAGED_EDIT_PREFIX = "studio-diff";
+
 // ─── StudioChat ───────────────────────────────────────────────────────────────
 
 export interface StudioChatHandle {
@@ -324,6 +326,26 @@ export const StudioChat = forwardRef<StudioChatHandle, StudioChatProps>(function
   const [workflowNextActionRunning, setWorkflowNextActionRunning] = useState(false);
   // Run protocol is always enabled — feature flag removed
   const frontendRunProtocolEnabled = true;
+
+  const resolvePendingTempStudioDiffEdits = useCallback(() => (
+    storeStagedEdits.filter((edit) =>
+      edit.status === "pending"
+      && edit.id.startsWith(TEMP_STUDIO_DIFF_STAGED_EDIT_PREFIX)
+      && edit.source === studioChatSource
+    )
+  ), [storeStagedEdits, studioChatSource]);
+
+  const adoptPendingTempStudioDiffEdits = useCallback(() => {
+    for (const edit of resolvePendingTempStudioDiffEdits()) {
+      adoptStagedEdit(edit.id);
+    }
+  }, [adoptStagedEdit, resolvePendingTempStudioDiffEdits]);
+
+  const rejectPendingTempStudioDiffEdits = useCallback(() => {
+    for (const edit of resolvePendingTempStudioDiffEdits()) {
+      rejectStagedEdit(edit.id);
+    }
+  }, [rejectStagedEdit, resolvePendingTempStudioDiffEdits]);
 
   const storeMergeArchitectArtifacts = useStudioStore((s) => s.mergeArchitectArtifacts);
   const storeClearArchitectArtifacts = useStudioStore((s) => s.clearArchitectArtifacts);
@@ -1844,6 +1866,19 @@ export const StudioChat = forwardRef<StudioChatHandle, StudioChatProps>(function
                   const newPrompt = applyOps(currentPrompt, diff.ops);
                   const d = { system_prompt: newPrompt, change_note: diff.change_note || "AI 局部修改" };
                   setPendingDraft(d); onPendingDraftChange?.(d);
+                  const stagedEdit: StagedEdit = {
+                    id: `${TEMP_STUDIO_DIFF_STAGED_EDIT_PREFIX}:${skillId ?? "skill"}:${convId}:${activeCardId ?? activeRunId ?? "adhoc"}`,
+                    source: studioChatSource,
+                    sourceCardId: activeCardId ?? null,
+                    contractId: activeCardContractId ?? null,
+                    fileType: "system_prompt",
+                    filename: "SKILL.md",
+                    diff: diff.ops,
+                    changeNote: diff.change_note || "AI 局部修改",
+                    status: "pending",
+                  };
+                  addStagedEdit(stagedEdit);
+                  onOpenStagedEditTarget?.(stagedEdit);
                 } else if (diff.system_prompt?.new) {
                   const d = { system_prompt: diff.system_prompt.new, change_note: "AI 建议修改" };
                   setPendingDraft(d); onPendingDraftChange?.(d);
@@ -2011,9 +2046,16 @@ export const StudioChat = forwardRef<StudioChatHandle, StudioChatProps>(function
   const handleApplyDraft = useCallback(() => {
     if (!pendingDraft) return;
     onApplyDraft(pendingDraft);
+    adoptPendingTempStudioDiffEdits();
     setPendingDraft(null);
     onPendingDraftChange?.(null);
-  }, [onApplyDraft, onPendingDraftChange, pendingDraft]);
+  }, [adoptPendingTempStudioDiffEdits, onApplyDraft, onPendingDraftChange, pendingDraft]);
+
+  const handleDiscardDraft = useCallback(() => {
+    rejectPendingTempStudioDiffEdits();
+    setPendingDraft(null);
+    onPendingDraftChange?.(null);
+  }, [onPendingDraftChange, rejectPendingTempStudioDiffEdits]);
 
   function handleConfirmSummary() {
     if (!pendingSummary) return;
@@ -2061,7 +2103,7 @@ export const StudioChat = forwardRef<StudioChatHandle, StudioChatProps>(function
   // ── Expose handlers via ref for CardRail ──
   useImperativeHandle(ref, () => ({
     applyDraft: handleApplyDraft,
-    discardDraft: () => { setPendingDraft(null); onPendingDraftChange?.(null); },
+    discardDraft: handleDiscardDraft,
     confirmSummary: handleConfirmSummary,
     confirmEditedSummary: handleConfirmEditedSummary,
     discardSummary: () => { setPendingSummary(null); onPendingSummaryChange?.(null); },

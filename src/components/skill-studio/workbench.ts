@@ -38,6 +38,14 @@ export function resolveNextPendingWorkbenchCardId(cards: WorkbenchCard[], active
   return pendingCards[0]?.id ?? null;
 }
 
+export function doesWorkbenchCardTargetSavedFile(card: WorkbenchCard, filename: string): boolean {
+  if (card.mode !== "file") return false;
+  if (filename === "SKILL.md") {
+    return card.target.type === "prompt" || card.target.key === "SKILL.md";
+  }
+  return card.target.type === "source_file" && card.target.key === filename;
+}
+
 function normalizeSummary(value: unknown, fallback: string) {
   if (typeof value === "string" && value.trim()) {
     return value.trim();

@@ -26,7 +26,7 @@ import { normalizeStagedEditPayload, resolveStagedEditEditorTarget } from "./uti
 import { normalizeWorkflowCardPayload, parseWorkflowStatePayload } from "./workflow-adapter";
 import { hydrateStudioSessionRecovery } from "./session-recovery";
 import type { WorkflowStateData } from "./workflow-protocol";
-import { buildWorkbenchCards, resolveNextPendingWorkbenchCardId, resolvePreferredWorkbenchCardId } from "./workbench";
+import { buildWorkbenchCards, doesWorkbenchCardTargetSavedFile, resolveNextPendingWorkbenchCardId, resolvePreferredWorkbenchCardId } from "./workbench";
 import { FILE_ROLE_LABEL, isPendingFileConfirmationCard } from "./workbench-types";
 
 // ─── Main page ────────────────────────────────────────────────────────────────
@@ -175,6 +175,7 @@ export function SkillStudio({
   const setEditorManuallyCollapsed = useStudioStore((s) => s.setEditorManuallyCollapsed);
   const activeWorkbenchCardId = useStudioStore((s) => s.activeWorkbenchCardId);
   const setActiveWorkbenchCardId = useStudioStore((s) => s.setActiveWorkbenchCardId);
+  const updateWorkbenchCardStatus = useStudioStore((s) => s.updateWorkbenchCardStatus);
   const replaceWorkbenchCards = useStudioStore((s) => s.replaceWorkbenchCards);
   const setWorkbenchMode = useStudioStore((s) => s.setWorkbenchMode);
   const storeCardsById = useStudioStore((s) => s.cardsById);
@@ -721,11 +722,27 @@ export function SkillStudio({
   async function handleFileSaved(filename: string, contentSize: number) {
     if (filename !== "SKILL.md") setAdoptedAssetPreview(null);
     if (filename === "SKILL.md") setAdoptedPromptPreview(null);
-    if (!selectedFile?.skillId || !memo?.current_task) return;
+    if (!selectedFile?.skillId) return;
     const skillId = selectedFile.skillId;
+    const activeCard = workbenchCards.find((card) => card.id === activeWorkbenchId) ?? null;
     const nextPendingCardId = resolveNextPendingWorkbenchCardId(workbenchCards, activeWorkbenchId);
+    const shouldAdvanceWorkbenchCard = Boolean(
+      activeCard
+      && (activeCard.status === "pending" || activeCard.status === "active")
+      && doesWorkbenchCardTargetSavedFile(activeCard, filename)
+    );
+
+    if (shouldAdvanceWorkbenchCard && activeCard) {
+      updateWorkbenchCardStatus(activeCard.id, "adopted");
+      if (nextPendingCardId) {
+        setActiveWorkbenchCardId(nextPendingCardId);
+      }
+    }
+
+    if (!memo?.current_task) return;
+
     try {
-      const result = await apiFetch<{ ok: boolean; task_completed?: boolean }>(`/skills/${skillId}/memo/tasks/${memo.current_task.id}/complete-from-save`, {
+      await apiFetch<{ ok: boolean; task_completed?: boolean }>(`/skills/${skillId}/memo/tasks/${memo.current_task.id}/complete-from-save`, {
         method: "POST",
         body: JSON.stringify({
           filename,
@@ -733,15 +750,10 @@ export function SkillStudio({
           content_size: contentSize,
         }),
       });
-      if (result.ok) {
-        await Promise.all([
-          fetchMemo(skillId),
-          fetchStudioSession(skillId),
-        ]).catch(() => {});
-        if (result.task_completed !== false && nextPendingCardId) {
-          setActiveWorkbenchCardId(nextPendingCardId);
-        }
-      }
+      await Promise.all([
+        fetchMemo(skillId),
+        fetchStudioSession(skillId),
+      ]).catch(() => {});
     } catch { /* ignore — memo may not exist for this skill */ }
   }
 
