@@ -1,7 +1,8 @@
 export type TestFlowEntrySource =
   | "sandbox_chat"
   | "skill_studio_chat"
-  | "skill_governance_panel";
+  | "skill_governance_panel"
+  | "chat_skill_test_gate";
 
 export type TestFlowDecisionMode = "reuse" | "revise" | "regenerate";
 

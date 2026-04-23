@@ -231,7 +231,7 @@ export function asCardQueueWindow(value: unknown): CardQueueWindow | null {
   if (raw.blocking_signal && typeof raw.blocking_signal === "object") {
     const bs = raw.blocking_signal as Record<string, unknown>;
     const bsKind = bs.kind as string;
-    if (bsKind === "pending_confirmation" || bsKind === "failed_validation" || bsKind === "waiting_bindback" || bsKind === "phase_gate") {
+    if (bsKind === "pending_confirmation" || bsKind === "failed_validation" || bsKind === "waiting_bindback" || bsKind === "waiting_external" || bsKind === "phase_gate") {
       blockingSignal = {
         kind: bsKind,
         card_id: typeof bs.card_id === "string" ? bs.card_id : "",
