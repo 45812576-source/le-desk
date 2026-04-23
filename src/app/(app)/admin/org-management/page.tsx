@@ -1,9 +1,17 @@
 "use client";
 
 import { useEffect, useMemo } from "react";
+import dynamic from "next/dynamic";
 import { useAuth } from "@/lib/auth";
 import { useRouter, useSearchParams } from "next/navigation";
-import OrgMemoryWorkflow from "@/components/org-memory/OrgMemoryWorkflow";
+
+const OrgMemoryWorkflow = dynamic(() => import("@/components/org-memory/OrgMemoryWorkflow"), {
+  loading: () => (
+    <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+      正在加载组织事实工作流...
+    </div>
+  ),
+});
 
 export default function OrgManagementPage() {
   const { user, loading } = useAuth();
