@@ -634,13 +634,13 @@ export const StudioChat = forwardRef<StudioChatHandle, StudioChatProps>(function
       });
       const nextSelection = resolvedEditorTarget ? selectedFileFromEditorTarget(resolvedEditorTarget) : null;
       if (nextSelection) {
-        const adoptedPreviewEdit = edit?.fileType === "source_file" && edit.diff?.length > 0
+        const adoptedPreviewEdit = edit?.diff?.length
           ? { ...edit, status: "adopted" as const }
           : null;
         onEditorTarget(
           nextSelection.fileType,
           nextSelection.fileType === "asset" ? nextSelection.filename : "SKILL.md",
-          nextSelection.fileType === "asset" ? adoptedPreviewEdit : null,
+          adoptedPreviewEdit,
         );
         onExpandEditor?.();
       }

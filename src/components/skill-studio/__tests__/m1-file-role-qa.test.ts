@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { GovernanceCardData, StagedEdit } from "../types";
-import { buildWorkbenchCards, type GovernanceWorkbenchIntent } from "../workbench";
+import { buildWorkbenchCards, resolveNextPendingWorkbenchCardId, type GovernanceWorkbenchIntent } from "../workbench";
 
 const hiddenGovernanceIntent: GovernanceWorkbenchIntent = {
   visible: false,
@@ -147,5 +147,22 @@ describe("M1 QA · file role workbench wiring", () => {
       returnTo: "bind_back",
       externalBuildStatus: "returned_waiting_bindback",
     });
+  });
+
+  it("prefers the next pending card after the current active card", () => {
+    expect(resolveNextPendingWorkbenchCardId([
+      { id: "card-active", status: "active" },
+      { id: "card-reviewed", status: "reviewing" },
+      { id: "card-next", status: "pending" },
+      { id: "card-later", status: "pending" },
+    ] as never, "card-active")).toBe("card-next");
+  });
+
+  it("falls back to the first pending card when active card is missing", () => {
+    expect(resolveNextPendingWorkbenchCardId([
+      { id: "card-stale", status: "dismissed" },
+      { id: "card-first", status: "pending" },
+      { id: "card-second", status: "pending" },
+    ] as never, "missing-card")).toBe("card-first");
   });
 });

@@ -118,6 +118,33 @@ describe("PromptEditor", () => {
     expect(screen.getByText("新描述")).toBeTruthy();
   });
 
+  it("shows adopted prompt diff even after editor content is already updated", async () => {
+    render(
+      <PromptEditor
+        skill={{ id: 1, name: "测试 Skill", description: "旧描述", status: "draft" } as never}
+        isNew={false}
+        prompt={"## 角色\n你是全新助手"}
+        onPromptChange={vi.fn()}
+        onSaved={vi.fn()}
+        onFork={vi.fn()}
+        adoptedPreviewEdit={{
+          id: "se-adopted-prompt",
+          fileType: "system_prompt",
+          filename: "SKILL.md",
+          status: "adopted",
+          changeNote: "改写角色定义",
+          diff: [{ type: "replace", old: "助手", new: "全新助手" }],
+        }}
+      />,
+    );
+
+    await waitFor(() => expect(screen.getByTestId("diff-viewer")).toBeTruthy());
+    const diffViewer = screen.getByTestId("diff-viewer");
+    expect(screen.getByText(/已采纳治理修改/)).toBeTruthy();
+    expect(diffViewer.textContent).toContain("## 角色\n你是助手");
+    expect(diffViewer.textContent).toContain("## 角色\n你是全新助手");
+  });
+
   it("opens governance panel intent when preflight gate is blocked", async () => {
     const onOpenTestFlowPanel = vi.fn();
 

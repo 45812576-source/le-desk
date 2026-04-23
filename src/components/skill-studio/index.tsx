@@ -26,10 +26,22 @@ import { normalizeStagedEditPayload, resolveStagedEditEditorTarget } from "./uti
 import { normalizeWorkflowCardPayload, parseWorkflowStatePayload } from "./workflow-adapter";
 import { hydrateStudioSessionRecovery } from "./session-recovery";
 import type { WorkflowStateData } from "./workflow-protocol";
-import { buildWorkbenchCards, resolvePreferredWorkbenchCardId } from "./workbench";
-import { FILE_ROLE_LABEL, isPendingFileConfirmationCard, type CardQueueWindow } from "./workbench-types";
+import { buildWorkbenchCards, resolveNextPendingWorkbenchCardId, resolvePreferredWorkbenchCardId } from "./workbench";
+import { FILE_ROLE_LABEL, isPendingFileConfirmationCard } from "./workbench-types";
 
 // ─── Main page ────────────────────────────────────────────────────────────────
+
+const EDITOR_DRAWER_WIDTH_KEY = "skill_studio_editor_drawer_width";
+const DEFAULT_EDITOR_DRAWER_WIDTH = 720;
+const MIN_EDITOR_DRAWER_WIDTH = 520;
+const MAX_EDITOR_DRAWER_WIDTH = 1040;
+
+function clampEditorDrawerWidth(width: number) {
+  const viewportMax = typeof window === "undefined"
+    ? MAX_EDITOR_DRAWER_WIDTH
+    : Math.max(MIN_EDITOR_DRAWER_WIDTH, Math.min(MAX_EDITOR_DRAWER_WIDTH, window.innerWidth - 360));
+  return Math.min(Math.max(width, MIN_EDITOR_DRAWER_WIDTH), viewportMax);
+}
 
 export function SkillStudio({
   convId,
@@ -61,6 +73,23 @@ export function SkillStudio({
   });
   const selectedFile = selectedFileFromEditorTarget(editorTarget);
   const [adoptedAssetPreview, setAdoptedAssetPreview] = useState<StagedEdit | null>(null);
+  const [adoptedPromptPreview, setAdoptedPromptPreview] = useState<StagedEdit | null>(null);
+  const [editorDrawerWidth, setEditorDrawerWidth] = useState(() => {
+    try {
+      const saved = Number(localStorage.getItem(EDITOR_DRAWER_WIDTH_KEY));
+      return clampEditorDrawerWidth(Number.isFinite(saved) && saved > 0 ? saved : DEFAULT_EDITOR_DRAWER_WIDTH);
+    } catch {
+      return DEFAULT_EDITOR_DRAWER_WIDTH;
+    }
+  });
+  const [editorResizing, setEditorResizing] = useState(false);
+  useEffect(() => {
+    const handleResize = () => {
+      setEditorDrawerWidth((currentWidth) => clampEditorDrawerWidth(currentWidth));
+    };
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
   const setEditorTarget = useCallback((target: StudioEditorTarget) => {
     _setEditorTarget(target);
     const nextSelection = selectedFileFromEditorTarget(target);
@@ -71,6 +100,7 @@ export function SkillStudio({
   }, []);
   const setSelectedFile = useCallback((f: SelectedFile | null) => {
     setAdoptedAssetPreview(null);
+    setAdoptedPromptPreview(null);
     if (!f) {
       setEditorTarget({ kind: "empty" });
       return;
@@ -317,6 +347,32 @@ export function SkillStudio({
     setEditorVisibility("pinned_open");
   }, [setEditorManuallyCollapsed, setEditorVisibility]);
 
+  const handleEditorDrawerResizeStart = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    const startX = event.clientX;
+    const startWidth = editorDrawerWidth;
+    setEditorResizing(true);
+
+    const handleMove = (moveEvent: PointerEvent) => {
+      const nextWidth = clampEditorDrawerWidth(startWidth + startX - moveEvent.clientX);
+      setEditorDrawerWidth(nextWidth);
+    };
+
+    const handleUp = () => {
+      setEditorResizing(false);
+      document.removeEventListener("pointermove", handleMove);
+      document.removeEventListener("pointerup", handleUp);
+      setEditorDrawerWidth((currentWidth) => {
+        const nextWidth = clampEditorDrawerWidth(currentWidth);
+        try { localStorage.setItem(EDITOR_DRAWER_WIDTH_KEY, String(nextWidth)); } catch { /* ignore */ }
+        return nextWidth;
+      });
+    };
+
+    document.addEventListener("pointermove", handleMove);
+    document.addEventListener("pointerup", handleUp);
+  }, [editorDrawerWidth]);
+
   const handleOpenStagedEditTarget = useCallback((edit: StagedEdit) => {
     const targetSkillId = selectedSkill?.id ?? selectedFile?.skillId ?? initialSkillId;
     if (!targetSkillId) return;
@@ -480,7 +536,7 @@ export function SkillStudio({
 
   // ── Memo: fetch when selected skill changes ──
   const fetchMemo = useCallback((skillId: number) => {
-    apiFetch<SkillMemo>(`/skills/${skillId}/memo`)
+    return apiFetch<SkillMemo>(`/skills/${skillId}/memo`)
       .then((data) => {
         if (data && data.lifecycle_stage) {
           setMemo(data);
@@ -497,7 +553,7 @@ export function SkillStudio({
   }, [setStoreMemo]);
 
   const fetchStudioSession = useCallback((skillId: number) => {
-    apiFetch<StudioSessionPayload>(`/skills/${skillId}/studio/session`)
+    return apiFetch<StudioSessionPayload>(`/skills/${skillId}/studio/session`)
       .then((data) => {
         const hydrated = hydrateStudioSessionRecovery(skillId, data);
         setWorkflowState(hydrated.workflowState);
@@ -664,9 +720,12 @@ export function SkillStudio({
   // ── Memo: complete-from-save after file save ──
   async function handleFileSaved(filename: string, contentSize: number) {
     if (filename !== "SKILL.md") setAdoptedAssetPreview(null);
+    if (filename === "SKILL.md") setAdoptedPromptPreview(null);
     if (!selectedFile?.skillId || !memo?.current_task) return;
+    const skillId = selectedFile.skillId;
+    const nextPendingCardId = resolveNextPendingWorkbenchCardId(workbenchCards, activeWorkbenchId);
     try {
-      const result = await apiFetch<{ ok: boolean; task_completed?: boolean }>(`/skills/${selectedFile.skillId}/memo/tasks/${memo.current_task.id}/complete-from-save`, {
+      const result = await apiFetch<{ ok: boolean; task_completed?: boolean }>(`/skills/${skillId}/memo/tasks/${memo.current_task.id}/complete-from-save`, {
         method: "POST",
         body: JSON.stringify({
           filename,
@@ -674,7 +733,15 @@ export function SkillStudio({
           content_size: contentSize,
         }),
       });
-      if (result.ok) handleMemoRefresh();
+      if (result.ok) {
+        await Promise.all([
+          fetchMemo(skillId),
+          fetchStudioSession(skillId),
+        ]).catch(() => {});
+        if (result.task_completed !== false && nextPendingCardId) {
+          setActiveWorkbenchCardId(nextPendingCardId);
+        }
+      }
     } catch { /* ignore — memo may not exist for this skill */ }
   }
 
@@ -683,9 +750,17 @@ export function SkillStudio({
     if (!selectedFile?.skillId) return;
     if (fileType === "prompt" || filename === "SKILL.md") {
       setSelectedFile({ skillId: selectedFile.skillId, fileType: "prompt" });
+      setAdoptedAssetPreview(null);
+      setAdoptedPromptPreview(
+        previewEdit?.status === "adopted"
+          && (previewEdit.fileType === "system_prompt" || previewEdit.fileType === "prompt" || previewEdit.filename === "SKILL.md")
+          ? previewEdit
+          : null,
+      );
       return;
     }
 
+    setAdoptedPromptPreview(null);
     setSelectedFile({ skillId: selectedFile.skillId, fileType: "asset", filename });
     setAdoptedAssetPreview(
       previewEdit?.status === "adopted" && previewEdit.fileType === "source_file" && previewEdit.filename === filename
@@ -891,12 +966,6 @@ export function SkillStudio({
         stale: "已过期",
       } as const)[activeWorkbenchCard.status]
     : null;
-  const activeCardTargetLabel = activeWorkbenchCard?.target.key
-    ?? (selectedFile?.fileType === "asset"
-      ? (selectedFile as { filename: string }).filename
-      : selectedSkill
-        ? "SKILL.md"
-        : null);
   const activeCardContractId = activeWorkbenchCard?.contractId
     ?? resolveStudioCardContract(activeWorkbenchCard)?.contractId
     ?? null;
@@ -1231,10 +1300,23 @@ export function SkillStudio({
           )}
 
           {/* File Workspace - 覆盖在 StudioChat 之上 */}
-        <div className={`absolute top-0 right-0 bottom-0 border-l-2 border-[#1A202C] bg-white transition-all duration-300 ease-in-out overflow-hidden z-20 ${
-          editorVisible ? "w-[480px] opacity-100" : "w-0 opacity-0 border-l-0"
-        }`}>
-          <div className="w-[480px] h-full min-h-0 flex flex-col">
+        <div
+          className={`absolute top-0 right-0 bottom-0 border-l-2 border-[#1A202C] bg-white transition-[width,opacity] ease-in-out overflow-hidden z-20 ${
+            editorResizing ? "duration-0" : "duration-300"
+          } ${editorVisible ? "opacity-100" : "opacity-0 border-l-0"}`}
+          style={{ width: editorVisible ? editorDrawerWidth : 0 }}
+        >
+          {editorVisible && (
+            <div
+              role="separator"
+              aria-label="调整编辑器宽度"
+              aria-orientation="vertical"
+              tabIndex={0}
+              onPointerDown={handleEditorDrawerResizeStart}
+              className="absolute left-0 top-0 bottom-0 z-10 w-2 -translate-x-1/2 cursor-col-resize bg-transparent"
+            />
+          )}
+          <div className="h-full min-h-0 flex flex-col" style={{ width: editorDrawerWidth }}>
             <div className="flex-shrink-0 px-3 py-1.5 border-b border-gray-200 flex items-center justify-between bg-[#F8FCFD]">
               <span className="text-[8px] font-bold uppercase tracking-widest text-[#00A3C4]">
                 {selectedFile?.fileType === "asset" ? (selectedFile as { filename: string }).filename : "SKILL.md"}
@@ -1293,6 +1375,7 @@ export function SkillStudio({
                   onSaved={handleSaved}
                   onFork={handleFork}
                   onFileSaved={handleFileSaved}
+                  adoptedPreviewEdit={adoptedPromptPreview}
                   sandboxVersionMismatch={sandboxVersionMismatch}
                   sandboxVersionMismatchMessage={sandboxVersionMismatchMessage}
                   onOpenTestFlowPanel={handleOpenChatTestFlowPanel}

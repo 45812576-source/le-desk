@@ -236,6 +236,90 @@ export function getMetadataFieldPreview(edit: Pick<StagedEdit, "fileType" | "dif
   return nextValue;
 }
 
+export function applyDiffOpsForPreview(text: string, ops: DiffOp[]) {
+  let next = text;
+  for (const op of ops) {
+    if (op.type === "replace" && op.old) {
+      next = next.replace(op.old, op.new || "");
+    } else if (op.type === "delete" && op.old) {
+      next = next.replace(op.old, "");
+    } else if (op.type === "append") {
+      next += op.content || op.new || "";
+    } else if (op.type === "insert_after") {
+      const anchor = op.anchor || op.old || "";
+      const insert = op.content || op.new || "";
+      if (anchor && next.includes(anchor)) {
+        const idx = next.indexOf(anchor) + anchor.length;
+        next = next.slice(0, idx) + insert + next.slice(idx);
+      } else {
+        next += `\n${insert}`;
+      }
+    } else if (op.type === "insert_before") {
+      const anchor = op.anchor || op.old || "";
+      const insert = op.content || op.new || "";
+      next = anchor && next.includes(anchor)
+        ? next.replace(anchor, `${insert}${anchor}`)
+        : `${insert}\n${next}`;
+    }
+  }
+  return next;
+}
+
+function removeFirst(text: string, target: string, replacement: string) {
+  const idx = target ? text.indexOf(target) : -1;
+  if (idx === -1) return text;
+  return text.slice(0, idx) + replacement + text.slice(idx + target.length);
+}
+
+export function revertDiffOpsForPreview(text: string, ops: DiffOp[]) {
+  let previous = text;
+  for (const op of [...ops].reverse()) {
+    if (op.type === "replace" && typeof op.new === "string") {
+      previous = removeFirst(previous, op.new, op.old || "");
+    } else if (op.type === "append") {
+      const insert = op.content || op.new || "";
+      if (insert && previous.endsWith(insert)) {
+        previous = previous.slice(0, previous.length - insert.length);
+      }
+    } else if (op.type === "insert_after") {
+      const anchor = op.anchor || op.old || "";
+      const insert = op.content || op.new || "";
+      if (anchor && insert) {
+        previous = removeFirst(previous, `${anchor}${insert}`, anchor);
+      } else if (insert && previous.endsWith(`\n${insert}`)) {
+        previous = previous.slice(0, previous.length - insert.length - 1);
+      }
+    } else if (op.type === "insert_before") {
+      const anchor = op.anchor || op.old || "";
+      const insert = op.content || op.new || "";
+      if (anchor && insert) {
+        previous = removeFirst(previous, `${insert}${anchor}`, anchor);
+      } else if (insert && previous.startsWith(`${insert}\n`)) {
+        previous = previous.slice(insert.length + 1);
+      }
+    }
+  }
+  return previous;
+}
+
+export function resolveDiffPreviewContent(content: string, edit: Pick<StagedEdit, "diff" | "status">) {
+  const reverted = revertDiffOpsForPreview(content, edit.diff);
+  if (edit.status === "adopted" && reverted !== content) {
+    return { oldText: reverted, newText: content };
+  }
+
+  const applied = applyDiffOpsForPreview(content, edit.diff);
+  if (applied !== content) {
+    return { oldText: content, newText: applied };
+  }
+
+  if (reverted !== content) {
+    return { oldText: reverted, newText: content };
+  }
+
+  return null;
+}
+
 export function resolveStagedEditEditorTarget(
   edit: Pick<StagedEdit, "fileType" | "filename">,
 ): { fileType: "prompt" | "asset"; filename: string } | null {

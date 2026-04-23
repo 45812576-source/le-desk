@@ -12,9 +12,9 @@ import { ICONS, PixelIcon } from "@/components/pixel";
 import { DiffViewer, LineNumberedEditor } from "./DiffViewer";
 import { PreflightReport } from "./PreflightReport";
 import { KnowledgeConfirmModal } from "./KnowledgeConfirmModal";
-import type { PreflightResult, PreflightGate, StagedEdit, DiffOp } from "./types";
+import type { PreflightResult, PreflightGate, StagedEdit } from "./types";
 import { normalizeWorkflowCardPayload, parseWorkflowStatePayload } from "./workflow-adapter";
-import { getMetadataFieldPreview, normalizeStagedEditPayload } from "./utils";
+import { getMetadataFieldPreview, normalizeStagedEditPayload, resolveDiffPreviewContent } from "./utils";
 import type {
   TestFlowBlockedBefore,
   TestFlowBlockedStage,
@@ -56,35 +56,6 @@ function SkillIcon({ size }: { size: number }) {
   return <Zap size={size} className="text-muted-foreground" />;
 }
 
-function applyDiffOpsForPreview(text: string, ops: DiffOp[]) {
-  let next = text;
-  for (const op of ops) {
-    if (op.type === "replace" && op.old) {
-      next = next.replace(op.old, op.new || "");
-    } else if (op.type === "delete" && op.old) {
-      next = next.replace(op.old, "");
-    } else if (op.type === "append") {
-      next += op.content || op.new || "";
-    } else if (op.type === "insert_after") {
-      const anchor = op.anchor || op.old || "";
-      const insert = op.content || op.new || "";
-      if (anchor && next.includes(anchor)) {
-        const idx = next.indexOf(anchor) + anchor.length;
-        next = next.slice(0, idx) + insert + next.slice(idx);
-      } else {
-        next += `\n${insert}`;
-      }
-    } else if (op.type === "insert_before") {
-      const anchor = op.anchor || op.old || "";
-      const insert = op.content || op.new || "";
-      next = anchor && next.includes(anchor)
-        ? next.replace(anchor, `${insert}${anchor}`)
-        : `${insert}\n${next}`;
-    }
-  }
-  return next;
-}
-
 export function PromptEditor({
   skill,
   isNew,
@@ -101,6 +72,7 @@ export function PromptEditor({
   sandboxVersionMismatch,
   sandboxVersionMismatchMessage,
   onOpenTestFlowPanel,
+  adoptedPreviewEdit,
 }: {
   skill: SkillDetail | null;
   isNew: boolean;
@@ -116,6 +88,7 @@ export function PromptEditor({
   onFileSaved?: (filename: string, contentSize: number) => void;
   sandboxVersionMismatch?: boolean;
   sandboxVersionMismatchMessage?: string | null;
+  adoptedPreviewEdit?: StagedEdit | null;
   onOpenTestFlowPanel?: (intent: {
     skillId: number;
     mode: "mount_blocked" | "choose_existing_plan" | "generate_cases";
@@ -186,6 +159,12 @@ export function PromptEditor({
   const pendingPromptStagedEdit = useStudioStore((s) => s.stagedEdits.find((e) =>
     e.status === "pending" && (e.fileType === "system_prompt" || e.fileType === "prompt" || e.filename === "SKILL.md") && e.diff?.length > 0
   ));
+  const adoptedPromptPreviewEdit = adoptedPreviewEdit?.status === "adopted"
+    && (adoptedPreviewEdit.fileType === "system_prompt" || adoptedPreviewEdit.fileType === "prompt" || adoptedPreviewEdit.filename === "SKILL.md")
+    && adoptedPreviewEdit.diff?.length > 0
+    ? adoptedPreviewEdit
+    : null;
+  const activePromptPreviewEdit = pendingPromptStagedEdit || adoptedPromptPreviewEdit;
   const pendingDescriptionStagedEdit = useStudioStore((s) => s.stagedEdits.find((e) =>
     e.status === "pending" && getMetadataFieldPreview(e, "description") !== null
   ));
@@ -197,8 +176,8 @@ export function PromptEditor({
   const isLargeText = prompt.length > 50 * 1024;
   const preflightSource = skill ? `preflight:${skill.id}` : null;
   const handledPreflightRefreshRef = useRef(0);
-  const stagedPreviewPrompt = pendingPromptStagedEdit?.diff?.length
-    ? applyDiffOpsForPreview(prompt, pendingPromptStagedEdit.diff)
+  const stagedPreviewPrompt = activePromptPreviewEdit?.diff?.length
+    ? resolveDiffPreviewContent(prompt, activePromptPreviewEdit)
     : null;
   const stagedPreviewDescription = pendingDescriptionStagedEdit
     ? getMetadataFieldPreview(pendingDescriptionStagedEdit, "description")
@@ -695,14 +674,15 @@ export function PromptEditor({
             文本超过 50KB（{Math.round(prompt.length / 1024)}KB），建议拆分为多个文件以提升编辑体验
           </div>
         )}
-        {stagedPreviewPrompt !== null && stagedPreviewPrompt !== prompt && (
+        {stagedPreviewPrompt !== null && stagedPreviewPrompt.oldText !== stagedPreviewPrompt.newText && (
           <div className="px-2 py-1 bg-[#F0FFF9] border border-[#00CC99]/40 text-[8px] font-mono text-[#007A5E] mb-1 flex-shrink-0">
-            待确认治理修改：{pendingPromptStagedEdit?.changeNote || "查看下方 diff 后在治理卡片中采纳或拒绝"}
+            {activePromptPreviewEdit?.status === "adopted" ? "已采纳治理修改" : "待确认治理修改"}：
+            {activePromptPreviewEdit?.changeNote || (activePromptPreviewEdit?.status === "adopted" ? "查看本次采纳后的 SKILL.md diff" : "查看下方 diff 后在治理卡片中采纳或拒绝")}
           </div>
         )}
-        {stagedPreviewPrompt !== null && stagedPreviewPrompt !== prompt ? (
+        {stagedPreviewPrompt !== null && stagedPreviewPrompt.oldText !== stagedPreviewPrompt.newText ? (
           <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
-            <DiffViewer oldText={prompt} newText={stagedPreviewPrompt} />
+            <DiffViewer oldText={stagedPreviewPrompt.oldText} newText={stagedPreviewPrompt.newText} />
           </div>
         ) : showDiff && diffBase !== null ? (
           <div className="flex-1 min-h-0 flex flex-col overflow-hidden">

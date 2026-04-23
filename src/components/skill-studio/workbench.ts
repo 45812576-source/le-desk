@@ -25,6 +25,19 @@ export interface GovernanceWorkbenchIntent {
   blockedBefore?: string | null;
 }
 
+export function resolveNextPendingWorkbenchCardId(cards: WorkbenchCard[], activeId: string | null | undefined): string | null {
+  const pendingCards = cards.filter((card) => card.status === "pending");
+  if (pendingCards.length === 0) return null;
+
+  const activeIndex = activeId ? cards.findIndex((card) => card.id === activeId) : -1;
+  if (activeIndex >= 0) {
+    const nextAfterActive = cards.slice(activeIndex + 1).find((card) => card.status === "pending");
+    if (nextAfterActive) return nextAfterActive.id;
+  }
+
+  return pendingCards[0]?.id ?? null;
+}
+
 function normalizeSummary(value: unknown, fallback: string) {
   if (typeof value === "string" && value.trim()) {
     return value.trim();
