@@ -41,7 +41,7 @@ export const LineNumberedEditor = memo(function LineNumberedEditor({ value, onCh
   const LINE_H = 20;
 
   return (
-    <div className="flex flex-1 overflow-hidden border-2 border-[#1A202C] focus-within:border-[#00D1FF] min-h-0">
+    <div className="flex flex-1 h-full min-h-0 overflow-hidden border-2 border-[#1A202C] focus-within:border-[#00D1FF]">
       <div
         ref={gutterRef}
         className="overflow-hidden bg-gray-50 border-r border-gray-200 select-none flex-shrink-0 w-9"
@@ -67,7 +67,7 @@ export const LineNumberedEditor = memo(function LineNumberedEditor({ value, onCh
         placeholder={placeholder}
         wrap="off"
         spellCheck={false}
-        className="flex-1 px-3 py-2 text-[10px] font-mono resize-none focus:outline-none disabled:opacity-50 disabled:bg-gray-50 overflow-auto"
+        className="flex-1 h-full min-h-0 px-3 py-2 text-[10px] font-mono resize-none focus:outline-none disabled:opacity-50 disabled:bg-gray-50 overflow-auto"
         style={{ lineHeight: `${LINE_H}px` }}
       />
     </div>
@@ -82,7 +82,7 @@ export const DiffViewer = memo(function DiffViewer({ oldText, newText }: { oldTe
   const LINE_H = 20;
 
   return (
-    <div className="flex-1 overflow-auto border-2 border-[#1A202C] bg-white font-mono text-[10px] min-h-0">
+    <div className="flex-1 h-full min-h-0 overflow-auto border-2 border-[#1A202C] bg-white font-mono text-[10px]">
       {diff.map((line, i) => {
         let bgClass = "", textClass = "text-[#1A202C]", indClass = "text-gray-200", ind = " ", lineNum = "";
         if (line.type === "unchanged") {

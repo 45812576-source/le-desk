@@ -197,7 +197,7 @@ export function AssetFileEditor({
   const categoryHint = CATEGORY_CONFIG[fileCategory]?.hint;
 
   return (
-    <div className="flex-1 flex flex-col bg-white overflow-hidden min-w-0">
+    <div className="flex-1 h-full min-h-0 flex flex-col bg-white overflow-hidden min-w-0">
       {isReadOnly && (
         <div className="px-4 py-2 bg-amber-50 border-b-2 border-amber-300 flex-shrink-0">
           <span className="text-[9px] font-bold uppercase tracking-widest text-amber-600">已发布（只读）</span>
@@ -262,15 +262,17 @@ export function AssetFileEditor({
             )}
           </div>
         ) : stagedPreview !== null && stagedPreview.oldText !== stagedPreview.newText ? (
-          <>
+          <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
             <div className="px-2 py-1 bg-[#F0FFF9] border border-[#00CC99]/40 text-[8px] font-mono text-[#007A5E] mb-1 flex-shrink-0">
               {activePreviewEdit?.status === "adopted" ? "已采纳治理修改" : "待确认治理修改"}：
               {activePreviewEdit?.changeNote || (activePreviewEdit?.status === "adopted" ? "查看本次采纳后的文件 diff" : "查看 diff 后在治理卡片中采纳或拒绝")}
             </div>
             <DiffViewer oldText={stagedPreview.oldText} newText={stagedPreview.newText} />
-          </>
+          </div>
         ) : showDiff && diffBase !== null ? (
-          <DiffViewer oldText={diffBase} newText={content} />
+          <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
+            <DiffViewer oldText={diffBase} newText={content} />
+          </div>
         ) : (
           <LineNumberedEditor
             value={content}

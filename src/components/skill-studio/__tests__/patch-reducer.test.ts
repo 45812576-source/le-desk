@@ -271,6 +271,35 @@ describe("applyStudioPatch", () => {
       expect(ctx.onExpandEditor).toHaveBeenCalled();
     });
 
+    it("opens the normalized staged edit target when callback is available", () => {
+      const ctx = buildCtx();
+      ctx.onOpenStagedEditTarget = vi.fn();
+      const envelope = makeEnvelope({
+        patch_type: "staged_edit_patch",
+        payload: {
+          id: "edit-2",
+          target_type: "source_file",
+          file_path: "examples/checklist.md",
+          diff_ops: [{ type: "append", content: "\nmore" }],
+        },
+      });
+
+      applyStudioPatch(envelope, ctx);
+
+      expect(ctx.store.addStagedEdit).toHaveBeenCalledWith(expect.objectContaining({
+        id: "edit-2",
+        source: "test-source",
+        fileType: "source_file",
+        filename: "examples/checklist.md",
+      }));
+      expect(ctx.onOpenStagedEditTarget).toHaveBeenCalledWith(expect.objectContaining({
+        id: "edit-2",
+        fileType: "source_file",
+        filename: "examples/checklist.md",
+      }));
+      expect(ctx.onExpandEditor).not.toHaveBeenCalled();
+    });
+
     it("handles card_patch", () => {
       const ctx = buildCtx();
       applyStudioPatch(makeEnvelope({ patch_type: "card_patch" }), ctx);

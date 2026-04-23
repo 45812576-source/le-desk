@@ -22,7 +22,7 @@ import { SkillGovernancePanel } from "./SkillGovernancePanel";
 import { StudioCardRail } from "./StudioCardRail";
 import { resolveStudioCardContract, type StudioCardContract } from "./card-contracts";
 import { buildAssetEditorTarget, buildAssetLoadingTarget, buildEditorErrorTarget, buildPromptEditorTarget, editorTargetFromSelectedFile, selectedFileFromEditorTarget, type StudioEditorTarget } from "./editor-target";
-import { normalizeStagedEditPayload } from "./utils";
+import { normalizeStagedEditPayload, resolveStagedEditEditorTarget } from "./utils";
 import { normalizeWorkflowCardPayload, parseWorkflowStatePayload } from "./workflow-adapter";
 import { hydrateStudioSessionRecovery } from "./session-recovery";
 import type { WorkflowStateData } from "./workflow-protocol";
@@ -159,6 +159,7 @@ export function SkillStudio({
   const mergeArchitectArtifacts = useStudioStore((s) => s.mergeArchitectArtifacts);
   const hydratedRecoveryRef = useRef<string | null>(null);
   const lastAutoOpenedCardIdRef = useRef<string | null>(null);
+  const skipNextActiveCardEditorSyncRef = useRef(false);
 
   // File workspace panel visibility: visible only when pinned or confirmation flow opens it.
   const editorVisible = editorVisibility !== "collapsed";
@@ -316,6 +317,35 @@ export function SkillStudio({
     setEditorVisibility("pinned_open");
   }, [setEditorManuallyCollapsed, setEditorVisibility]);
 
+  const handleOpenStagedEditTarget = useCallback((edit: StagedEdit) => {
+    const targetSkillId = selectedSkill?.id ?? selectedFile?.skillId ?? initialSkillId;
+    if (!targetSkillId) return;
+
+    const target = resolveStagedEditEditorTarget(edit);
+    skipNextActiveCardEditorSyncRef.current = true;
+    if (target?.fileType === "asset") {
+      setAdoptedAssetPreview(null);
+      setEditorTarget(buildAssetLoadingTarget({
+        skillId: targetSkillId,
+        fileType: "asset",
+        filename: target.filename,
+      }, selectedFile, "staged_edit_patch"));
+    } else {
+      setSelectedFile({ skillId: targetSkillId, fileType: "prompt" });
+    }
+
+    setEditorManuallyCollapsed(false);
+    setEditorVisibility("pinned_open");
+  }, [
+    initialSkillId,
+    selectedFile,
+    selectedSkill?.id,
+    setEditorManuallyCollapsed,
+    setEditorTarget,
+    setEditorVisibility,
+    setSelectedFile,
+  ]);
+
   const handlePendingDraftChange = useCallback((draft: StudioDraft | null) => {
     setStorePendingDraft(draft);
   }, [setStorePendingDraft]);
@@ -382,6 +412,7 @@ export function SkillStudio({
       if (editorVisibility === "auto_expanded") {
         setEditorVisibility("collapsed");
       }
+      skipNextActiveCardEditorSyncRef.current = false;
       return;
     }
     setWorkbenchMode(activeWorkbenchCard.mode);
@@ -412,6 +443,12 @@ export function SkillStudio({
     }
 
     if (activeWorkbenchCard.mode !== "file" || !selectedSkill) {
+      skipNextActiveCardEditorSyncRef.current = false;
+      return;
+    }
+
+    if (skipNextActiveCardEditorSyncRef.current) {
+      skipNextActiveCardEditorSyncRef.current = false;
       return;
     }
 
@@ -1156,6 +1193,7 @@ export function SkillStudio({
             sandboxReportId={fromSandbox ? sandboxReportId : undefined}
             fromSandbox={fromSandbox}
             onExpandEditor={handleManualExpandEditor}
+            onOpenStagedEditTarget={handleOpenStagedEditTarget}
             onRefreshSkill={() => { if (selectedSkill) refreshSkill(selectedSkill.id); }}
             onOpenTestFlowPanel={handleOpenChatTestFlowPanel}
             onSelectSkillForTestFlow={handleSelectSkillForTestFlow}
@@ -1196,7 +1234,7 @@ export function SkillStudio({
         <div className={`absolute top-0 right-0 bottom-0 border-l-2 border-[#1A202C] bg-white transition-all duration-300 ease-in-out overflow-hidden z-20 ${
           editorVisible ? "w-[480px] opacity-100" : "w-0 opacity-0 border-l-0"
         }`}>
-          <div className="w-[480px] h-full flex flex-col">
+          <div className="w-[480px] h-full min-h-0 flex flex-col">
             <div className="flex-shrink-0 px-3 py-1.5 border-b border-gray-200 flex items-center justify-between bg-[#F8FCFD]">
               <span className="text-[8px] font-bold uppercase tracking-widest text-[#00A3C4]">
                 {selectedFile?.fileType === "asset" ? (selectedFile as { filename: string }).filename : "SKILL.md"}

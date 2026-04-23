@@ -177,17 +177,21 @@ export function normalizeStagedEditPayload(raw: Record<string, unknown>, source?
   const rawDiff = Array.isArray(raw.diff) ? raw.diff : Array.isArray(raw.diff_ops) ? raw.diff_ops : [];
   const rawFileType = typeof raw.fileType === "string"
     ? raw.fileType
-    : typeof raw.target_type === "string"
-      ? raw.target_type
-      : "system_prompt";
+    : typeof raw.file_type === "string"
+      ? raw.file_type
+      : typeof raw.target_type === "string"
+        ? raw.target_type
+        : "system_prompt";
   const fileType = rawFileType === "prompt" ? "system_prompt" : rawFileType;
   const filename = typeof raw.filename === "string" && raw.filename
     ? raw.filename
     : typeof raw.target_key === "string" && raw.target_key
       ? raw.target_key
-      : fileType === "system_prompt"
-        ? "SKILL.md"
-        : "";
+      : typeof raw.file_path === "string" && raw.file_path
+        ? raw.file_path
+        : fileType === "system_prompt"
+          ? "SKILL.md"
+          : "";
 
   return {
     id: String(raw.id ?? `se-${Date.now()}`),

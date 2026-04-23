@@ -591,7 +591,7 @@ export function PromptEditor({
   }
 
   return (
-    <div className="flex-1 flex flex-col bg-white overflow-hidden min-w-0">
+    <div className="flex-1 h-full min-h-0 flex flex-col bg-white overflow-hidden min-w-0">
       {isReadOnly && (
         <div className="px-4 py-2 bg-amber-50 border-b-2 border-amber-300 flex items-center gap-3 flex-shrink-0">
           <span className="text-[9px] font-bold uppercase tracking-widest text-amber-600">已发布（只读）</span>
@@ -701,9 +701,13 @@ export function PromptEditor({
           </div>
         )}
         {stagedPreviewPrompt !== null && stagedPreviewPrompt !== prompt ? (
-          <DiffViewer oldText={prompt} newText={stagedPreviewPrompt} />
+          <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
+            <DiffViewer oldText={prompt} newText={stagedPreviewPrompt} />
+          </div>
         ) : showDiff && diffBase !== null ? (
-          <DiffViewer oldText={diffBase} newText={deferredPrompt} />
+          <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
+            <DiffViewer oldText={diffBase} newText={deferredPrompt} />
+          </div>
         ) : (
           <LineNumberedEditor
             value={prompt}

@@ -15,6 +15,7 @@ import { FRAMEWORK_LABELS } from "./utils";
 export interface TimelineQuickAction {
   label: string;
   msg: string;
+  dispatch?: "ui" | "agent" | "prefill";
   focusInput?: boolean;
   payload?: Record<string, unknown>;
 }
@@ -491,38 +492,7 @@ export function GovernanceTimeline({
     pendingCards.length === 0 &&
     pendingGovernanceActions.length === 0 &&
     !auditResult;
-  const quickActions = overrideQuickActions ?? [
-    {
-      label: "补齐描述",
-      msg: "请直接补一版用于检索、展示和审核的 Skill 描述，要求短、准、可读",
-      focusInput: true,
-      payload: { kind: "open_prompt_editor", fileType: "prompt", filename: "SKILL.md" },
-    },
-    {
-      label: "重写定位",
-      msg: "请基于现有上下文，重写这个 Skill 的定位、适用对象、核心任务和边界",
-      focusInput: true,
-      payload: { kind: "open_prompt_editor", fileType: "prompt", filename: "SKILL.md" },
-    },
-    {
-      label: "输出草稿",
-      msg: "信息足够了，请直接输出完整可用的 SKILL.md 草稿",
-      focusInput: true,
-      payload: { kind: "open_prompt_editor", fileType: "prompt", filename: "SKILL.md" },
-    },
-    {
-      label: "只改这段",
-      msg: "不要重写全文，只修改我刚才指出的那一段，保持其他部分不变",
-      focusInput: true,
-      payload: { kind: "open_prompt_editor", fileType: "prompt", filename: "SKILL.md" },
-    },
-    {
-      label: "收敛成版",
-      msg: "请按当前结论整理成可直接采纳的最终版本，不再继续追问",
-      focusInput: true,
-      payload: { kind: "open_prompt_editor", fileType: "prompt", filename: "SKILL.md" },
-    },
-  ];
+  const quickActions = overrideQuickActions ?? undefined;
   const showDeepSection = !compact && deepPatches.length > 0;
 
   return (

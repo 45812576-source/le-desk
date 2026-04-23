@@ -29,6 +29,7 @@ import {
 import { recoverStudioHistory } from "./history-recovery";
 import { deriveStudioRecoveryDraftImpact, parseStudioRecoveryPayload, parseStudioStatePayload } from "./studio-state-adapter";
 import { resolveStudioMetaReply, resolveWorkflowNextActionMessage, type StudioMetaDirective } from "./studio-meta";
+import { buildContextualSystemQuickActions } from "./quick-actions";
 import { applyStudioPatch, type PatchContext } from "./patch-reducer";
 import {
   normalizeStudioErrorPayload,
@@ -117,6 +118,7 @@ interface StudioChatProps {
   sandboxReportId?: string;
   fromSandbox?: boolean;
   onExpandEditor?: () => void;
+  onOpenStagedEditTarget?: (edit: StagedEdit) => void;
   editorExpanded?: boolean;
   onRefreshSkill: () => void;
   onOpenTestFlowPanel?: (intent: {
@@ -185,6 +187,7 @@ export const StudioChat = forwardRef<StudioChatHandle, StudioChatProps>(function
   sandboxReportId,
   fromSandbox,
   onExpandEditor,
+  onOpenStagedEditTarget,
   editorExpanded,
   onRefreshSkill,
   onOpenTestFlowPanel,
@@ -601,8 +604,16 @@ export const StudioChat = forwardRef<StudioChatHandle, StudioChatProps>(function
     return studioMeta.quickReplies.map((reply) => ({
       label: reply.length > 14 ? `${reply.slice(0, 14)}…` : reply,
       msg: reply,
+      dispatch: "agent" as const,
     }));
   }, [studioMeta]);
+
+  const contextualSystemQuickActions = useMemo<TimelineQuickAction[]>(() => buildContextualSystemQuickActions({
+    skillId,
+    editorExpanded,
+    selectedSourceFile,
+    activeCardTarget,
+  }), [activeCardTarget, editorExpanded, selectedSourceFile, skillId]);
 
   // ── Staged edit adopt/reject handlers ──
 
@@ -973,6 +984,7 @@ export const StudioChat = forwardRef<StudioChatHandle, StudioChatProps>(function
       setActiveRunId,
       setStoreSessionMode,
       onExpandEditor,
+      onOpenStagedEditTarget,
       onMemoRefresh,
     };
   }
@@ -1664,6 +1676,7 @@ export const StudioChat = forwardRef<StudioChatHandle, StudioChatProps>(function
           resolved.candidates.map((candidate) => ({
             label: candidate.name,
             msg: candidate.name,
+            dispatch: "ui" as const,
             payload: { kind: "select_test_skill", skillId: candidate.id, content: effectiveUserText },
           })),
         );
@@ -2314,7 +2327,10 @@ export const StudioChat = forwardRef<StudioChatHandle, StudioChatProps>(function
             architectArtifacts={architectArtifacts}
             architectStructures={architectStructures}
             architectPriorities={architectPriorities ? [architectPriorities] : []}
-            overrideQuickActions={overrideQuickActions ?? studioMetaQuickActions}
+            overrideQuickActions={overrideQuickActions ?? [
+              ...(studioMetaQuickActions ?? []),
+              ...contextualSystemQuickActions,
+            ]}
             onArchitectAnswer={(answer) => {
               setAnsweredQuestionIdx(architectQuestions.length - 1);
               send(answer);
@@ -2405,6 +2421,13 @@ export const StudioChat = forwardRef<StudioChatHandle, StudioChatProps>(function
               setPendingGovernanceActions((prev) => prev.filter((g) => g.card_id !== a.card_id));
             }}
             onQuickAction={(action) => {
+              const dispatch = action.dispatch
+                ?? (action.payload?.kind === "select_test_skill" || action.payload?.kind === "open_prompt_editor"
+                  ? "ui"
+                  : action.focusInput
+                    ? "prefill"
+                    : "agent");
+
               if (action.payload?.kind === "select_test_skill" && typeof action.payload.skillId === "number") {
                 setOverrideQuickActions(null);
                 setPendingTestFlowSelection({
@@ -2414,18 +2437,22 @@ export const StudioChat = forwardRef<StudioChatHandle, StudioChatProps>(function
                 onSelectSkillForTestFlow?.(action.payload.skillId);
                 return;
               }
-              if (action.payload?.kind === "open_prompt_editor") {
+
+              if (dispatch === "ui" && (action.payload?.kind === "open_prompt_editor" || action.payload?.kind === "open_editor_target")) {
                 const fileType = typeof action.payload.fileType === "string" ? action.payload.fileType : "prompt";
                 const filename = typeof action.payload.filename === "string" ? action.payload.filename : "SKILL.md";
                 onEditorTarget(fileType, filename);
                 onExpandEditor?.();
+                return;
               }
-              if (action.focusInput) {
+
+              if (dispatch === "prefill") {
                 setInput(action.msg);
                 setTimeout(() => inputRef.current?.focus(), 50);
-              } else {
-                send(action.msg);
+                return;
               }
+
+              send(action.msg);
             }}
             onGovernanceComplete={() => {
               send("我已处理完本轮整改，请基于当前最新内容继续下一步。");

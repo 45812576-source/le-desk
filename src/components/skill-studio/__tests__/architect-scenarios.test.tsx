@@ -324,7 +324,7 @@ describe("场景 4：完整 spec → 直接 Phase 3 + 优先级矩阵", () => {
 });
 
 describe("快捷 chat：Skill 创作工作台", () => {
-  it("展示面向产出的 5 个快捷动作", () => {
+  it("默认不再展示硬编码内容型快捷动作", () => {
     render(
       <GovernanceTimeline
         {...baseProps({
@@ -333,30 +333,34 @@ describe("快捷 chat：Skill 创作工作台", () => {
       />,
     );
 
-    expect(screen.getByText("补齐描述")).toBeTruthy();
-    expect(screen.getByText("重写定位")).toBeTruthy();
-    expect(screen.getByText("输出草稿")).toBeTruthy();
-    expect(screen.getByText("只改这段")).toBeTruthy();
-    expect(screen.getByText("收敛成版")).toBeTruthy();
+    expect(screen.queryByText("补齐描述")).toBeNull();
+    expect(screen.queryByText("重写定位")).toBeNull();
+    expect(screen.queryByText("输出草稿")).toBeNull();
+    expect(screen.queryByText("只改这段")).toBeNull();
+    expect(screen.queryByText("收敛成版")).toBeNull();
   });
 
-  it("点击快捷动作时发送新的创作指令", () => {
+  it("只展示上层透传的快捷动作并回传 dispatch", () => {
     const onQuickAction = vi.fn();
     render(
       <GovernanceTimeline
         {...baseProps({
           messages: [{ role: "assistant", text: "已进入创作模式", loading: false }],
           onQuickAction,
+          overrideQuickActions: [{
+            label: "直接输出草稿",
+            msg: "信息足够了，请直接输出完整可用的 SKILL.md 草稿",
+            dispatch: "agent",
+          }],
         })}
       />,
     );
 
-    fireEvent.click(screen.getByText("补齐描述"));
+    fireEvent.click(screen.getByText("直接输出草稿"));
     expect(onQuickAction).toHaveBeenCalledWith({
-      label: "补齐描述",
-      msg: "请直接补一版用于检索、展示和审核的 Skill 描述，要求短、准、可读",
-      focusInput: true,
-      payload: { kind: "open_prompt_editor", fileType: "prompt", filename: "SKILL.md" },
+      label: "直接输出草稿",
+      msg: "信息足够了，请直接输出完整可用的 SKILL.md 草稿",
+      dispatch: "agent",
     });
   });
 });

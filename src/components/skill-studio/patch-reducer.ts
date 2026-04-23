@@ -13,7 +13,7 @@
 
 import type { StudioPatchEnvelope } from "./workflow-protocol";
 import type { StudioSessionState } from "@/lib/studio-store";
-import type { AuditResult, StudioRouteInfo } from "./types";
+import type { AuditResult, StagedEdit, StudioRouteInfo } from "./types";
 import type { WorkbenchCard, WorkbenchTarget } from "./workbench-types";
 import {
   normalizeAuditSummaryPayload,
@@ -64,6 +64,7 @@ export interface PatchContext {
   setActiveRunId?: (id: string | null) => void;
   setStoreSessionMode?: (mode: "create" | "optimize" | "audit" | null) => void;
   onExpandEditor?: () => void;
+  onOpenStagedEditTarget?: (edit: StagedEdit) => void;
   onMemoRefresh?: () => void;
 }
 
@@ -138,8 +139,13 @@ function handleGovernancePatch(payload: Record<string, unknown>, ctx: PatchConte
 }
 
 function handleStagedEditPatch(payload: Record<string, unknown>, ctx: PatchContext) {
-  ctx.store.addStagedEdit(normalizeWorkflowStagedEditPayload(payload, ctx.source));
-  ctx.onExpandEditor?.();
+  const edit = normalizeWorkflowStagedEditPayload(payload, ctx.source);
+  ctx.store.addStagedEdit(edit);
+  if (ctx.onOpenStagedEditTarget) {
+    ctx.onOpenStagedEditTarget(edit);
+  } else {
+    ctx.onExpandEditor?.();
+  }
 }
 
 function handleCardPatch(payload: Record<string, unknown>, ctx: PatchContext) {
