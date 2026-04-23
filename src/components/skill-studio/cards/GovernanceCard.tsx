@@ -145,6 +145,12 @@ export const GovernanceCard = memo(function GovernanceCard({
   const evidenceSnippets = Array.isArray(card.content.evidence_snippets)
     ? card.content.evidence_snippets.filter((item): item is string => typeof item === "string" && item.trim().length > 0)
     : [];
+  const immediateSteps = Array.isArray(card.content.immediate_steps)
+    ? card.content.immediate_steps.filter((item): item is string => typeof item === "string" && item.trim().length > 0)
+    : [];
+  const expectedDeliverable = typeof card.content.expected_deliverable === "string"
+    ? card.content.expected_deliverable.trim()
+    : "";
   const hasOpenTarget = Boolean(onOpenTarget && (targetRef || targetKind === "skill_prompt"));
 
   return (
@@ -233,6 +239,23 @@ export const GovernanceCard = memo(function GovernanceCard({
       {acceptanceRule && (
         <div className="mb-1.5 rounded-sm border-l-2 border-[#00A3C4] bg-[#F0FAFF] px-2 py-1 text-[8px] text-[#0F4C5C] dark:border-cyan-700 dark:bg-cyan-950/30 dark:text-cyan-100">
           验收：{acceptanceRule}
+        </div>
+      )}
+      {(immediateSteps.length > 0 || expectedDeliverable) && (
+        <div className="mb-1.5 rounded-sm border border-[#00A3C4]/20 bg-white/80 px-2 py-1 text-[8px] text-gray-600 dark:bg-zinc-900/70 dark:text-zinc-200">
+          <div className="text-[7px] font-bold uppercase tracking-widest text-[#00A3C4] dark:text-cyan-300">立即执行</div>
+          {immediateSteps.length > 0 && (
+            <ol className="mt-1 list-decimal space-y-0.5 pl-3">
+              {immediateSteps.slice(0, 4).map((step, index) => (
+                <li key={`${card.id}-step-${index}`}>{step}</li>
+              ))}
+            </ol>
+          )}
+          {expectedDeliverable && (
+            <div className="mt-1 border-t border-current/10 pt-1">
+              交付物：{expectedDeliverable}
+            </div>
+          )}
         </div>
       )}
       {evidenceSnippets.length > 0 && (
