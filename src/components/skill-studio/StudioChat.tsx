@@ -14,6 +14,8 @@ import { GovernanceTimeline, type TimelineQuickAction } from "./GovernanceTimeli
 import { RouteStatusBar } from "./RouteStatusBar";
 import { AssistSkillsBar } from "./AssistSkillsBar";
 import { resolveWorkflowActionEditorTarget, selectedFileFromEditorTarget } from "./editor-target";
+import { getStudioCardContract } from "./card-contracts";
+import type { StudioCardActionId } from "./card-contracts";
 import { applyOps, estimateMessagesTokens, getMetadataFieldPreview, TOKEN_COMPRESS_THRESHOLD } from "./utils";
 import {
   buildArchitectArtifactsFromPhaseSummary,
@@ -30,6 +32,7 @@ import { recoverStudioHistory } from "./history-recovery";
 import { deriveStudioRecoveryDraftImpact, parseStudioRecoveryPayload, parseStudioStatePayload } from "./studio-state-adapter";
 import { resolveStudioMetaReply, resolveWorkflowNextActionMessage, type StudioMetaDirective } from "./studio-meta";
 import { buildContextualSystemQuickActions } from "./quick-actions";
+import { buildFixTaskPrompt } from "./fix-task-prompt";
 import { applyStudioPatch, type PatchContext } from "./patch-reducer";
 import {
   normalizeStudioErrorPayload,
@@ -166,6 +169,7 @@ interface StudioChatProps {
   onPendingSummaryChange?: (summary: StudioSummary | null) => void;
   onPendingToolSuggestionChange?: (suggestion: StudioToolSuggestion | null) => void;
   onPendingFileSplitChange?: (split: StudioFileSplit | null) => void;
+  onOpenGovernancePanel?: () => void;
 }
 
 export const StudioChat = forwardRef<StudioChatHandle, StudioChatProps>(function StudioChat({
@@ -214,6 +218,7 @@ export const StudioChat = forwardRef<StudioChatHandle, StudioChatProps>(function
   onPendingSummaryChange,
   onPendingToolSuggestionChange,
   onPendingFileSplitChange,
+  onOpenGovernancePanel,
 }, ref) {
   const _storageKey = `studio_msgs_${convId}`;
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -2115,8 +2120,7 @@ export const StudioChat = forwardRef<StudioChatHandle, StudioChatProps>(function
       if (task.target_kind === "skill_prompt" || task.target_ref === "SKILL.md") {
         onEditorTarget("prompt", "SKILL.md");
       }
-      const fixMessage = `请帮我修复以下测试问题：\n${task.title}\n${task.description || ""}\n验收标准：${task.acceptance_rule_text || ""}`;
-      send(fixMessage);
+      send(buildFixTaskPrompt(task));
     },
     targetedRetest: async (taskId) => {
       const allTasks = ((memo?.memo as Record<string, unknown>)?.tasks as Array<{
@@ -2310,6 +2314,126 @@ export const StudioChat = forwardRef<StudioChatHandle, StudioChatProps>(function
                 {activeCardSummary}
               </div>
             )}
+            {(() => {
+              const contract = getStudioCardContract(activeCardContractId);
+              const ctas = contract?.ctas ?? [];
+              if (ctas.length === 0) return null;
+              const runCta = (actionId: StudioCardActionId) => {
+                switch (actionId) {
+                  case "chat.start_requirement":
+                  case "architect.continue":
+                    inputRef.current?.focus();
+                    return;
+                  case "summary.confirm":
+                    handleConfirmSummary();
+                    return;
+                  case "summary.discard":
+                    setPendingSummary(null);
+                    onPendingSummaryChange?.(null);
+                    return;
+                  case "draft.apply":
+                    handleApplyDraft();
+                    return;
+                  case "draft.discard":
+                    handleDiscardDraft();
+                    return;
+                  case "split.confirm":
+                    handleConfirmSplit();
+                    return;
+                  case "split.discard":
+                    setPendingFileSplit(null);
+                    onPendingFileSplitChange?.(null);
+                    return;
+                  case "governance.open_panel":
+                    onOpenGovernancePanel?.();
+                    return;
+                  case "validation.open_sandbox":
+                    if (skillId) onOpenSandbox(skillId);
+                    return;
+                  case "fixing.start_task":
+                  case "fixing.targeted_retest":
+                    inputRef.current?.focus();
+                    return;
+                  case "release.submit_approval":
+                    setInput("请帮我提交审批");
+                    setTimeout(() => inputRef.current?.focus(), 50);
+                    return;
+                  case "knowledge.bind":
+                    setInput("请帮我绑定知识库标签");
+                    setTimeout(() => inputRef.current?.focus(), 50);
+                    return;
+                  case "tool.confirm":
+                  case "handoff.external_build":
+                  case "handoff.bind_back":
+                    inputRef.current?.focus();
+                    return;
+                  case "file_role.generate_examples":
+                    setInput("请帮我生成示例");
+                    setTimeout(() => inputRef.current?.focus(), 50);
+                    return;
+                  case "file_role.calibrate_examples":
+                    setInput("请帮我校准示例");
+                    setTimeout(() => inputRef.current?.focus(), 50);
+                    return;
+                  case "file_role.link_main_prompt":
+                    setInput("请帮我关联主 Prompt");
+                    setTimeout(() => inputRef.current?.focus(), 50);
+                    return;
+                  case "file_role.summarize_reference":
+                    setInput("请帮我摘要资料");
+                    setTimeout(() => inputRef.current?.focus(), 50);
+                    return;
+                  case "file_role.extract_rules":
+                    setInput("请帮我提取引用规则");
+                    setTimeout(() => inputRef.current?.focus(), 50);
+                    return;
+                  case "file_role.suggest_prompt_update":
+                    setInput("请帮我生成主 Prompt 建议");
+                    setTimeout(() => inputRef.current?.focus(), 50);
+                    return;
+                  case "file_role.organize_knowledge":
+                    setInput("请帮我整理知识");
+                    setTimeout(() => inputRef.current?.focus(), 50);
+                    return;
+                  case "file_role.bind_knowledge":
+                    onOpenGovernancePanel?.();
+                    return;
+                  case "file_role.rebuild_index":
+                    setInput("请帮我重建索引");
+                    setTimeout(() => inputRef.current?.focus(), 50);
+                    return;
+                  case "file_role.generate_tool_package":
+                    setInput("请帮我生成工具交接包");
+                    setTimeout(() => inputRef.current?.focus(), 50);
+                    return;
+                  case "file_role.start_validation":
+                    if (skillId) onOpenSandbox(skillId);
+                    return;
+                  default:
+                    inputRef.current?.focus();
+                }
+              };
+              return (
+                <div className="flex gap-2 mt-2 flex-wrap">
+                  {ctas.map((cta) => (
+                    <button
+                      key={cta.actionId}
+                      type="button"
+                      className={`text-[8px] font-bold uppercase tracking-widest px-2 py-1 border transition-colors ${
+                        cta.tone === "danger"
+                          ? "bg-white text-red-600 border-red-300 hover:border-red-500"
+                          : cta.tone === "secondary"
+                            ? "bg-white text-[#1A202C] border-[#1A202C]/30 hover:border-[#1A202C]"
+                            : "bg-[#1A202C] text-white border-[#1A202C] hover:bg-[#2D3748]"
+                      }`}
+                      onClick={() => runCta(cta.actionId)}
+                    >
+                      {cta.label}
+                    </button>
+                  ))}
+                </div>
+              );
+            })()}
           </div>
         )}
 
@@ -2451,6 +2575,22 @@ export const StudioChat = forwardRef<StudioChatHandle, StudioChatProps>(function
             onDismissAudit={() => setAuditResult(null)}
             onAdoptGovernanceAction={async (a) => {
               if (a.staged_edit?.ops && a.staged_edit.ops.length > 0) {
+                const metadataDescription = getMetadataFieldPreview({
+                  fileType: "metadata",
+                  diff: a.staged_edit.ops as DiffOp[],
+                }, "description");
+                if (
+                  metadataDescription !== null
+                  && (a.target === "skill_metadata.description" || a.target === "skill_metadata" || a.target === "description")
+                ) {
+                  onApplyDraft({
+                    system_prompt: currentPrompt,
+                    description: metadataDescription,
+                    change_note: a.title,
+                  });
+                  setPendingGovernanceActions((prev) => prev.filter((g) => g.card_id !== a.card_id));
+                  return;
+                }
                 const newPrompt = applyOps(currentPrompt, a.staged_edit.ops as DiffOp[]);
                 // Try API call if skillId available, otherwise apply locally
                 if (skillId) {

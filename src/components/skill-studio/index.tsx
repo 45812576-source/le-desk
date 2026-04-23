@@ -1299,6 +1299,7 @@ export function SkillStudio({
             onPendingSummaryChange={handlePendingSummaryChange}
             onPendingToolSuggestionChange={handlePendingToolSuggestionChange}
             onPendingFileSplitChange={handlePendingFileSplitChange}
+            onOpenGovernancePanel={() => setShowGovernancePanel(true)}
           />
 
           {!editorVisible && selectedSkill && (
