@@ -405,6 +405,9 @@ export function normalizeIncomingWorkbenchStatus(status: unknown): WorkbenchCard
   if (status === "blocked" || status === "reopened") {
     return "pending";
   }
+  if (status === "completed") {
+    return "adopted";
+  }
   if (status === "archived") {
     return "dismissed";
   }

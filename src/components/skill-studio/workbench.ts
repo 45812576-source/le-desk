@@ -236,6 +236,7 @@ export function asCardQueueWindow(value: unknown): CardQueueWindow | null {
         kind: bsKind,
         card_id: typeof bs.card_id === "string" ? bs.card_id : "",
         reason: typeof bs.reason === "string" ? bs.reason : "",
+        external_state: asExternalBuildStatus(bs.external_state) ?? undefined,
       };
     }
   }
@@ -298,15 +299,19 @@ function asWorkbenchKind(value: unknown): WorkbenchCardKind | null {
 }
 
 function asWorkbenchStatus(value: unknown): WorkbenchCard["status"] | null {
-  return value === "pending"
+  if (
+    value === "pending"
     || value === "active"
     || value === "reviewing"
     || value === "adopted"
     || value === "rejected"
     || value === "stale"
     || value === "dismissed"
-    ? value
-    : null;
+  ) return value;
+  if (value === "completed") return "adopted";
+  if (value === "blocked" || value === "reopened") return "pending";
+  if (value === "archived") return "dismissed";
+  return null;
 }
 
 function asWorkbenchTarget(value: unknown): WorkbenchTarget | null {
