@@ -203,7 +203,7 @@ const CONTRACTS: Record<string, StudioCardContract> = {
     forbiddenActions: ["不要让治理动作停留在旁路提示里。"],
     nextCards: ["validation.test_ready", "fixing.overview"],
     drawerPolicy: "manual",
-    ctas: [{ actionId: "governance.open_panel", label: "打开治理面板" }],
+    ctas: [{ actionId: "governance.open_panel", label: "去处理这几件事" }],
   },
   "validation.test_ready": {
     contractId: "validation.test_ready",

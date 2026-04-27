@@ -6,7 +6,7 @@ import type { SkillDetail, SkillMemo, SkillMemoTask, SandboxReport, StudioCardQu
 import { useStudioStore } from "@/lib/studio-store";
 import type { ArchitectArtifact } from "./types";
 import type { WorkflowStateData } from "./workflow-protocol";
-import type { CardQueueWindow, ExternalBuildStatus, WorkbenchCard, WorkbenchCardKind } from "./workbench";
+import type { ExternalBuildStatus, WorkbenchCard, WorkbenchCardKind } from "./workbench";
 import { resolveStudioCardContract, type StudioCardActionId } from "./card-contracts";
 import {
   MetricGrid,
@@ -223,10 +223,12 @@ function CardDetail({
   card,
   descriptor,
   actionSections,
+  showActions = true,
 }: {
   card: WorkbenchCard;
   descriptor: { description: string; metrics: Array<{ label: string; value: string; hint?: string | null; tone?: "cyan" | "amber" }>; summaries: Array<{ icon: ReactNode; label: string; text: string; tone?: "neutral" | "warn" | "success" }> };
   actionSections: Array<{ title: string; actions: WorkspaceAction[] }>;
+  showActions?: boolean;
 }) {
   const style = KIND_STYLE[card.kind];
   return (
@@ -234,11 +236,276 @@ function CardDetail({
       <div className="text-[10px] leading-relaxed text-gray-600">{descriptor.description}</div>
       <MetricGrid metrics={descriptor.metrics} />
       <SummaryList items={descriptor.summaries} />
-      {actionSections.map((section) => (
+      {showActions && actionSections.map((section) => (
         <ActionGroup key={section.title} title={section.title} actions={section.actions} />
       ))}
     </div>
   );
+}
+
+// ── 用户摘要层：把队列/contract/报告明细收敛成可执行说明 ──
+
+type UserFacingCardSummary = {
+  eyebrow: string;
+  title: string;
+  description: string;
+  blockers: string[];
+  nextStep: string;
+  note?: string | null;
+  tone: "governance" | "validation" | "fixing";
+};
+
+const GOVERNANCE_BLOCKER_LABELS: Record<string, string> = {
+  missing_bound_assets: "选择这个功能要用哪些数据",
+  missing_confirmed_declaration: "让系统生成一段权限说明，然后点确认",
+  missing_skill_data_grant: "允许这个功能读取需要的数据",
+  grant_missing_view_binding: "选择这个功能能看到哪一版数据",
+  missing_role_group_binding: "选择哪些人可以使用这个功能",
+  missing_table_permission_policy: "设置这个功能能读哪些数据",
+  skill_content_version_mismatch: "重新检查一次设置，确保用的是最新版",
+  governance_version_mismatch: "重新检查一次设置，确保用的是最新版",
+  stale_governance_bundle: "重新检查一次设置，确保用的是最新版",
+};
+
+function compactText(value: string | null | undefined, maxLength = 132) {
+  const normalized = (value || "").replace(/\s+/g, " ").trim();
+  if (normalized.length <= maxLength) return normalized;
+  return `${normalized.slice(0, maxLength - 1)}…`;
+}
+
+function uniqueNonEmpty(values: Array<string | null | undefined>) {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const value of values) {
+    const normalized = compactText(value);
+    if (!normalized || seen.has(normalized)) continue;
+    seen.add(normalized);
+    result.push(normalized);
+  }
+  return result;
+}
+
+function parseGateSummary(value: string | null | undefined) {
+  const text = compactText(value, 240);
+  if (!text) return [];
+  const afterColon = text.includes("：") ? text.split("：").slice(1).join("：") : text;
+  return afterColon
+    .split(/[、,，;；]/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function normalizeGovernanceBlocker(code: string | null | undefined, title: string | null | undefined) {
+  if (code && GOVERNANCE_BLOCKER_LABELS[code]) return GOVERNANCE_BLOCKER_LABELS[code];
+  const text = title || "";
+  if (/权限声明/.test(text)) return "让系统生成一段权限说明，然后点确认";
+  if (/治理包|治理版本|内容版本|刷新/.test(text)) return "重新检查一次设置，确保用的是最新版";
+  if (/数据资产|数据表/.test(text) && /绑定|未/.test(text)) return "选择这个功能要用哪些数据";
+  if (/授权/.test(text)) return "允许这个功能读取需要的数据";
+  if (/角色组/.test(text)) return "选择哪些人可以使用这个功能";
+  return text
+    .replace("未确认权限声明", "让系统生成一段权限说明，然后点确认")
+    .replace("治理包已过期", "重新检查一次设置，确保用的是最新版");
+}
+
+function simplifyGuidedStepTitle(title: string) {
+  if (/权限声明/.test(title)) return "让系统生成一段权限说明，然后点确认";
+  if (/刷新|治理状态|过期|版本/.test(title)) return "重新检查一次设置，确保用的是最新版";
+  if (/数据资产|数据表/.test(title)) return "选择这个功能要用哪些数据";
+  return title;
+}
+
+function getGovernanceBlockers(governanceIntent: WorkspaceGovernanceIntent) {
+  if (!governanceIntent) return [];
+  const fromReasons = governanceIntent.gateReasons?.map((reason) => normalizeGovernanceBlocker(reason.code, reason.title)) ?? [];
+  if (fromReasons.length > 0) return uniqueNonEmpty(fromReasons);
+  const fromSummary = parseGateSummary(governanceIntent.gateSummary).map((item) => normalizeGovernanceBlocker(null, item));
+  if (fromSummary.length > 0) return uniqueNonEmpty(fromSummary);
+  return uniqueNonEmpty(governanceIntent.guidedSteps?.filter((step) => step.status !== "done").map((step) => step.title) ?? []);
+}
+
+function buildGovernanceNextStep(blockers: string[], governanceIntent: WorkspaceGovernanceIntent) {
+  const firstGuidedStep = governanceIntent?.guidedSteps?.find((step) => step.status !== "done");
+  if (firstGuidedStep?.title) {
+    return `点击下面的按钮，先完成「${simplifyGuidedStepTitle(firstGuidedStep.title)}」。`;
+  }
+  if (blockers.some((item) => item.includes("权限说明"))) {
+    return blockers.some((item) => item.includes("重新检查"))
+      ? "点击下面的按钮，先让系统生成权限说明并确认；完成后再重新检查一次设置。"
+      : "点击下面的按钮，先让系统生成权限说明并确认。";
+  }
+  if (blockers.some((item) => item.includes("重新检查"))) {
+    return "点击下面的按钮，重新检查一次设置，然后再继续测试。";
+  }
+  if (blockers.length > 0) {
+    return `点击下面的按钮，先处理「${blockers[0]}」。`;
+  }
+  return "点击下面的按钮，让系统检查还缺什么。";
+}
+
+function buildUserFacingCardSummary(input: {
+  card: WorkbenchCard;
+  memo: SkillMemo | null;
+  activeSandboxReport: SandboxReport | null;
+  governanceIntent: WorkspaceGovernanceIntent;
+  nextPendingCard: WorkbenchCard | null;
+}): UserFacingCardSummary | null {
+  const { card, memo, activeSandboxReport, governanceIntent, nextPendingCard } = input;
+  const isGovernanceCard = card.mode === "governance" || card.contractId === "governance.panel";
+  const isValidationCard = card.kind === "validation" || card.contractId === "validation.test_ready";
+  const isFixingCard = card.kind === "fixing" || card.contractId?.startsWith("fixing.");
+
+  if (isGovernanceCard) {
+    const blockers = getGovernanceBlockers(governanceIntent);
+    const blocked = governanceIntent?.mode === "mount_blocked" || blockers.length > 0;
+    return {
+      eyebrow: "当前状态",
+      title: blocked ? "现在还不能测试" : "需要先检查设置",
+      description: blocked
+        ? "系统还缺几步设置。做完下面这些事，才能继续测试。"
+        : "系统需要先确认这个功能能用哪些数据、哪些人能用。",
+      blockers,
+      nextStep: buildGovernanceNextStep(blockers, governanceIntent),
+      note: governanceIntent?.verdictReason || governanceIntent?.gateSummary || null,
+      tone: "governance",
+    };
+  }
+
+  if (card.contractId === "validation.test_ready") {
+    return {
+      eyebrow: "当前状态",
+      title: "现在可以测试",
+      description: "设置已经够了，可以让系统跑一遍测试。",
+      blockers: [],
+      nextStep: "点击「打开 Sandbox」开始测试。",
+      note: memo?.status_summary || null,
+      tone: "validation",
+    };
+  }
+
+  if (isValidationCard && card.mode === "report") {
+    const failed = activeSandboxReport ? !activeSandboxReport.approval_eligible : memo?.latest_test?.status === "failed";
+    return {
+      eyebrow: "测试结论",
+      title: failed ? "测试没通过" : "测试通过了",
+      description: failed
+        ? "系统发现了问题，需要先修。"
+        : "这次测试没发现需要拦住的问题，可以继续提交或发布。",
+      blockers: failed ? uniqueNonEmpty([
+        memo?.current_task?.title,
+        nextPendingCard?.kind === "fixing" ? nextPendingCard.title : null,
+      ]).slice(0, 3) : [],
+      nextStep: failed
+        ? "先处理下一张修复卡；想看详细原因时再展开技术详情。"
+        : "继续提交审批或进入发布流程。",
+      note: activeSandboxReport ? `Sandbox 报告 #${activeSandboxReport.report_id}` : memo?.latest_test?.summary || null,
+      tone: "validation",
+    };
+  }
+
+  if (isFixingCard) {
+    if (card.fixTask) {
+      return {
+        eyebrow: "整改任务",
+        title: "这里需要修一下",
+        description: compactText(card.fixTask.description || card.summary || "当前测试问题需要修改 Skill 内容。"),
+        blockers: card.fixTask.acceptance_rule_text ? [card.fixTask.acceptance_rule_text] : [],
+        nextStep: "点击「修复此项」，让系统直接生成修改建议。",
+        note: card.target.key ? `目标：${card.target.key}` : null,
+        tone: "fixing",
+      };
+    }
+    return {
+      eyebrow: "整改概览",
+      title: "测试没过，需要修",
+      description: compactText(memo?.latest_test?.summary || card.summary || "这次测试没通过，需要一项一项修。"),
+      blockers: uniqueNonEmpty([
+        memo?.current_task?.title,
+        nextPendingCard?.kind === "fixing" ? nextPendingCard.title : null,
+      ]).slice(0, 3),
+      nextStep: nextPendingCard
+        ? `先处理「${nextPendingCard.title}」。`
+        : "让系统把测试问题拆成可以直接处理的修复任务。",
+      note: memo?.latest_test?.source_report_id ? `来源报告 #${memo.latest_test.source_report_id}` : null,
+      tone: "fixing",
+    };
+  }
+
+  return null;
+}
+
+function UserFacingCardSummaryPanel({ summary }: { summary: UserFacingCardSummary }) {
+  const toneClass = summary.tone === "fixing"
+    ? "border-[#EF4444] bg-[#FFF5F5]"
+    : summary.tone === "validation"
+      ? "border-[#F59E0B] bg-[#FFFBEB]"
+      : "border-[#8B5CF6] bg-[#F5F3FF]";
+  const accentClass = summary.tone === "fixing"
+    ? "text-[#EF4444]"
+    : summary.tone === "validation"
+      ? "text-[#F59E0B]"
+      : "text-[#8B5CF6]";
+
+  return (
+    <div className={`border-2 ${toneClass} p-3 space-y-3`}>
+      <div className={`text-[8px] font-bold uppercase tracking-[0.2em] ${accentClass}`}>
+        {summary.eyebrow}
+      </div>
+      <div>
+        <div className="text-[13px] font-bold text-[#1A202C]">{summary.title}</div>
+        <div className="mt-1 text-[10px] leading-relaxed text-gray-600">{summary.description}</div>
+      </div>
+      {summary.blockers.length > 0 && (
+        <div className="border border-white/80 bg-white/80 px-2 py-2">
+          <div className="text-[8px] font-bold uppercase tracking-widest text-gray-500">
+            先做这 {summary.blockers.length} 件事
+          </div>
+          <ol className="mt-1.5 space-y-1">
+            {summary.blockers.map((blocker, index) => (
+              <li key={`${blocker}:${index}`} className="flex gap-2 text-[10px] leading-relaxed text-[#1A202C]">
+                <span className={`font-bold ${accentClass}`}>{index + 1}.</span>
+                <span>{blocker}</span>
+              </li>
+            ))}
+          </ol>
+        </div>
+      )}
+      <div className="border-l-2 border-[#1A202C] bg-white/70 px-2 py-2">
+        <div className="text-[8px] font-bold uppercase tracking-widest text-gray-500">建议下一步</div>
+        <div className="mt-1 text-[10px] leading-relaxed font-semibold text-[#1A202C]">{summary.nextStep}</div>
+      </div>
+      {summary.note && (
+        <div className="text-[9px] leading-relaxed text-gray-500">{compactText(summary.note, 120)}</div>
+      )}
+    </div>
+  );
+}
+
+function TechnicalDetails({ children }: { children: ReactNode }) {
+  const [expanded, setExpanded] = useState(false);
+  return (
+    <div className="border border-dashed border-[#1A202C]/15 bg-[#F8FCFD]">
+      <button
+        type="button"
+        className="w-full px-3 py-2 flex items-center justify-between gap-2 text-left"
+        onClick={() => setExpanded((value) => !value)}
+        aria-expanded={expanded}
+      >
+        <span className="text-[8px] font-bold uppercase tracking-[0.2em] text-gray-500">技术详情</span>
+        {expanded ? <ChevronDown size={12} className="text-gray-400" /> : <ChevronRight size={12} className="text-gray-400" />}
+      </button>
+      {expanded && (
+        <div className="border-t border-dashed border-[#1A202C]/10 p-3 space-y-2">
+          {children}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function hasDirectCardActions(card: WorkbenchCard) {
+  if (card.externalBuildStatus && EXTERNAL_CTA_OVERRIDE[card.externalBuildStatus]) return true;
+  return Boolean(resolveStudioCardContract(card)?.ctas.length);
 }
 
 // ── 整改任务详情 ──
@@ -569,7 +836,7 @@ export function StudioCardRail({
       }
     }
     return { windowCards: window, backlogCards: backlog };
-  }, [cards, queueWindow]);
+  }, [cards, queueWindow, activeCardId]);
 
   const descriptor = useMemo(() => {
     if (!activeCard) return null;
@@ -847,6 +1114,15 @@ export function StudioCardRail({
                 : isBlocked
                   ? "border-amber-300 bg-amber-50/50"
                   : `border-[#1A202C]/15 bg-white hover:${style.border}`;
+          const userFacingSummary = active
+            ? buildUserFacingCardSummary({
+              card,
+              memo,
+              activeSandboxReport,
+              governanceIntent,
+              nextPendingCard: pendingCards[0] ?? null,
+            })
+            : null;
 
           return (
             <div key={card.id}>
@@ -917,6 +1193,11 @@ export function StudioCardRail({
                     {/* 整改任务详情 */}
                     {card.fixTask && <FixTaskDetail task={card.fixTask} />}
 
+                    {/* 面向用户的默认摘要，技术细节默认折叠 */}
+                    {userFacingSummary && (
+                      <UserFacingCardSummaryPanel summary={userFacingSummary} />
+                    )}
+
                     {/* 操作按钮 */}
                     <CardActions
                       card={card}
@@ -938,15 +1219,39 @@ export function StudioCardRail({
                       onBindBack={onBindBack}
                     />
 
-                    <ContractDetail card={card} />
-
-                    {/* 传统 descriptor 详情（governance/analysis/report 模式） */}
-                    {descriptor && (
-                      <CardDetail
-                        card={card}
-                        descriptor={descriptor}
-                        actionSections={actionSections}
+                    {userFacingSummary && !hasDirectCardActions(card) && actionSections.map((section) => (
+                      <ActionGroup
+                        key={section.title}
+                        title={section.title === "推荐操作" ? "建议操作" : section.title}
+                        actions={section.actions.slice(0, 3)}
                       />
+                    ))}
+
+                    {userFacingSummary ? (
+                      <TechnicalDetails>
+                        <ContractDetail card={card} />
+                        {descriptor && (
+                          <CardDetail
+                            card={card}
+                            descriptor={descriptor}
+                            actionSections={actionSections}
+                            showActions={false}
+                          />
+                        )}
+                      </TechnicalDetails>
+                    ) : (
+                      <>
+                        <ContractDetail card={card} />
+
+                        {/* 传统 descriptor 详情（governance/analysis/report 模式） */}
+                        {descriptor && (
+                          <CardDetail
+                            card={card}
+                            descriptor={descriptor}
+                            actionSections={actionSections}
+                          />
+                        )}
+                      </>
                     )}
                   </div>
                 )}

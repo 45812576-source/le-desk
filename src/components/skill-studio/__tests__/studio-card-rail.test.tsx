@@ -3,6 +3,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { StudioCardRail } from "../StudioCardRail";
 import { useStudioStore } from "@/lib/studio-store";
+import type { WorkspaceGovernanceIntent } from "../StudioWorkspace";
+import type { WorkbenchCard } from "../workbench";
 
 describe("StudioCardRail", () => {
   beforeEach(() => {
@@ -158,5 +160,105 @@ describe("StudioCardRail", () => {
     expect(screen.getByText(/当前不会静默合并/)).toBeTruthy();
     expect(screen.getByText("Timeline")).toBeTruthy();
     expect(screen.getByText(/进入验证阶段/)).toBeTruthy();
+  });
+
+  it("renders governance blockers as a user-facing task summary before technical details", () => {
+    const card: WorkbenchCard = {
+      id: "governance-intent:1:mount_blocked",
+      contractId: "governance.panel",
+      title: "测试流被挂载门禁阻断",
+      summary: "需要先完成：未确认权限声明、治理包已过期",
+      status: "active",
+      kind: "validation",
+      mode: "governance",
+      phase: "validation",
+      source: "governance_panel",
+      priority: 100,
+      target: { type: "governance_panel", key: "1" },
+    };
+    const governanceIntent: WorkspaceGovernanceIntent = {
+      mode: "mount_blocked",
+      entrySource: "skill_studio_chat",
+      conversationId: 10,
+      triggerMessage: "执行分析",
+      latestPlan: null,
+      gateSummary: "需要先完成：未确认权限声明、治理包已过期",
+      verdictReason: "前置条件未完成：未确认权限声明、治理包已过期",
+      gateReasons: [
+        {
+          code: "missing_confirmed_declaration",
+          title: "未确认权限声明",
+          detail: "权限声明尚未生成或确认。",
+          severity: "critical",
+          step_id: "confirm_declaration",
+          action: "generate_declaration",
+        },
+        {
+          code: "stale_governance_bundle",
+          title: "治理包已过期",
+          detail: "治理包版本已过期，需要刷新治理状态。",
+          severity: "warning",
+          step_id: "refresh_governance",
+          action: "refresh_governance",
+        },
+      ],
+      guidedSteps: [
+        {
+          id: "confirm_declaration",
+          order: 1,
+          title: "生成并确认权限声明",
+          detail: "生成权限声明文本并采纳挂载到 Skill。",
+          status: "blocked",
+          action: "generate_declaration",
+          action_label: "生成声明",
+        },
+      ],
+    };
+
+    render(
+      <StudioCardRail
+        skill={null}
+        workflowState={null}
+        cards={[card]}
+        activeCardId={card.id}
+        memo={null}
+        cardQueueLedger={null}
+        activeSandboxReport={null}
+        governanceIntent={governanceIntent}
+        pendingGovernanceCount={0}
+        pendingStagedEditCount={0}
+        activeCardActions={[]}
+        onSelect={() => {}}
+        onOpenGovernancePanel={() => {}}
+        onOpenSandbox={() => {}}
+        onOpenPrompt={() => {}}
+        onFocusChat={() => {}}
+        onApplyDraft={() => {}}
+        onDiscardDraft={() => {}}
+        onConfirmSummary={() => {}}
+        onDiscardSummary={() => {}}
+        onConfirmSplit={() => {}}
+        onDiscardSplit={() => {}}
+        onStartFixTask={() => {}}
+        onTargetedRetest={() => {}}
+        onSubmitApproval={() => {}}
+        onConfirmTool={() => {}}
+        onExternalBuild={() => {}}
+        onBindBack={() => {}}
+      />,
+    );
+
+    expect(screen.getByText("现在还不能测试")).toBeTruthy();
+    expect(screen.getByText("先做这 2 件事")).toBeTruthy();
+    expect(screen.getByText("让系统生成一段权限说明，然后点确认")).toBeTruthy();
+    expect(screen.getByText("重新检查一次设置，确保用的是最新版")).toBeTruthy();
+    expect(screen.getByText("点击下面的按钮，先完成「让系统生成一段权限说明，然后点确认」。")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "去处理这几件事" })).toBeTruthy();
+    expect(screen.queryByText("Contract · governance.panel")).toBeNull();
+    expect(screen.queryByText("Governance Queue")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "技术详情" }));
+    expect(screen.getByText("Contract · governance.panel")).toBeTruthy();
+    expect(screen.getByText("Governance Queue")).toBeTruthy();
   });
 });
