@@ -431,6 +431,94 @@ describe("skill-governance-service", () => {
     });
   });
 
+  it("locally completes the simple permission setup flow when governance write endpoints need fallback", async () => {
+    await seedBackendCache();
+
+    const policiesJob = await resolveSkillGovernanceRequest("POST", "/skill-governance/7/suggest-role-asset-policies", {
+      mode: "initial",
+      async_job: true,
+    });
+    expect(policiesJob?.body).toMatchObject({
+      ok: true,
+      data: {
+        status: "queued",
+        bundle_status: "suggested",
+      },
+    });
+
+    const jobId = (policiesJob?.body as { data: { job_id: string } }).data.job_id;
+    const job = await resolveSkillGovernanceRequest("GET", `/skill-governance/7/jobs/${jobId}`);
+    expect(job?.body).toMatchObject({
+      ok: true,
+      data: {
+        status: "success",
+      },
+    });
+
+    const policies = await resolveSkillGovernanceRequest("GET", "/skill-governance/7/role-asset-policies");
+    expect((policies?.body as { data: { review_status: string; items: Array<{ review_status: string }> } }).data).toMatchObject({
+      review_status: "suggested",
+      items: expect.arrayContaining([expect.objectContaining({ review_status: "suggested" })]),
+    });
+
+    const declarationJob = await resolveSkillGovernanceRequest("POST", "/skill-governance/7/declarations/generate", {
+      async_job: true,
+    });
+    expect(declarationJob?.body).toMatchObject({
+      ok: true,
+      data: {
+        status: "queued",
+      },
+    });
+
+    const declaration = await resolveSkillGovernanceRequest("GET", "/skill-governance/7/declarations/latest");
+    const declarationData = (declaration?.body as { data: { id: number; generated_text: string; mounted: boolean } }).data;
+    expect(declarationData.generated_text).toContain("Skill 使用权限声明");
+    expect(declarationData.mounted).toBe(false);
+
+    const adopted = await resolveSkillGovernanceRequest("PUT", `/skill-governance/7/declarations/${declarationData.id}/adopt`, {
+      action: "confirm",
+    });
+    expect(adopted?.body).toMatchObject({
+      ok: true,
+      data: {
+        declaration: {
+          mounted: true,
+          status: "confirmed",
+        },
+      },
+    });
+
+    const readiness = await resolveSkillGovernanceRequest("GET", "/sandbox-case-plans/7/readiness");
+    expect((readiness?.body as { data: { readiness: { ready: boolean; blocking_issues: string[] } } }).data.readiness).toMatchObject({
+      ready: true,
+      blocking_issues: [],
+    });
+  });
+
+  it("returns renderable empty governance reads when no backend cache exists", async () => {
+    const summary = await resolveSkillGovernanceRequest("GET", "/skill-governance/99/summary");
+    const roles = await resolveSkillGovernanceRequest("GET", "/skill-governance/99/service-roles");
+    const assets = await resolveSkillGovernanceRequest("GET", "/skill-governance/99/bound-assets");
+    const policies = await resolveSkillGovernanceRequest("GET", "/skill-governance/99/role-asset-policies");
+    const readiness = await resolveSkillGovernanceRequest("GET", "/sandbox-case-plans/99/readiness");
+
+    expect(summary?.body).toMatchObject({
+      ok: true,
+      data: {
+        skill_id: 99,
+        summary: {
+          service_role_count: 0,
+          bound_asset_count: 0,
+        },
+      },
+    });
+    expect((roles?.body as { data: { roles: unknown[] } }).data.roles).toEqual([]);
+    expect((assets?.body as { data: { assets: unknown[] } }).data.assets).toEqual([]);
+    expect((policies?.body as { data: { items: unknown[] } }).data.items).toEqual([]);
+    expect((readiness?.body as { data: { readiness: { ready: boolean } } }).data.readiness.ready).toBe(false);
+  });
+
   it("applies effective org-memory runtime governance on mounted permissions", async () => {
     await rememberSkillGovernanceBackendResponse({
       method: "GET",

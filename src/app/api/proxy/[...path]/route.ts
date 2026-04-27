@@ -300,7 +300,10 @@ export async function handler(
     );
   }
 
-  if (!resp.ok && shouldUseLocalFallbackForStatus(resp.status)) {
+  const shouldUseManagedFallback = shouldUseLocalFallbackForStatus(resp.status)
+    || (isSkillGovernanceRequest && resp.status >= 500);
+
+  if (!resp.ok && shouldUseManagedFallback) {
     const localOrgMemoryFallback = isOrgMemoryRequest
       && routeTarget === "backend"
       && canUseLocalOrgMemoryFallback(orgMemoryProxyConfig)

@@ -32,7 +32,13 @@ import { recoverStudioHistory } from "./history-recovery";
 import { deriveStudioRecoveryDraftImpact, parseStudioRecoveryPayload, parseStudioStatePayload } from "./studio-state-adapter";
 import { resolveStudioMetaReply, resolveWorkflowNextActionMessage, type StudioMetaDirective } from "./studio-meta";
 import { buildContextualSystemQuickActions } from "./quick-actions";
-import { buildFixTaskPrompt } from "./fix-task-prompt";
+import {
+  buildFixTaskStudioCommand,
+  commandTelemetryPayload,
+  shouldRunNaturalLanguageResolvers,
+  type StudioCommand,
+  type StudioSendOptions,
+} from "./studio-command";
 import { applyStudioPatch, type PatchContext } from "./patch-reducer";
 import {
   normalizeStudioErrorPayload,
@@ -1612,9 +1618,25 @@ export const StudioChat = forwardRef<StudioChatHandle, StudioChatProps>(function
     })();
   }, [onOpenTestFlowPanel, pendingTestFlowSelection, resolveStudioTestFlow, skillId, syncTestFlowWorkflowArtifacts]);
 
-  async function send(userText: string) {
+  async function sendCommand(command: StudioCommand) {
+    return send(command.content, {
+      source: "system_command",
+      command,
+      skipNaturalLanguageResolvers: true,
+    });
+  }
+
+  async function send(userText: string, sendOptions: StudioSendOptions = {}) {
     const effectiveUserText = resolveStudioMetaReply(userText, studioMeta) ?? userText;
     if (!effectiveUserText.trim() || streaming) return;
+    const messageSource = sendOptions.source || "user_input";
+    const command = sendOptions.command ?? null;
+    const allowNaturalLanguageResolvers = shouldRunNaturalLanguageResolvers({
+      text: effectiveUserText,
+      source: messageSource,
+      command,
+      skipNaturalLanguageResolvers: sendOptions.skipNaturalLanguageResolvers,
+    });
 
     if (effectiveUserText.length > CONTENT_MAX) {
       if (!skillId) {
@@ -1628,7 +1650,7 @@ export const StudioChat = forwardRef<StudioChatHandle, StudioChatProps>(function
       return ingestLongText(effectiveUserText);
     }
 
-    const mayBeBindingRequest = /绑定|解绑|取消绑定|移除|挂载|接入|数据表|业务表|工具|tool|table|bind|unbind/i.test(effectiveUserText);
+    const mayBeBindingRequest = allowNaturalLanguageResolvers && /绑定|解绑|取消绑定|移除|挂载|接入|数据表|业务表|工具|tool|table|bind|unbind/i.test(effectiveUserText);
     if (skillId && mayBeBindingRequest) {
       try {
         const resolved = await apiFetch<{ actions: Array<Record<string, unknown>> }>(
@@ -1686,70 +1708,72 @@ export const StudioChat = forwardRef<StudioChatHandle, StudioChatProps>(function
       }
     }
 
-    try {
-      const resolved = await resolveStudioTestFlow(effectiveUserText);
-      if (resolved.action === "pick_skill" && resolved.candidates && resolved.candidates.length > 0) {
-        setInput("");
-        setMessages((prev) => [
-          ...prev,
-          { role: "user", text: effectiveUserText, cardId: activeCardId },
-          {
-            role: "assistant",
-            text: "检测到多个待测 Skill。先选 1 个目标，我就继续当前这条消息里的测试流程。",
-            loading: false,
-            cardId: activeCardId,
-          },
-        ]);
-        setOverrideQuickActions(
-          resolved.candidates.map((candidate) => ({
-            label: candidate.name,
-            msg: candidate.name,
-            dispatch: "ui" as const,
-            payload: { kind: "select_test_skill", skillId: candidate.id, content: effectiveUserText },
-          })),
-        );
-        return;
+    if (allowNaturalLanguageResolvers) {
+      try {
+        const resolved = await resolveStudioTestFlow(effectiveUserText);
+        if (resolved.action === "pick_skill" && resolved.candidates && resolved.candidates.length > 0) {
+          setInput("");
+          setMessages((prev) => [
+            ...prev,
+            { role: "user", text: effectiveUserText, cardId: activeCardId },
+            {
+              role: "assistant",
+              text: "检测到多个待测 Skill。先选 1 个目标，我就继续当前这条消息里的测试流程。",
+              loading: false,
+              cardId: activeCardId,
+            },
+          ]);
+          setOverrideQuickActions(
+            resolved.candidates.map((candidate) => ({
+              label: candidate.name,
+              msg: candidate.name,
+              dispatch: "ui" as const,
+              payload: { kind: "select_test_skill", skillId: candidate.id, content: effectiveUserText },
+            })),
+          );
+          return;
+        }
+        if (resolved.action !== "chat_default" && resolved.action !== "pick_skill" && resolved.skill?.id) {
+          syncTestFlowWorkflowArtifacts(resolved, `${resolved.skill.id}:${resolved.action}`);
+          setInput("");
+          setMessages((prev) => [
+            ...prev,
+            { role: "user", text: effectiveUserText, cardId: activeCardId },
+            {
+              role: "assistant",
+              text:
+                resolved.action === "mount_blocked"
+                  ? "当前卡在测试用例生成前置门禁，我先把你带到治理面板查看具体缺口。"
+                  : resolved.action === "choose_existing_plan"
+                    ? "检测到已有测试用例，我先切到测试流程面板，供你选择复用、修改或重新生成。"
+                    : "测试意图已明确，我先直接切到测试流程面板并生成测试用例草案。",
+              loading: false,
+              cardId: activeCardId,
+            },
+          ]);
+          setOverrideQuickActions(null);
+          onOpenTestFlowPanel?.({
+            skillId: resolved.skill.id,
+            mode: resolved.action,
+            triggerMessage: effectiveUserText,
+            latestPlan: resolved.latest_plan ?? null,
+            mountCta: resolved.mount_cta ?? null,
+            blockedStage: resolved.blocked_stage ?? null,
+            blockedBefore: resolved.blocked_before ?? null,
+            caseGenerationAllowed: resolved.case_generation_allowed,
+            qualityEvaluationStarted: resolved.quality_evaluation_started,
+            verdictLabel: resolved.verdict_label ?? null,
+            verdictReason: resolved.verdict_reason ?? null,
+            gateSummary: resolved.gate_summary ?? null,
+            gateReasons: resolved.gate_reasons ?? [],
+            guidedSteps: resolved.guided_steps ?? [],
+            primaryAction: resolved.primary_action ?? null,
+          });
+          return;
+        }
+      } catch {
+        // test-flow resolver 失败时退回原本对话流
       }
-      if (resolved.action !== "chat_default" && resolved.action !== "pick_skill" && resolved.skill?.id) {
-        syncTestFlowWorkflowArtifacts(resolved, `${resolved.skill.id}:${resolved.action}`);
-        setInput("");
-        setMessages((prev) => [
-          ...prev,
-          { role: "user", text: effectiveUserText, cardId: activeCardId },
-          {
-            role: "assistant",
-            text:
-              resolved.action === "mount_blocked"
-                ? "当前卡在测试用例生成前置门禁，我先把你带到治理面板查看具体缺口。"
-                : resolved.action === "choose_existing_plan"
-                  ? "检测到已有测试用例，我先切到测试流程面板，供你选择复用、修改或重新生成。"
-                  : "测试意图已明确，我先直接切到测试流程面板并生成测试用例草案。",
-            loading: false,
-            cardId: activeCardId,
-          },
-        ]);
-        setOverrideQuickActions(null);
-        onOpenTestFlowPanel?.({
-          skillId: resolved.skill.id,
-          mode: resolved.action,
-          triggerMessage: effectiveUserText,
-          latestPlan: resolved.latest_plan ?? null,
-          mountCta: resolved.mount_cta ?? null,
-          blockedStage: resolved.blocked_stage ?? null,
-          blockedBefore: resolved.blocked_before ?? null,
-          caseGenerationAllowed: resolved.case_generation_allowed,
-          qualityEvaluationStarted: resolved.quality_evaluation_started,
-          verdictLabel: resolved.verdict_label ?? null,
-          verdictReason: resolved.verdict_reason ?? null,
-          gateSummary: resolved.gate_summary ?? null,
-          gateReasons: resolved.gate_reasons ?? [],
-          guidedSteps: resolved.guided_steps ?? [],
-          primaryAction: resolved.primary_action ?? null,
-        });
-        return;
-      }
-    } catch {
-      // test-flow resolver 失败时退回原本对话流
     }
 
     let msgIdx = -1;
@@ -1874,6 +1898,8 @@ export const StudioChat = forwardRef<StudioChatHandle, StudioChatProps>(function
           active_card_destination: activeCardDestination ?? undefined,
           active_card_return_to: activeCardReturnTo ?? undefined,
           active_card_queue_window: activeCardQueueWindow ?? undefined,
+          studio_message_source: messageSource,
+          studio_command: commandTelemetryPayload(command),
         }),
         signal: ctrl.signal,
       });
@@ -2183,7 +2209,7 @@ export const StudioChat = forwardRef<StudioChatHandle, StudioChatProps>(function
       if (task.target_kind === "skill_prompt" || task.target_ref === "SKILL.md") {
         onEditorTarget("prompt", "SKILL.md");
       }
-      send(buildFixTaskPrompt(task));
+      void sendCommand(buildFixTaskStudioCommand(task));
     },
     targetedRetest: async (taskId) => {
       const allTasks = ((memo?.memo as Record<string, unknown>)?.tasks as Array<{

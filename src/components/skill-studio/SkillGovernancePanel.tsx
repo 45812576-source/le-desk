@@ -44,6 +44,7 @@ import {
   type RolePackageDraft,
 } from "./role-package";
 import { normalizeWorkflowCardPayload } from "./workflow-adapter";
+import { deriveGovernanceWorkflowState } from "./skill-governance-workflow-state";
 
 type ApiEnvelope<T> = {
   ok: boolean;
@@ -184,9 +185,23 @@ export function SkillGovernancePanel({
     () => buildDeclarationStaleReasons(declaration),
     [declaration],
   );
+  const governanceWorkflowState = useMemo(
+    () => deriveGovernanceWorkflowState({
+      loading,
+      error,
+      roleCount,
+      assetCount,
+      hasPolicyBundle,
+      declaration,
+      readiness,
+    }),
+    [assetCount, declaration, error, hasPolicyBundle, loading, readiness, roleCount],
+  );
   const simpleWizardBlockedReason = useMemo(
-    () => (assetCount <= 0 ? "需先绑定至少一个源域资产，简单模式才能自动生成权限设置。" : null),
-    [assetCount],
+    () => governanceWorkflowState.phase === "missing_assets"
+      ? "需先绑定至少一个源域资产，简单模式才能自动生成权限设置。"
+      : null,
+    [governanceWorkflowState],
   );
   const canGenerateDeclaration = useMemo(
     () => !getDeclarationGenerationIssue({ roleCount, assetCount, hasPolicyBundle }),
@@ -421,6 +436,7 @@ export function SkillGovernancePanel({
     } catch (err) {
       setActiveJob({ label, status: "failed", detail: err instanceof Error ? err.message : "策略建议生成失败" });
       setError(err instanceof Error ? err.message : "策略建议生成失败");
+      throw err;
     } finally {
       setRunningPolicyJob(false);
     }
@@ -477,6 +493,7 @@ export function SkillGovernancePanel({
     } catch (err) {
       setActiveJob({ label, status: "failed", detail: err instanceof Error ? err.message : "声明生成失败" });
       setError(err instanceof Error ? err.message : "声明生成失败");
+      throw err;
     } finally {
       setRunningDeclarationJob(false);
     }
