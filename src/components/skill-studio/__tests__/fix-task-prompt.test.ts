@@ -53,4 +53,17 @@ describe("fix task prompt helpers", () => {
 
     expect(buildFixTaskPrompt(task)).toBe(buildDefaultFixTaskPrompt(task));
   });
+
+  it("default prompt requires a structured diff for file fixes", () => {
+    const prompt = buildDefaultFixTaskPrompt(makeTask({
+      target_kind: "skill_prompt",
+      target_ref: "SKILL.md",
+      target_files: ["SKILL.md"],
+      suggested_changes: undefined,
+    }));
+
+    expect(prompt).toContain("```studio_diff");
+    expect(prompt).toContain("必须输出一个可解析的 studio_diff");
+    expect(prompt).toContain("如果无法立即完成深度分析");
+  });
 });

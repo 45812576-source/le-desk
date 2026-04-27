@@ -952,6 +952,7 @@ export const StudioChat = forwardRef<StudioChatHandle, StudioChatProps>(function
   const scrollRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
   const runAccTextRef = useRef("");
+  const structuredDiffOpenedIdsRef = useRef<Set<string>>(new Set());
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
   function updateLastStreamingMessage(text: string, loading = true) {
@@ -1774,13 +1775,75 @@ export const StudioChat = forwardRef<StudioChatHandle, StudioChatProps>(function
     abortRef.current = ctrl;
     const token = getToken();
     let accText = "";
+    structuredDiffOpenedIdsRef.current.clear();
+    const activeCardTargetPayload = activeCardTarget
+      ? {
+          type: activeCardTarget === "SKILL.md"
+            ? "prompt"
+            : activeCardMode === "file"
+              ? "source_file"
+              : activeCardMode === "report"
+                ? "report"
+                : activeCardMode === "governance"
+                  ? "governance_panel"
+                  : "analysis",
+          key: activeCardTarget,
+        }
+      : undefined;
     const syncStructuredMessage = (rawText: string) => {
       const parsed = parseStructuredStudioMessage(rawText);
       setStudioMeta(parsed.studioMeta);
       mergeArchitectArtifacts(parsed.architectArtifacts);
+      if (parsed.summary) {
+        setPendingSummary(parsed.summary); onPendingSummaryChange?.(parsed.summary);
+      }
       if (parsed.draft) {
         setPendingDraft(parsed.draft); onPendingDraftChange?.(parsed.draft);
         onExpandEditor?.();
+      }
+      if (parsed.diff?.ops && parsed.diff.ops.length > 0) {
+        const newPrompt = applyOps(currentPrompt, parsed.diff.ops);
+        const draft = {
+          system_prompt: newPrompt,
+          change_note: parsed.diff.change_note || "AI 局部修改",
+        };
+        setPendingDraft(draft); onPendingDraftChange?.(draft);
+        const stagedEditId = `${TEMP_STUDIO_DIFF_STAGED_EDIT_PREFIX}:${skillId ?? "skill"}:${convId}:${activeCardId ?? activeRunId ?? "adhoc"}`;
+        const stagedEdit: StagedEdit = {
+          id: stagedEditId,
+          source: studioChatSource,
+          sourceCardId: activeCardId ?? null,
+          contractId: activeCardContractId ?? null,
+          fileType: "system_prompt",
+          filename: "SKILL.md",
+          diff: parsed.diff.ops,
+          changeNote: parsed.diff.change_note || "AI 局部修改",
+          status: "pending",
+        };
+        addStagedEdit(stagedEdit);
+        if (!structuredDiffOpenedIdsRef.current.has(stagedEditId)) {
+          structuredDiffOpenedIdsRef.current.add(stagedEditId);
+          onOpenStagedEditTarget?.(stagedEdit);
+        }
+        onExpandEditor?.();
+      }
+      if (parsed.toolSuggestion) {
+        setPendingToolSuggestion(parsed.toolSuggestion); onPendingToolSuggestionChange?.(parsed.toolSuggestion);
+      }
+      if (parsed.fileSplit) {
+        setPendingFileSplit(parsed.fileSplit); onPendingFileSplitChange?.(parsed.fileSplit);
+      }
+      if (parsed.auditResult) {
+        setAuditResult(parsed.auditResult);
+      }
+      if (parsed.pendingGovernanceActions.length > 0) {
+        setPendingGovernanceActions((prev) => {
+          const byId = new Map(prev.map((action) => [action.card_id, action]));
+          for (const action of parsed.pendingGovernanceActions) {
+            byId.set(action.card_id, action);
+          }
+          return Array.from(byId.values());
+        });
       }
       return parsed.cleanText;
     };
@@ -1801,7 +1864,7 @@ export const StudioChat = forwardRef<StudioChatHandle, StudioChatProps>(function
           active_card_contract_id: activeCardContractId ?? undefined,
           active_card_title: activeCardTitle ?? undefined,
           active_card_mode: activeCardMode ?? undefined,
-          active_card_target: activeCardTarget ?? undefined,
+          active_card_target: activeCardTargetPayload,
           active_card_source_card_id: activeCardSourceCardId ?? undefined,
           active_card_staged_edit_id: activeCardStagedEditId ?? undefined,
           active_card_validation_source: activeCardValidationSource ?? undefined,

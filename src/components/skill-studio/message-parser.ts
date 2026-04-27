@@ -27,6 +27,7 @@ export interface ParsedStructuredStudioMessage {
   cleanText: string;
   studioMeta: StudioMetaDirective | null;
   draft: StudioDraft | null;
+  diff: StudioDiff | null;
   summary: StudioSummary | null;
   toolSuggestion: StudioToolSuggestion | null;
   fileSplit: StudioFileSplit | null;
@@ -385,12 +386,12 @@ function uniqueArtifacts(artifacts: ArchitectArtifact[]) {
 
 function buildPlaceholder(
   parsed: Omit<ParsedStructuredStudioMessage, "cleanText">,
-  options?: { hasStudioDiff?: boolean; hasEditorTarget?: boolean },
+  options?: { hasEditorTarget?: boolean },
 ): string {
   if (parsed.studioMeta?.quickReplies.length) {
     return "已生成下一步互动项，请在下方继续操作。";
   }
-  if (options?.hasStudioDiff) {
+  if (parsed.diff) {
     return "已生成修改建议，请展开右侧编辑区查看。";
   }
   if (options?.hasEditorTarget) {
@@ -432,13 +433,13 @@ function buildPlaceholder(
 
 export function parseStructuredStudioMessage(text: string): ParsedStructuredStudioMessage {
   let draft: StudioDraft | null = null;
+  let diff: StudioDiff | null = null;
   let summary: StudioSummary | null = null;
   let toolSuggestion: StudioToolSuggestion | null = null;
   let fileSplit: StudioFileSplit | null = null;
   let auditResult: AuditResult | null = null;
   let pendingPhaseSummary: ArchitectPhaseSummary | null = null;
   let architectReady: ArchitectReadyForDraft | null = null;
-  let hasStudioDiff = false;
   let hasEditorTarget = false;
 
   const pendingGovernanceActions: GovernanceActionCard[] = [];
@@ -470,8 +471,7 @@ export function parseStructuredStudioMessage(text: string): ParsedStructuredStud
         change_note: typeof payload.change_note === "string" ? payload.change_note : undefined,
       };
     } else if (evtName === "studio_diff") {
-      hasStudioDiff = true;
-      const diff = payload as StudioDiff;
+      diff = payload as StudioDiff;
       if (typeof diff.system_prompt?.new === "string") {
         draft = {
           system_prompt: diff.system_prompt.new,
@@ -536,6 +536,7 @@ export function parseStructuredStudioMessage(text: string): ParsedStructuredStud
   const parsedWithoutText = {
     studioMeta: studioMetaResult.meta,
     draft,
+    diff,
     summary,
     toolSuggestion,
     fileSplit,
@@ -552,7 +553,7 @@ export function parseStructuredStudioMessage(text: string): ParsedStructuredStud
   };
 
   if (!cleanText) {
-    cleanText = buildPlaceholder(parsedWithoutText, { hasStudioDiff, hasEditorTarget });
+    cleanText = buildPlaceholder(parsedWithoutText, { hasEditorTarget });
   }
 
   return {

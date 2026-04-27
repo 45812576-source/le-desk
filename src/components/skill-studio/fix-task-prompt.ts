@@ -66,7 +66,38 @@ export function isMetadataDescriptionFixTask(task: FixTaskWithSuggestedChanges):
 }
 
 export function buildDefaultFixTaskPrompt(task: SkillMemoTask): string {
-  return `请帮我修复以下测试问题：\n${task.title}\n${task.description || ""}\n验收标准：${task.acceptance_rule_text || ""}`;
+  const targetFiles = task.target_files?.length ? task.target_files.join("、") : (task.target_ref || "当前文件");
+  return [
+    "请帮我修复以下测试问题。",
+    "",
+    `当前任务：${task.title}`,
+    task.description ? `失败主因：${task.description}` : null,
+    `目标文件：${targetFiles}`,
+    task.target_kind ? `目标类型：${task.target_kind}` : null,
+    task.acceptance_rule_text ? `验收标准：${task.acceptance_rule_text}` : null,
+    task.suggested_changes ? `整改建议：${task.suggested_changes}` : null,
+    "",
+    "输出要求：",
+    "1. 如果能修改 SKILL.md 或 source file，必须输出一个可解析的 studio_diff 结构化块，不要只给自然语言方案。",
+    "2. studio_diff 必须包含 ops 数组和 change_note；ops 使用 replace/insert_after/insert_before/append/delete 之一，并尽量使用当前文件中的原文作为 old 或 anchor。",
+    "3. 如果问题是 Skill 元数据 description，请输出 studio_governance_action，target 固定为 skill_metadata.description，并在 staged_edit.ops 中给出 old=description、new=新的 description。",
+    "4. 如果无法立即完成深度分析，也必须先给出最小可执行修复：明确改哪一段、加入哪几条检查项、保存后如何验收；不要只承诺后续会分析。",
+    "5. 普通解释可以很短，但结构化块必须放在回复末尾。",
+    "",
+    "studio_diff 示例：",
+    "```studio_diff",
+    JSON.stringify({
+      ops: [
+        {
+          type: "insert_after",
+          anchor: "## 输出要求",
+          content: "\n- 当无法执行深度分析时，先给出 3 步最小分析框架、需要绑定的知识库/数据表清单，以及用户下一步可操作事项。",
+        },
+      ],
+      change_note: "补齐无法深度分析时的即时行动指导",
+    }, null, 2),
+    "```",
+  ].filter((line): line is string => line !== null).join("\n");
 }
 
 export function buildMetadataDescriptionFixPrompt(task: FixTaskWithSuggestedChanges): string | null {

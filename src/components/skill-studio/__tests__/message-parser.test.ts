@@ -116,6 +116,8 @@ describe("parseStructuredStudioMessage", () => {
     const parsed = parseStructuredStudioMessage(text);
 
     expect(parsed.cleanText).toBe("已生成修改建议，请展开右侧编辑区查看。");
+    expect(parsed.diff?.ops).toHaveLength(1);
+    expect(parsed.diff?.change_note).toBe("补齐描述");
   });
 
   it("suppresses passive structured-only messages", () => {
