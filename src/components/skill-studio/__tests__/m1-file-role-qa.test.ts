@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { GovernanceCardData, StagedEdit } from "../types";
 import { buildWorkbenchCards, doesWorkbenchCardTargetSavedFile, resolveNextPendingWorkbenchCardId, type GovernanceWorkbenchIntent } from "../workbench";
+import type { SkillMemo } from "@/lib/types";
 
 const hiddenGovernanceIntent: GovernanceWorkbenchIntent = {
   visible: false,
@@ -185,5 +186,66 @@ describe("M1 QA · file role workbench wiring", () => {
       mode: "file",
       target: { type: "source_file", key: "docs/checklist.md" },
     } as never, "SKILL.md")).toBe(false);
+  });
+
+  it("routes metadata description fix tasks through the prompt editor save target", () => {
+    const cards = buildWorkbenchCards({
+      governanceCards: [],
+      stagedEdits: [],
+      selectedFile: null,
+      selectedSkill: null,
+      workflowState: null,
+      memo: {
+        lifecycle_stage: "fixing",
+        latest_test: { status: "failed", summary: "description 过于笼统" },
+        current_task: {
+          id: "task-description",
+          title: "优化 Skill 描述",
+          type: "fix_prompt_logic",
+          status: "in_progress",
+          priority: "medium",
+          description: "Skill description 需要更具体",
+          target_files: [],
+          acceptance_rule: { mode: "all_target_files_saved_nonempty" },
+          depends_on: [],
+          target_kind: "skill_metadata",
+          target_ref: "description",
+        },
+        memo: { tasks: [] },
+      } as unknown as SkillMemo,
+      governanceIntent: hiddenGovernanceIntent,
+      activeSandboxReport: null,
+      prompt: "",
+      hasPendingDraft: false,
+      hasPendingSummary: false,
+      hasPendingToolSuggestion: false,
+      hasPendingFileSplit: false,
+    });
+
+    const card = cards.find((item) => item.id === "fixing:current:task-description");
+    expect(card?.target).toEqual({ type: "prompt", key: "SKILL.md" });
+    expect(card ? doesWorkbenchCardTargetSavedFile(card, "SKILL.md") : false).toBe(true);
+  });
+
+  it("routes metadata staged edit cards through the prompt editor save target", () => {
+    const cards = buildCards({
+      stagedEdits: [
+        {
+          id: "edit-description",
+          source: "session",
+          fileType: "metadata",
+          filename: "metadata",
+          diff: [],
+          status: "pending",
+        },
+      ],
+    });
+
+    const card = cards.find((item) => item.id === "staged-edit:edit-description");
+    expect(card).toMatchObject({
+      title: "Skill 元数据待确认修改",
+      target: { type: "prompt", key: "SKILL.md" },
+    });
+    expect(card ? doesWorkbenchCardTargetSavedFile(card, "SKILL.md") : false).toBe(true);
   });
 });

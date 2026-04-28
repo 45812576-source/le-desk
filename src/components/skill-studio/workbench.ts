@@ -89,6 +89,44 @@ function inferTargetFile(card: GovernanceCardData, stagedEdits: StagedEdit[]): s
   return null;
 }
 
+function isMetadataDescriptionTarget(targetKind: unknown, targetRef: unknown): boolean {
+  const normalizedKind = typeof targetKind === "string" ? targetKind.trim().toLowerCase() : "";
+  const normalizedRef = typeof targetRef === "string" ? targetRef.trim().toLowerCase() : "";
+  if (normalizedKind !== "skill_metadata" && normalizedKind !== "metadata") return false;
+  return normalizedRef === ""
+    || normalizedRef === "description"
+    || normalizedRef === "metadata.description"
+    || normalizedRef === "skill_metadata.description"
+    || normalizedRef.includes("description");
+}
+
+function isMetadataDescriptionCard(card: GovernanceCardData): boolean {
+  const content = card.content || {};
+  const actionPayload = typeof content.action_payload === "object" && content.action_payload
+    ? content.action_payload as Record<string, unknown>
+    : {};
+  return isMetadataDescriptionTarget(
+    content.target_kind ?? actionPayload.target_kind,
+    content.target_ref ?? actionPayload.target_ref,
+  );
+}
+
+function buildMemoTaskTarget(task: SkillMemoTask): WorkbenchTarget {
+  const targetKind = typeof task.target_kind === "string" ? task.target_kind.trim().toLowerCase() : "";
+  if (
+    targetKind === "skill_prompt"
+    || isMetadataDescriptionTarget(task.target_kind, task.target_ref)
+  ) {
+    return { type: "prompt", key: "SKILL.md" };
+  }
+  const targetFiles = Array.isArray(task.target_files) ? task.target_files : [];
+  const targetFile = targetFiles[0] || (targetKind === "source_file" ? task.target_ref || null : null);
+  return {
+    type: "source_file",
+    key: targetFile,
+  };
+}
+
 function asNumber(value: unknown): number | null {
   if (typeof value === "number" && Number.isFinite(value)) return value;
   if (typeof value === "string" && value.trim() && Number.isFinite(Number(value))) return Number(value);
@@ -361,6 +399,15 @@ function inferCardMode(card: GovernanceCardData, input: {
   const targetFile = inferTargetFile(card, input.stagedEdits);
   const hasStagedEdit = card.type === "staged_edit" || typeof card.content?.staged_edit_id === "string";
 
+  if (isMetadataDescriptionCard(card)) {
+    return {
+      mode: "file",
+      kind: "governance",
+      target: { type: "prompt", key: "SKILL.md" },
+      priority: hasStagedEdit ? 80 : 75,
+    };
+  }
+
   if (
     combined.includes("sandbox")
     || combined.includes("preflight")
@@ -496,10 +543,11 @@ function buildCardFromStagedEdit(edit: StagedEdit): WorkbenchCard {
   const routeKind = asStudioRouteKind(raw.route_kind) ?? inferRouteKindFromPolicy(handoffPolicy);
   const destination = asStudioRouteDestination(raw.destination) ?? inferDestinationFromPolicy(handoffPolicy);
   const returnTo = asStudioReturnTarget(raw.return_to) ?? (routeKind === "external" ? "bind_back" : null);
+  const isMetadataEdit = edit.fileType === "metadata";
   return {
     id: `staged-edit:${edit.id}`,
     contractId: "confirm.staged_edit_review",
-    title: edit.filename === "SKILL.md" ? "主 Prompt 待确认修改" : `${edit.filename} 待确认修改`,
+    title: isMetadataEdit ? "Skill 元数据待确认修改" : edit.filename === "SKILL.md" ? "主 Prompt 待确认修改" : `${edit.filename} 待确认修改`,
     summary: edit.changeNote || "查看本轮变更并决定是否采纳",
     status: edit.status === "pending" ? "pending" : edit.status,
     kind: "governance",
@@ -508,8 +556,8 @@ function buildCardFromStagedEdit(edit: StagedEdit): WorkbenchCard {
     source: edit.source || "workflow",
     priority: edit.status === "pending" ? 85 : 20,
     target: {
-      type: edit.filename === "SKILL.md" ? "prompt" : "source_file",
-      key: edit.filename,
+      type: isMetadataEdit || edit.filename === "SKILL.md" ? "prompt" : "source_file",
+      key: isMetadataEdit ? "SKILL.md" : edit.filename,
     },
     stagedEditId: edit.id,
     sourceCardId: edit.sourceCardId ?? null,
@@ -1129,10 +1177,7 @@ function buildCurrentTaskCard(memo: SkillMemo | null): WorkbenchCard | null {
     phase: "fixing",
     source: "memo",
     priority: 94,
-    target: {
-      type: memo.current_task.target_kind === "skill_prompt" ? "prompt" : "source_file",
-      key: memo.current_task.target_files[0] || null,
-    },
+    target: buildMemoTaskTarget(memo.current_task),
     fixTask: memo.current_task,
   };
 }
@@ -1159,10 +1204,7 @@ function buildFixTaskCards(memo: SkillMemo | null): WorkbenchCard[] {
       phase: "fixing",
       source: "memo",
       priority: isRetest ? 90 : (priorityMap[task.priority] ?? 91),
-      target: {
-        type: task.target_kind === "skill_prompt" ? "prompt" : "source_file",
-        key: task.target_files[0] || null,
-      },
+      target: isRetest ? { type: "report", key: null } : buildMemoTaskTarget(task),
       fixTask: task,
       groupLabel: isRetest ? "重测" : `P${task.priority === "high" ? "0" : task.priority === "medium" ? "1" : "2"}`,
     });
