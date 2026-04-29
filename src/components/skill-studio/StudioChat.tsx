@@ -34,7 +34,9 @@ import { resolveStudioMetaReply, resolveWorkflowNextActionMessage, type StudioMe
 import { buildContextualSystemQuickActions } from "./quick-actions";
 import {
   buildFixTaskStudioCommand,
+  coerceRequiredStructuredResponseText,
   commandTelemetryPayload,
+  selectStudioDiffForCommand,
   shouldRunNaturalLanguageResolvers,
   type StudioCommand,
   type StudioSendOptions,
@@ -1814,8 +1816,14 @@ export const StudioChat = forwardRef<StudioChatHandle, StudioChatProps>(function
           key: activeCardTarget,
         }
       : undefined;
-    const syncStructuredMessage = (rawText: string) => {
-      const parsed = parseStructuredStudioMessage(rawText);
+    const syncStructuredMessage = (rawText: string, options?: { final?: boolean }) => {
+      const structuredText = coerceRequiredStructuredResponseText({
+        text: rawText,
+        command,
+        currentPrompt,
+        final: options?.final === true,
+      });
+      const parsed = parseStructuredStudioMessage(structuredText);
       setStudioMeta(parsed.studioMeta);
       mergeArchitectArtifacts(parsed.architectArtifacts);
       if (parsed.summary) {
@@ -1955,8 +1963,12 @@ export const StudioChat = forwardRef<StudioChatHandle, StudioChatProps>(function
                 const d = data as StudioDraft; setPendingDraft(d); onPendingDraftChange?.(d);
                 onExpandEditor?.();
               } else if (curEvt === "studio_diff") {
-                const diff = data as StudioDiff;
-                if (diff.ops && diff.ops.length > 0) {
+                const diff = selectStudioDiffForCommand({
+                  command,
+                  diff: data as StudioDiff,
+                  currentPrompt,
+                });
+                if (diff?.ops && diff.ops.length > 0) {
                   const newPrompt = applyOps(currentPrompt, diff.ops);
                   const d = { system_prompt: newPrompt, change_note: diff.change_note || "AI 局部修改" };
                   setPendingDraft(d); onPendingDraftChange?.(d);
@@ -1973,7 +1985,7 @@ export const StudioChat = forwardRef<StudioChatHandle, StudioChatProps>(function
                   };
                   addStagedEdit(stagedEdit);
                   onOpenStagedEditTarget?.(stagedEdit);
-                } else if (diff.system_prompt?.new) {
+                } else if (diff?.system_prompt?.new) {
                   const d = { system_prompt: diff.system_prompt.new, change_note: "AI 建议修改" };
                   setPendingDraft(d); onPendingDraftChange?.(d);
                 }
@@ -2066,7 +2078,7 @@ export const StudioChat = forwardRef<StudioChatHandle, StudioChatProps>(function
                 setActiveRunId(null);
               } else if (curEvt === "done") {
                 setMessages((prev) => prev.map((m, i) =>
-                  i === msgIdx ? { ...m, text: syncStructuredMessage(accText), loading: false, cardId: activeCardId } : m
+                  i === msgIdx ? { ...m, text: syncStructuredMessage(accText, { final: true }), loading: false, cardId: activeCardId } : m
                 ));
                 setStreamStage(null);
                 setActiveRunId(null);
@@ -2082,11 +2094,11 @@ export const StudioChat = forwardRef<StudioChatHandle, StudioChatProps>(function
           }
         }
       }
-      setMessages((prev) => prev.map((m, i) => i === msgIdx ? { ...m, text: syncStructuredMessage(accText), loading: false, cardId: activeCardId } : m));
+      setMessages((prev) => prev.map((m, i) => i === msgIdx ? { ...m, text: syncStructuredMessage(accText, { final: true }), loading: false, cardId: activeCardId } : m));
     } catch (err) {
       if ((err as Error).name !== "AbortError") {
         if (accText) {
-          const cleanText = syncStructuredMessage(accText);
+          const cleanText = syncStructuredMessage(accText, { final: true });
           setMessages((prev) => prev.map((m, i) =>
             i === msgIdx ? { ...m, text: cleanText + "\n\n[连接中断，以上为已接收内容]", loading: false, cardId: activeCardId } : m
           ));
@@ -2096,7 +2108,7 @@ export const StudioChat = forwardRef<StudioChatHandle, StudioChatProps>(function
           ));
         }
       } else if (accText) {
-        const cleanText = syncStructuredMessage(accText);
+        const cleanText = syncStructuredMessage(accText, { final: true });
         setMessages((prev) => prev.map((m, i) =>
           i === msgIdx ? { ...m, text: cleanText, loading: false, cardId: activeCardId } : m
         ));

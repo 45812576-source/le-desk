@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyOps, getMetadataFieldPreview, normalizeStagedEditPayload, resolveStagedEditEditorTarget } from "../utils";
+import { applyDiffOpsForPreview, applyOps, getMetadataFieldPreview, normalizeStagedEditPayload, resolveStagedEditEditorTarget } from "../utils";
 
 describe("normalizeStagedEditPayload", () => {
   it("keeps append ops and falls back to SKILL.md for prompt edits", () => {
@@ -40,6 +40,17 @@ describe("applyOps", () => {
     ]);
 
     expect(next).toContain("## 描述\n用于检索和审核展示");
+  });
+});
+
+describe("applyDiffOpsForPreview", () => {
+  it("does not degrade missing insert anchors into an implicit append", () => {
+    const current = "## 角色\n你是助手";
+    const next = applyDiffOpsForPreview(current, [
+      { type: "insert_after", anchor: "## 不存在", content: "\n## 输入槽位定义\n..." },
+    ]);
+
+    expect(next).toBe(current);
   });
 });
 

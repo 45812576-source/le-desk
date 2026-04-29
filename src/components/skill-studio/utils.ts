@@ -251,15 +251,13 @@ export function applyDiffOpsForPreview(text: string, ops: DiffOp[]) {
       if (anchor && next.includes(anchor)) {
         const idx = next.indexOf(anchor) + anchor.length;
         next = next.slice(0, idx) + insert + next.slice(idx);
-      } else {
-        next += `\n${insert}`;
       }
     } else if (op.type === "insert_before") {
       const anchor = op.anchor || op.old || "";
       const insert = op.content || op.new || "";
-      next = anchor && next.includes(anchor)
-        ? next.replace(anchor, `${insert}${anchor}`)
-        : `${insert}\n${next}`;
+      if (anchor && next.includes(anchor)) {
+        next = next.replace(anchor, `${insert}${anchor}`);
+      }
     }
   }
   return next;

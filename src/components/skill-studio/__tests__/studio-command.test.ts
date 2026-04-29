@@ -3,7 +3,9 @@ import type { SkillMemoTask } from "@/lib/types";
 
 import {
   buildFixTaskStudioCommand,
+  coerceRequiredStructuredResponseText,
   commandTelemetryPayload,
+  selectStudioDiffForCommand,
   shouldRunNaturalLanguageResolvers,
 } from "../studio-command";
 
@@ -37,6 +39,7 @@ describe("studio command protocol", () => {
       forbiddenRoutes: ["binding_action", "test_flow"],
     });
     expect(command.content).toContain("这是 input_slot_definition 修复任务");
+    expect(command.fallbackDiff?.ops?.[0]?.type).toBe("append");
   });
 
   it("keeps metadata description fixes on governance action output", () => {
@@ -84,5 +87,39 @@ describe("studio command protocol", () => {
       required_output: "studio_diff",
       forbidden_routes: ["binding_action", "test_flow"],
     });
+  });
+
+  it("coerces natural-language fix-task replies into the local fallback studio_diff", () => {
+    const command = buildFixTaskStudioCommand(makeTask());
+    const coerced = coerceRequiredStructuredResponseText({
+      text: "我来分析这个问题，确认后可以提供完整段落。",
+      command,
+      currentPrompt: "## 角色\n你是助手\n\n## 输出\n保持可行动。",
+      final: true,
+    });
+
+    expect(coerced.trim().startsWith("```studio_diff")).toBe(true);
+    expect(coerced).toContain("## 输入槽位定义");
+    expect(coerced).not.toContain("我来分析这个问题");
+  });
+
+  it("replaces unsafe whole-prompt input-slot diffs with the fallback append diff", () => {
+    const command = buildFixTaskStudioCommand(makeTask());
+    const currentPrompt = `${"现有说明\n".repeat(40)}## 输出要求\n保持完整。`;
+    const selected = selectStudioDiffForCommand({
+      command,
+      currentPrompt,
+      diff: {
+        ops: [{
+          type: "replace",
+          old: currentPrompt,
+          new: "## 输入槽位定义\n只有很短的一段",
+        }],
+        change_note: "错误整文件替换",
+      },
+    });
+
+    expect(selected?.change_note).toBe("补齐输入槽位定义和最小可执行分析输出");
+    expect(selected?.ops?.[0]?.type).toBe("append");
   });
 });

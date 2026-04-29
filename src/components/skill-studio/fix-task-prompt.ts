@@ -1,4 +1,5 @@
 import type { SkillMemoTask } from "@/lib/types";
+import type { StudioDiff } from "./types";
 
 type FixTaskWithSuggestedChanges = SkillMemoTask & {
   suggested_changes?: string | null;
@@ -76,7 +77,7 @@ export function isMetadataDescriptionFixTask(task: FixTaskWithSuggestedChanges):
   return targetKind === "skill_metadata" && /description|描述/.test(combined);
 }
 
-function isInputSlotDefinitionFixTask(task: FixTaskWithSuggestedChanges): boolean {
+export function isInputSlotDefinitionFixTask(task: FixTaskWithSuggestedChanges): boolean {
   const targetKind = (task.target_kind || "").toLowerCase();
   const targetRef = `${task.target_ref || ""} ${(task.target_files || []).join(" ")}`.toLowerCase();
   const combined = `${targetRef}\n${task.title || ""}\n${task.description || ""}\n${task.acceptance_rule_text || ""}\n${task.suggested_changes || ""}`.toLowerCase();
@@ -118,28 +119,45 @@ export function buildDefaultFixTaskPrompt(task: SkillMemoTask): string {
   ].filter((line): line is string => line !== null).join("\n");
 }
 
-export function buildInputSlotDefinitionFixPrompt(task: FixTaskWithSuggestedChanges): string {
-  const targetFiles = task.target_files?.length ? task.target_files.join("、") : (task.target_ref || "当前文件");
-  const payload = {
+export function buildInputSlotDefinitionStudioDiff(): StudioDiff {
+  return {
     ops: [
       {
         type: "append",
         content: [
           "",
           "## 输入槽位定义",
-          "- `analysis_request`：用户要执行的分析任务；required=true；structured=false；allowed_sources=[\"chat_text\"]；chosen_source=\"chat_text\"；evidence_status=\"verified\"；chat_example=\"请分析……\"。",
-          "- `analysis_materials`：分析所需资料；required=true；structured=true；allowed_sources=[\"knowledge\", \"data_table\", \"chat_text\"]；当选择 knowledge 时填写 knowledge_entry_id/evidence_ref，当选择 data_table 时填写 table_name/field_name，当无法绑定外部源时用 chat_text 提供最小样例。",
-          "- `output_acceptance`：验收口径；required=true；structured=true；allowed_sources=[\"chat_text\", \"system_runtime\"]；至少包含输出格式、必填字段、通过标准。",
+          "| slot_key | label | structured | required | allowed_sources | chosen_source | evidence_status | evidence_ref | chat_example | knowledge_entry_id | table_name | field_name |",
+          "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+          "| `analysis_request` | 分析请求 | false | true | [`chat_text`] | `chat_text` | `verified` | `chat.message.current_user_request` | `请分析这段业务流程的风险点和下一步动作。` | `not_applicable` | `not_applicable` | `not_applicable` |",
+          "| `analysis_materials` | 分析资料 | true | true | [`knowledge`, `data_table`, `chat_text`] | `chat_text` | `pending_external_source` | `chat.message.current_user_materials_or_empty` | `业务背景：...；样本数据：...；约束：...` | `pending: 选择 knowledge 时填写知识库条目 ID` | `pending: 选择 data_table 时填写表名` | `pending: 选择 data_table 时填写字段名` |",
+          "| `output_acceptance` | 验收口径 | true | true | [`chat_text`, `system_runtime`] | `chat_text` | `verified` | `chat.message.acceptance_rule` | `输出必须包含分析框架、来源缺口、用户下一步、保存后复测方式。` | `not_applicable` | `not_applicable` | `not_applicable` |",
+          "",
+          "### 来源覆盖规则",
+          "- 如果 `chosen_source=knowledge`，必须填写 `knowledge_entry_id`，并把 `evidence_ref` 写成可追溯的知识库条目引用。",
+          "- 如果 `chosen_source=data_table`，必须填写 `table_name` 和 `field_name`，并在 `evidence_ref` 中说明表字段来源。",
+          "- 如果 `chosen_source=chat_text`，必须填写 `chat_example`，说明用户可直接粘贴的最小输入样例。",
+          "- 如果 `chosen_source=system_runtime`，必须填写 `evidence_ref`，说明运行时字段、报告 ID、任务 ID 或当前卡片 ID。",
           "",
           "### 无法立即深度分析时的最小可执行输出",
           "1. 先交付 3 步分析框架：问题拆解、资料核验、输出模板。",
-          "2. 列出需要绑定或补充的知识库/数据表字段清单，并标明每项缺失时的 chat_text 替代输入。",
+          "2. 列出待绑定或待补充来源清单：知识库条目、数据表名、字段名、chat_text 替代样例。",
           "3. 给出用户下一步可直接执行的操作：补充哪段材料、选择哪个来源、保存后如何复测。",
+          "",
+          "### 保存后复测方式",
+          "- 保存版本后重新运行质量检测。",
+          "- 针对 `[actionability]` 和 `input_slot_definition` 问题执行局部复测。",
+          "- 通过标准：回复中出现可立即使用的分析框架、来源缺口清单、用户下一步动作，且所有必填槽位字段均有值。",
         ].join("\n"),
       },
     ],
     change_note: "补齐输入槽位定义和最小可执行分析输出",
   };
+}
+
+export function buildInputSlotDefinitionFixPrompt(task: FixTaskWithSuggestedChanges): string {
+  const targetFiles = task.target_files?.length ? task.target_files.join("、") : (task.target_ref || "当前文件");
+  const payload = buildInputSlotDefinitionStudioDiff();
 
   return [
     "请帮我修复以下测试问题。",
@@ -154,11 +172,11 @@ export function buildInputSlotDefinitionFixPrompt(task: FixTaskWithSuggestedChan
     "这是 input_slot_definition 修复任务，不是知识库、数据表或工具绑定任务。",
     "",
     "必须立即交付：",
-    "1. 只输出可采纳的 studio_diff 结构化块；不要输出 studio_governance_action、studio_tool_suggestion 或任何绑定动作。",
+    "1. 只输出一个可采纳的 studio_diff 结构化块；第一行必须是 ```studio_diff；不要输出解释、复述或修复方向确认；不要输出 studio_governance_action、studio_tool_suggestion 或任何绑定动作。",
     "2. 在当前文件中补齐输入槽位定义；每个必填槽位都要覆盖 slot_key、label、structured、required、allowed_sources、chosen_source、evidence_status、evidence_ref、chat_example、knowledge_entry_id、table_name、field_name。",
     "3. 来源覆盖所有必填字段：knowledge 来源必须说明 knowledge_entry_id/evidence_ref；data_table 来源必须说明 table_name/field_name；chat_text 来源必须提供 chat_example；system_runtime 来源必须说明 evidence_ref。",
     "4. 当无法立即执行深度分析时，也要在本次回复交付最小可执行分析框架、待绑定/待补充来源清单、用户下一步操作和保存后复测方式。",
-    "5. studio_diff 必须包含 ops 数组和 change_note；ops 使用 replace/insert_after/insert_before/append/delete 之一，并尽量使用当前文件中的原文作为 old 或 anchor。找不到稳定 anchor 时使用 append。",
+    "5. studio_diff 必须包含 ops 数组和 change_note；ops 使用 replace/insert_after/insert_before/append/delete 之一，并尽量使用当前文件中的原文作为 old 或 anchor。找不到稳定 anchor 时使用 append；不要用 system_prompt.new 替换整份文件。",
     "",
     "studio_diff 最小可执行示例：",
     "```studio_diff",

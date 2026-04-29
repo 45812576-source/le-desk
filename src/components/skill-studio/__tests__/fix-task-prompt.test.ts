@@ -4,8 +4,10 @@ import {
   buildDefaultFixTaskPrompt,
   buildFixTaskPrompt,
   buildInputSlotDefinitionFixPrompt,
+  buildInputSlotDefinitionStudioDiff,
   buildMetadataDescriptionFixPrompt,
   extractSuggestedDescription,
+  isInputSlotDefinitionFixTask,
   isMetadataDescriptionFixTask,
   isStudioFixTaskPrompt,
 } from "../fix-task-prompt";
@@ -92,9 +94,40 @@ describe("fix task prompt helpers", () => {
 
     expect(prompt).toContain("这是 input_slot_definition 修复任务");
     expect(prompt).toContain("不要输出 studio_governance_action");
+    expect(prompt).toContain("第一行必须是 ```studio_diff");
+    expect(prompt).toContain("不要用 system_prompt.new 替换整份文件");
     expect(prompt).toContain("knowledge_entry_id/evidence_ref");
     expect(prompt).toContain("table_name/field_name");
+    expect(prompt).toContain("slot_key");
+    expect(prompt).toContain("evidence_status");
     expect(prompt).toContain("```studio_diff");
     expect(buildFixTaskPrompt(task)).toBe(prompt);
+    expect(isInputSlotDefinitionFixTask(task)).toBe(true);
+  });
+
+  it("provides a complete fallback studio_diff for input slot fixes", () => {
+    const diff = buildInputSlotDefinitionStudioDiff();
+    const content = diff.ops?.[0]?.content || "";
+
+    expect(diff.change_note).toBe("补齐输入槽位定义和最小可执行分析输出");
+    expect(diff.ops?.[0]?.type).toBe("append");
+    for (const field of [
+      "slot_key",
+      "label",
+      "structured",
+      "required",
+      "allowed_sources",
+      "chosen_source",
+      "evidence_status",
+      "evidence_ref",
+      "chat_example",
+      "knowledge_entry_id",
+      "table_name",
+      "field_name",
+    ]) {
+      expect(content).toContain(field);
+    }
+    expect(content).toContain("保存后复测方式");
+    expect(content).toContain("待绑定或待补充来源清单");
   });
 });
