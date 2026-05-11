@@ -1,7 +1,7 @@
 import type { SkillDetail, SkillMemo, SkillMemoTask, SandboxReport } from "@/lib/types";
 import type { GovernanceCardData, SelectedFile, StagedEdit } from "./types";
 import type { WorkflowStateData } from "./workflow-protocol";
-import { resolveFocusedWorkbenchCardId, type CardQueueWindow, type ExternalBuildStatus, type StudioFileRole, type StudioHandoffPolicy, type StudioReturnTarget, type StudioRouteDestination, type StudioRouteKind, type WorkbenchCard, type WorkbenchCardKind, type WorkbenchMode, type WorkbenchTarget, type WorkbenchValidationSource } from "./workbench-types";
+import { isActionableWorkbenchCard, resolveFocusedWorkbenchCardId, type CardQueueWindow, type ExternalBuildStatus, type StudioFileRole, type StudioHandoffPolicy, type StudioReturnTarget, type StudioRouteDestination, type StudioRouteKind, type WorkbenchCard, type WorkbenchCardKind, type WorkbenchMode, type WorkbenchTarget, type WorkbenchValidationSource } from "./workbench-types";
 
 export type { CardQueueWindow, ExternalBuildStatus, StudioFileRole, StudioHandoffPolicy, StudioReturnTarget, StudioRouteDestination, StudioRouteKind, WorkbenchCard, WorkbenchCardKind, WorkbenchMode, WorkbenchTarget, WorkbenchValidationSource } from "./workbench-types";
 export { isInternalRoute, isExternalHandoff } from "./workbench-types";
@@ -1429,7 +1429,10 @@ export function resolvePreferredWorkbenchCardId(
       || card.sourceCardId === explicitActiveId
       || card.stagedEditId === explicitActiveId
     );
-    if (explicitMatch) return resolveFocusedWorkbenchCardId(cards, explicitMatch.id);
+    // 仅当显式指定的卡片仍可操作时才优先选择，避免已完成的卡片被 workflowState 重新激活
+    if (explicitMatch && isActionableWorkbenchCard(explicitMatch)) {
+      return resolveFocusedWorkbenchCardId(cards, explicitMatch.id);
+    }
   }
   return deriveActiveWorkbenchCardId(cards, fallbackActiveId);
 }

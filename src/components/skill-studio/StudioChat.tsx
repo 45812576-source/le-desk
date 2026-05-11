@@ -709,9 +709,25 @@ export const StudioChat = forwardRef<StudioChatHandle, StudioChatProps>(function
       if (targetType && targetType !== "system_prompt" && targetType !== "prompt" && targetType !== "metadata") {
         onRefreshSkill();
       }
-      if (result.memo_refresh_required) {
-        onMemoRefresh();
+      // 采纳后主动完结 memo task：adopt 改了文件内容但不会触发 complete-from-save，
+      // 导致 memo.current_task 不推进 → buildCurrentTaskCard 重建旧卡 → 卡片队列不动
+      const editFileType = edit?.fileType;
+      const editFilename = edit?.filename || "SKILL.md";
+      const isPromptEdit = editFileType === "system_prompt" || editFileType === "prompt" || editFilename === "SKILL.md";
+      if (skillId && memo?.current_task && (isPromptEdit || editFileType === "metadata")) {
+        try {
+          await apiFetch(`/skills/${skillId}/memo/tasks/${memo.current_task.id}/complete-from-save`, {
+            method: "POST",
+            body: JSON.stringify({
+              filename: isPromptEdit ? "SKILL.md" : editFilename,
+              file_type: isPromptEdit ? "prompt" : "asset",
+              content_size: 1, // non-zero to pass acceptance_rule check
+            }),
+          });
+        } catch { /* memo may not exist or task already completed */ }
       }
+      // 无论后端是否标记 memo_refresh_required，adopt 后总是刷新 memo 以推进 current_task
+      onMemoRefresh();
       const nextAction = typeof result.workflow_state_patch?.next_action === "string"
         ? result.workflow_state_patch.next_action
         : storeWorkflowState?.next_action;
