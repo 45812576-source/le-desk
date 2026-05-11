@@ -714,13 +714,13 @@ export const StudioChat = forwardRef<StudioChatHandle, StudioChatProps>(function
       const editFileType = edit?.fileType;
       const editFilename = edit?.filename || "SKILL.md";
       const isPromptEdit = editFileType === "system_prompt" || editFileType === "prompt" || editFilename === "SKILL.md";
-      if (skillId && memo?.current_task && (isPromptEdit || editFileType === "metadata")) {
+      if (skillId && memo?.current_task) {
         try {
           await apiFetch(`/skills/${skillId}/memo/tasks/${memo.current_task.id}/complete-from-save`, {
             method: "POST",
             body: JSON.stringify({
-              filename: isPromptEdit ? "SKILL.md" : editFilename,
-              file_type: isPromptEdit ? "prompt" : "asset",
+              filename: isPromptEdit ? "SKILL.md" : (editFilename || "SKILL.md"),
+              file_type: isPromptEdit ? "prompt" : (editFileType === "metadata" ? "metadata" : "asset"),
               content_size: 1, // non-zero to pass acceptance_rule check
             }),
           });
