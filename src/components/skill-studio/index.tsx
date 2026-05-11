@@ -1396,6 +1396,8 @@ export function SkillStudio({
                   sandboxVersionMismatch={sandboxVersionMismatch}
                   sandboxVersionMismatchMessage={sandboxVersionMismatchMessage}
                   onOpenTestFlowPanel={handleOpenChatTestFlowPanel}
+                  onAdoptStagedEdit={(editId) => chatActionsRef.current?.adoptStagedEdit(editId)}
+                  onRejectStagedEdit={(editId) => chatActionsRef.current?.rejectStagedEdit(editId)}
                 />
               )}
             </div>

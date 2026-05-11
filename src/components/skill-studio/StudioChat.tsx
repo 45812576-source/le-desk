@@ -108,6 +108,8 @@ export interface StudioChatHandle {
   toolBound: () => void;
   startFixTask: (task: import("@/lib/types").SkillMemoTask) => void;
   targetedRetest: (taskId: string) => void;
+  adoptStagedEdit: (editId: string) => void;
+  rejectStagedEdit: (editId: string) => void;
 }
 
 interface StudioChatProps {
@@ -2241,6 +2243,8 @@ export const StudioChat = forwardRef<StudioChatHandle, StudioChatProps>(function
         }
       }
     },
+    adoptStagedEdit: (editId: string) => { void handleAdoptStagedEdit(editId); },
+    rejectStagedEdit: (editId: string) => { void handleRejectStagedEdit(editId); },
   }));
   const recoveryDraftImpact = deriveStudioRecoveryDraftImpact({
     recoveryInfo: studioRecovery,

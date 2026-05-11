@@ -73,6 +73,8 @@ export function PromptEditor({
   sandboxVersionMismatchMessage,
   onOpenTestFlowPanel,
   adoptedPreviewEdit,
+  onAdoptStagedEdit,
+  onRejectStagedEdit,
 }: {
   skill: SkillDetail | null;
   isNew: boolean;
@@ -89,6 +91,8 @@ export function PromptEditor({
   sandboxVersionMismatch?: boolean;
   sandboxVersionMismatchMessage?: string | null;
   adoptedPreviewEdit?: StagedEdit | null;
+  onAdoptStagedEdit?: ((editId: string) => void) | undefined;
+  onRejectStagedEdit?: ((editId: string) => void) | undefined;
   onOpenTestFlowPanel?: (intent: {
     skillId: number;
     mode: "mount_blocked" | "choose_existing_plan" | "generate_cases";
@@ -583,7 +587,22 @@ export function PromptEditor({
           <span className="text-[8px] font-bold uppercase tracking-widest text-[#00CC99]">
             {pendingStagedEditCount} 项待采纳修改
           </span>
-          <span className="text-[7px] text-gray-400 ml-auto">在 Chat 中操作采纳或拒绝</span>
+          {pendingPromptStagedEdit && (onAdoptStagedEdit || onRejectStagedEdit) ? (
+            <span className="ml-auto flex items-center gap-2">
+              {onAdoptStagedEdit && (
+                <button onClick={() => onAdoptStagedEdit(pendingPromptStagedEdit.id)} className="px-2 py-0.5 text-[8px] font-bold uppercase tracking-widest text-white bg-[#00CC99] hover:bg-[#00A37A] border border-[#00CC99]">
+                  采纳
+                </button>
+              )}
+              {onRejectStagedEdit && (
+                <button onClick={() => onRejectStagedEdit(pendingPromptStagedEdit.id)} className="px-2 py-0.5 text-[8px] font-bold uppercase tracking-widest text-red-600 bg-white hover:bg-red-50 border border-red-300">
+                  拒绝
+                </button>
+              )}
+            </span>
+          ) : (
+            <span className="text-[7px] text-gray-400 ml-auto">查看下方 diff 后操作</span>
+          )}
         </div>
       )}
 
@@ -675,9 +694,25 @@ export function PromptEditor({
           </div>
         )}
         {stagedPreviewPrompt !== null && stagedPreviewPrompt.oldText !== stagedPreviewPrompt.newText && (
-          <div className="px-2 py-1 bg-[#F0FFF9] border border-[#00CC99]/40 text-[8px] font-mono text-[#007A5E] mb-1 flex-shrink-0">
-            {activePromptPreviewEdit?.status === "adopted" ? "已采纳治理修改" : "待确认治理修改"}：
-            {activePromptPreviewEdit?.changeNote || (activePromptPreviewEdit?.status === "adopted" ? "查看本次采纳后的 SKILL.md diff" : "查看下方 diff 后在治理卡片中采纳或拒绝")}
+          <div className="px-2 py-1 bg-[#F0FFF9] border border-[#00CC99]/40 text-[8px] font-mono text-[#007A5E] mb-1 flex-shrink-0 flex items-center gap-2">
+            <span className="flex-1">
+              {activePromptPreviewEdit?.status === "adopted" ? "已采纳治理修改" : "待确认治理修改"}：
+              {activePromptPreviewEdit?.changeNote || (activePromptPreviewEdit?.status === "adopted" ? "查看本次采纳后的 SKILL.md diff" : "查看下方 diff")}
+            </span>
+            {activePromptPreviewEdit?.status !== "adopted" && pendingPromptStagedEdit && (onAdoptStagedEdit || onRejectStagedEdit) && (
+              <span className="flex items-center gap-1.5 flex-shrink-0">
+                {onAdoptStagedEdit && (
+                  <button onClick={() => onAdoptStagedEdit(pendingPromptStagedEdit.id)} className="px-2 py-0.5 text-[8px] font-bold uppercase tracking-widest text-white bg-[#00CC99] hover:bg-[#00A37A] border border-[#00CC99]">
+                    采纳
+                  </button>
+                )}
+                {onRejectStagedEdit && (
+                  <button onClick={() => onRejectStagedEdit(pendingPromptStagedEdit.id)} className="px-2 py-0.5 text-[8px] font-bold uppercase tracking-widest text-red-600 bg-white hover:bg-red-50 border border-red-300">
+                    拒绝
+                  </button>
+                )}
+              </span>
+            )}
           </div>
         )}
         {activePromptPreviewEdit && stagedPreviewPrompt === null && (
