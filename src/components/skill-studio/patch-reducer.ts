@@ -213,9 +213,8 @@ function handleStalePatch(payload: Record<string, unknown>, ctx: PatchContext) {
     }
     return;
   }
-  // 后端发 stale_run_id 而非 card_ids — 标记该 run 产出的 pending/active 卡片为 stale
-  const staleRunId = typeof payload.stale_run_id === "string" ? payload.stale_run_id : null;
-  if (staleRunId) {
+  // 后端发 stale_run_id 而非 card_ids — WorkbenchCard 无 runId 字段，保守标记所有 pending/active 卡片
+  if (typeof payload.stale_run_id === "string") {
     const { cardsById } = ctx.store;
     for (const card of Object.values(cardsById)) {
       if (card.status === "pending" || card.status === "active") {

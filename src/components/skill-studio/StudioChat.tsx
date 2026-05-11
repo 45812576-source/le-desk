@@ -1809,20 +1809,6 @@ export const StudioChat = forwardRef<StudioChatHandle, StudioChatProps>(function
     const token = getToken();
     let accText = "";
     structuredDiffOpenedIdsRef.current.clear();
-    const activeCardTargetPayload = activeCardTarget
-      ? {
-          type: activeCardTarget === "SKILL.md"
-            ? "prompt"
-            : activeCardMode === "file"
-              ? "source_file"
-              : activeCardMode === "report"
-                ? "report"
-                : activeCardMode === "governance"
-                  ? "governance_panel"
-                  : "analysis",
-          key: activeCardTarget,
-        }
-      : undefined;
     const syncStructuredMessage = (rawText: string, options?: { final?: boolean }) => {
       const structuredText = coerceRequiredStructuredResponseText({
         text: rawText,
@@ -1903,7 +1889,7 @@ export const StudioChat = forwardRef<StudioChatHandle, StudioChatProps>(function
           active_card_contract_id: activeCardContractId ?? undefined,
           active_card_title: activeCardTitle ?? undefined,
           active_card_mode: activeCardMode ?? undefined,
-          active_card_target: activeCardTargetPayload,
+          active_card_target: activeCardTarget ?? undefined,
           active_card_source_card_id: activeCardSourceCardId ?? undefined,
           active_card_staged_edit_id: activeCardStagedEditId ?? undefined,
           active_card_validation_source: activeCardValidationSource ?? undefined,
