@@ -113,14 +113,21 @@ function isMetadataDescriptionCard(card: GovernanceCardData): boolean {
 
 function buildMemoTaskTarget(task: SkillMemoTask): WorkbenchTarget {
   const targetKind = typeof task.target_kind === "string" ? task.target_kind.trim().toLowerCase() : "";
+  const targetRef = typeof task.target_ref === "string" ? task.target_ref.trim() : "";
   if (
     targetKind === "skill_prompt"
+    || targetKind === "prompt"
+    || targetRef === "SKILL.md"
     || isMetadataDescriptionTarget(task.target_kind, task.target_ref)
   ) {
     return { type: "prompt", key: "SKILL.md" };
   }
   const targetFiles = Array.isArray(task.target_files) ? task.target_files : [];
-  const targetFile = targetFiles[0] || (targetKind === "source_file" ? task.target_ref || null : null);
+  const targetFile = targetFiles[0] || (targetKind === "source_file" ? targetRef || null : null);
+  // 无法确定具体 source_file 时 fallback 到 prompt（大部分修复任务针对 SKILL.md）
+  if (!targetFile && targetKind !== "source_file") {
+    return { type: "prompt", key: "SKILL.md" };
+  }
   return {
     type: "source_file",
     key: targetFile,

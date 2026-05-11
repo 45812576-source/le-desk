@@ -16,7 +16,7 @@ import { AssistSkillsBar } from "./AssistSkillsBar";
 import { resolveWorkflowActionEditorTarget, selectedFileFromEditorTarget } from "./editor-target";
 import { getStudioCardContract } from "./card-contracts";
 import type { StudioCardActionId } from "./card-contracts";
-import { applyOps, estimateMessagesTokens, getMetadataFieldPreview, TOKEN_COMPRESS_THRESHOLD } from "./utils";
+import { applyOps, applyOpsWithReport, estimateMessagesTokens, getMetadataFieldPreview, TOKEN_COMPRESS_THRESHOLD } from "./utils";
 import {
   buildArchitectArtifactsFromPhaseSummary,
   buildArchitectArtifactFromReadyForDraft,
@@ -680,8 +680,15 @@ export const StudioChat = forwardRef<StudioChatHandle, StudioChatProps>(function
         onExpandEditor?.();
       }
       if ((edit?.fileType === "system_prompt" || edit?.fileType === "prompt") && edit.diff && edit.diff.length > 0) {
-        const newPrompt = applyOps(currentPrompt, edit.diff);
+        const { result: newPrompt, skippedOps } = applyOpsWithReport(currentPrompt, edit.diff);
         onApplyDraft({ system_prompt: newPrompt, change_note: edit.changeNote || "采纳编辑" });
+        if (skippedOps.length > 0) {
+          setMessages((prev) => [...prev, {
+            role: "assistant",
+            text: `注意：${skippedOps.length} 项修改因内容已变化未能应用，请手动检查编辑器中的内容。`,
+            loading: false,
+          }]);
+        }
       } else if (edit?.fileType === "metadata") {
         const nextDescription = getMetadataFieldPreview(edit, "description");
         if (nextDescription !== null) {
@@ -1062,7 +1069,7 @@ export const StudioChat = forwardRef<StudioChatHandle, StudioChatProps>(function
           archivedAt: typeof data.superseded_at === "string" ? data.superseded_at : null,
         });
       }
-      cleanupStaleRunArtifacts();
+      // stale 卡片清理由紧随其后的 stale_patch 统一处理，不在此重复
       setRouteInfo((prev) => prev ? { ...prev, deep_status: "superseded" } : prev);
       setStreaming(false);
       setActiveRunId(null);
@@ -2216,8 +2223,8 @@ export const StudioChat = forwardRef<StudioChatHandle, StudioChatProps>(function
     confirmSplit: handleConfirmSplit,
     discardSplit: () => { setPendingFileSplit(null); onPendingFileSplitChange?.(null); },
     toolBound: () => { setPendingToolSuggestion(null); onPendingToolSuggestionChange?.(null); onToolBound(); },
-    startFixTask: (task) => {
-      void handleMemoStartTask(task.id);
+    startFixTask: async (task) => {
+      await handleMemoStartTask(task.id);
       if (task.target_kind === "skill_prompt" || task.target_ref === "SKILL.md") {
         onEditorTarget("prompt", "SKILL.md");
       }
@@ -2451,10 +2458,39 @@ export const StudioChat = forwardRef<StudioChatHandle, StudioChatProps>(function
                   case "validation.open_sandbox":
                     if (skillId) onOpenSandbox(skillId);
                     return;
-                  case "fixing.start_task":
-                  case "fixing.targeted_retest":
-                    inputRef.current?.focus();
+                  case "fixing.start_task": {
+                    const card = activeCardId ? useStudioStore.getState().cardsById[activeCardId] : null;
+                    const task = card?.fixTask ?? memo?.current_task;
+                    if (task) {
+                      void handleMemoStartTask(task.id);
+                      if (task.target_kind === "skill_prompt" || task.target_ref === "SKILL.md") {
+                        onEditorTarget("prompt", "SKILL.md");
+                      }
+                      void sendCommand(buildFixTaskStudioCommand(task));
+                    }
                     return;
+                  }
+                  case "fixing.targeted_retest": {
+                    const card = activeCardId ? useStudioStore.getState().cardsById[activeCardId] : null;
+                    const task = card?.fixTask;
+                    if (task) {
+                      const allTasks = ((memo?.memo as Record<string, unknown>)?.tasks as Array<{
+                        id: string;
+                        problem_refs?: string[];
+                        source_report_id?: number;
+                      }>) || [];
+                      const fullTask = allTasks.find(t => t.id === task.id);
+                      if (fullTask?.problem_refs?.length && fullTask.source_report_id) {
+                        void apiFetch(
+                          `/sandbox/interactive/by-report/${fullTask.source_report_id}/targeted-rerun`,
+                          { method: "POST", body: JSON.stringify({ issue_ids: fullTask.problem_refs }) }
+                        ).then(() => onMemoRefresh());
+                      } else {
+                        void handleMemoDirectTest();
+                      }
+                    }
+                    return;
+                  }
                   case "release.submit_approval":
                     setInput("请帮我提交审批");
                     setTimeout(() => inputRef.current?.focus(), 50);

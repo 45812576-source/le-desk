@@ -55,23 +55,28 @@ export function getFileCategory(file: { filename: string; category?: string }): 
 
 // ─── applyOps: 精准局部编辑 ─────────────────────────────────────────────────────
 
-export function applyOps(text: string, ops: DiffOp[]): string {
-  // 倒序应用 ops，避免前面的 op 改变后面 op 的偏移量
-  const reversed = [...ops].reverse();
+export interface ApplyOpsReport {
+  result: string;
+  skippedOps: DiffOp[];
+}
+
+export function applyOpsWithReport(text: string, ops: DiffOp[]): ApplyOpsReport {
+  // 正序应用 ops — 与后端 _apply_diff_ops 保持一致（均使用文本锚定，非数字偏移量）
+  const skippedOps: DiffOp[] = [];
   let result = text;
-  for (const op of reversed) {
+  for (const op of ops) {
     switch (op.type) {
       case "replace": {
         if (!op.old) break;
         const idx = result.indexOf(op.old);
-        if (idx === -1) break;
+        if (idx === -1) { skippedOps.push(op); break; }
         result = result.slice(0, idx) + (op.new ?? "") + result.slice(idx + op.old.length);
         break;
       }
       case "insert_after": {
         if (!op.anchor || !op.content) break;
         const idx = result.indexOf(op.anchor);
-        if (idx === -1) break;
+        if (idx === -1) { skippedOps.push(op); break; }
         const insertPos = idx + op.anchor.length;
         result = result.slice(0, insertPos) + "\n" + op.content + result.slice(insertPos);
         break;
@@ -79,14 +84,14 @@ export function applyOps(text: string, ops: DiffOp[]): string {
       case "insert_before": {
         if (!op.anchor || !op.content) break;
         const idx = result.indexOf(op.anchor);
-        if (idx === -1) break;
+        if (idx === -1) { skippedOps.push(op); break; }
         result = result.slice(0, idx) + op.content + "\n" + result.slice(idx);
         break;
       }
       case "delete": {
         if (!op.old) break;
         const idx = result.indexOf(op.old);
-        if (idx === -1) break;
+        if (idx === -1) { skippedOps.push(op); break; }
         result = result.slice(0, idx) + result.slice(idx + op.old.length);
         break;
       }
@@ -97,7 +102,11 @@ export function applyOps(text: string, ops: DiffOp[]): string {
       }
     }
   }
-  return result;
+  return { result, skippedOps };
+}
+
+export function applyOps(text: string, ops: DiffOp[]): string {
+  return applyOpsWithReport(text, ops).result;
 }
 
 function normalizeDiffOp(raw: DiffOp | Record<string, unknown>): DiffOp {

@@ -203,11 +203,25 @@ function handleDeepPatch(envelope: StudioPatchEnvelope, ctx: PatchContext) {
 }
 
 function handleStalePatch(payload: Record<string, unknown>, ctx: PatchContext) {
+  // 优先按显式 card_ids 清理
   const cardIds = Array.isArray(payload.card_ids)
     ? payload.card_ids.filter((id): id is string => typeof id === "string")
     : [];
-  for (const id of cardIds) {
-    ctx.store.updateWorkbenchCardStatus(id, "stale");
+  if (cardIds.length > 0) {
+    for (const id of cardIds) {
+      ctx.store.updateWorkbenchCardStatus(id, "stale");
+    }
+    return;
+  }
+  // 后端发 stale_run_id 而非 card_ids — 标记该 run 产出的 pending/active 卡片为 stale
+  const staleRunId = typeof payload.stale_run_id === "string" ? payload.stale_run_id : null;
+  if (staleRunId) {
+    const { cardsById } = ctx.store;
+    for (const card of Object.values(cardsById)) {
+      if (card.status === "pending" || card.status === "active") {
+        ctx.store.updateWorkbenchCardStatus(card.id, "stale");
+      }
+    }
   }
 }
 
@@ -402,15 +416,26 @@ export function normalizeIncomingWorkbenchStatus(status: unknown): WorkbenchCard
   ) {
     return status;
   }
-  if (status === "blocked" || status === "reopened") {
-    return "pending";
-  }
-  if (status === "completed") {
-    return "adopted";
-  }
-  if (status === "archived") {
-    return "dismissed";
-  }
+  // 后端 CardStatus 到前端 WorkbenchCardStatus 的映射
+  const backendStatusMap: Record<string, WorkbenchCard["status"]> = {
+    blocked: "pending",
+    reopened: "pending",
+    detected: "pending",
+    queued: "pending",
+    paused: "pending",
+    drafting: "active",
+    revision_needed: "active",
+    diff_ready: "reviewing",
+    completed: "adopted",
+    accepted: "adopted",
+    applied: "adopted",
+    validated: "adopted",
+    archived: "dismissed",
+    // waiting_external_build 保持 active（外部实现中）
+    waiting_external_build: "active",
+  };
+  const mapped = backendStatusMap[status as string];
+  if (mapped) return mapped;
   return null;
 }
 
@@ -498,9 +523,16 @@ export function applyStudioPatch(
     store.rememberIdempotencyKey(compositeKey);
   }
 
-  // 7. 激活 run（如果尚未激活）
+  // 7. 激活 run（如果尚未激活）— 终态 patch 不激活，避免已结束的 run 被重新设置
   if (!store.activeRunId) {
-    store.setActiveRun(envelope.run_id, envelope.run_version);
+    const isTerminalPatch = envelope.patch_type === "error_patch"
+      || (envelope.patch_type === "run_status_patch"
+          && typeof envelope.payload === "object" && envelope.payload !== null
+          && ["cancelled", "superseded", "failed", "completed"].includes(
+            (envelope.payload as Record<string, unknown>).status as string));
+    if (!isTerminalPatch) {
+      store.setActiveRun(envelope.run_id, envelope.run_version);
+    }
   }
 
   // 8. dispatch by patch_type

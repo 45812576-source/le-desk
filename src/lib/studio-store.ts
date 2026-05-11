@@ -483,7 +483,11 @@ export const useStudioStore = create<StudioSessionState>((set) => ({
         ...s.stagedEditLedger,
         [id]: { status: "adopted" as const, updatedAt: Date.now() },
       };
-      const linkedWorkbenchCardId = Object.values(s.cardsById).find((card) => card.stagedEditId === id)?.id;
+      // 先按 stagedEditId 查找关联卡片；找不到时 fallback 到 staged edit 的 sourceCardId
+      const edit = Object.values(s.stagedEditSources).flat().find((e) => e.id === id);
+      const linkedWorkbenchCardId =
+        Object.values(s.cardsById).find((card) => card.stagedEditId === id)?.id
+        ?? (edit?.sourceCardId && s.cardsById[edit.sourceCardId] ? edit.sourceCardId : undefined);
       const nextCardsById = linkedWorkbenchCardId && s.cardsById[linkedWorkbenchCardId]
         ? {
             ...s.cardsById,

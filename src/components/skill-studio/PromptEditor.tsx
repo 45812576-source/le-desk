@@ -680,6 +680,11 @@ export function PromptEditor({
             {activePromptPreviewEdit?.changeNote || (activePromptPreviewEdit?.status === "adopted" ? "查看本次采纳后的 SKILL.md diff" : "查看下方 diff 后在治理卡片中采纳或拒绝")}
           </div>
         )}
+        {activePromptPreviewEdit && stagedPreviewPrompt === null && (
+          <div className="px-2 py-1 bg-amber-50 border border-amber-300 text-[8px] font-mono text-amber-700 mb-1 flex-shrink-0">
+            修改的锚点文本与当前内容不匹配，无法预览 diff。请在 Chat 中查看修改建议后手动编辑。
+          </div>
+        )}
         {stagedPreviewPrompt !== null && stagedPreviewPrompt.oldText !== stagedPreviewPrompt.newText ? (
           <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
             <DiffViewer oldText={stagedPreviewPrompt.oldText} newText={stagedPreviewPrompt.newText} />

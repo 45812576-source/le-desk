@@ -918,6 +918,10 @@ export function SkillStudio({
     }
     if (draft.name) setExternalName(draft.name);
     if (draft.description !== undefined) setExternalDescription(draft.description);
+    // staged edit adopt 路径后端已创建新版本 — 同步 savedPrompt 避免重复保存
+    if (draft.change_note) {
+      setSavedPrompt(draft.system_prompt);
+    }
   }
 
   function handleNewSession() {
